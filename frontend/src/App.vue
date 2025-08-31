@@ -137,6 +137,26 @@ const handleConfigChange = async (value) => {
               @change="handleConfigChange"
           />
         </el-col>
+        <el-col :span="5">
+          <el-text>num workers:</el-text>
+        </el-col>
+        <el-col :span="7">
+          <el-select
+              v-model="config.workers"
+              @change="handleConfigChange"
+              size="small"
+              @focus="(e) => e.target.blur()"
+          >
+            <el-option
+                v-for="item in setting.workerNums"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+            />
+          </el-select>
+        </el-col>
+      </el-row>
+      <el-row>
         <el-col :span="12">
           <el-checkbox
               v-model="config.enableSubfolder"
@@ -144,6 +164,24 @@ const handleConfigChange = async (value) => {
               size="small"
               @change="handleConfigChange"
           />
+        </el-col>
+        <el-col :span="5">
+          <el-text>icc profile:</el-text>
+        </el-col>
+        <el-col :span="7">
+          <el-select
+              v-model="config.iccProfile"
+              @change="handleConfigChange"
+              size="small"
+              @focus="(e) => e.target.blur()"
+          >
+            <el-option
+                v-for="item in setting.profiles"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+            />
+          </el-select>
         </el-col>
       </el-row>
       <el-row>
@@ -160,44 +198,7 @@ const handleConfigChange = async (value) => {
             label='without adobe dng converter(only libraw)'
             size="small"
         />
-      </el-row><el-row>
-      <el-col :span="5">
-        <el-text>num workers:</el-text>
-      </el-col>
-      <el-col :span="7">
-        <el-select
-            v-model="config.workers"
-            @change="handleConfigChange"
-            size="small"
-            @focus="(e) => e.target.blur()"
-        >
-          <el-option
-              v-for="item in setting.workerNums"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-          />
-        </el-select>
-      </el-col>
-      <el-col :span="5">
-        <el-text>icc profile:</el-text>
-      </el-col>
-      <el-col :span="7">
-        <el-select
-            v-model="config.iccProfile"
-            @change="handleConfigChange"
-            size="small"
-            @focus="(e) => e.target.blur()"
-        >
-          <el-option
-              v-for="item in setting.profiles"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
-          />
-        </el-select>
-      </el-col>
-    </el-row>
+      </el-row>
     </el-footer>
   </el-container>
 </template>

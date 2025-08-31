@@ -195,7 +195,8 @@ const handleConfigChange = async (value) => {
         <el-checkbox
             v-else
             disabled
-            label='without adobe dng converter(only libraw)'
+            checked
+            label='without `Adobe DNG Converter`(only `libraw`)'
             size="small"
         />
       </el-row>

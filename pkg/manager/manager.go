@@ -65,7 +65,7 @@ func New() *Manager {
 		Profiles:                make([]*ProfileOption, 0),
 		EnableAdobeDNGConverter: util.EnableAdobeDNGConverter(),
 	}
-	for i := 2; i <= runtime.NumCPU(); i++ {
+	for i := 1; i <= runtime.NumCPU(); i++ {
 		setting.WorkerNums = append(setting.WorkerNums, &WorkerNumOption{Value: i, Label: fmt.Sprintf("%d", i)})
 	}
 	setting.Profiles = append(setting.Profiles, &ProfileOption{Value: "", Label: "none"})
@@ -155,17 +155,23 @@ func (m *Manager) SetConfig(cfg *Config) *Config {
 	defer m.mu.Unlock()
 	m.config = cfg
 
-	if m.config.Workers < 2 || m.config.Workers > runtime.NumCPU() {
+	if m.config.Workers < 1 || m.config.Workers > runtime.NumCPU() {
 		m.config.Workers = runtime.NumCPU()
 	}
 
-	m.saveConfig()
 	m.checkConfig()
+	m.saveConfig()
 	return m.config
 }
 
 func (m *Manager) checkConfig() {
 	wails_runtime.WindowSetAlwaysOnTop(m.ctx, m.config.EnableWindowTop)
+	if m.config.ICCProfile != "" {
+		_, ok := icc.Profiles[m.config.ICCProfile]
+		if !ok {
+			m.config.ICCProfile = ""
+		}
+	}
 }
 
 func (m *Manager) Convert(paths []string) {

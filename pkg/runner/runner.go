@@ -166,10 +166,8 @@ func (r *Runner) Run(ctx context.Context, src string) error {
 		return err
 	}
 
-	if r.cfg.Profile != "" {
-		if err = r.runInsertICC(ctx, tmpFilepathTIFF, r.cfg.Profile); err != nil {
-			return err
-		}
+	if err = r.runInsertICC(ctx, tmpFilepathTIFF, r.cfg.Profile); err != nil {
+		return err
 	}
 
 	if err = os.Rename(tmpFilepathTIFF, dstFilepathTIFF); err != nil {
@@ -370,16 +368,16 @@ func (r *Runner) runInsertICC(ctx context.Context, src string, name string) erro
 	}
 
 	profile, ok := icc.Profiles[name]
-	if !ok {
-		return nil
+	cmd := exec.CommandContext(ctx, executable, "-overwrite_original", "-ICC_Profile=", src)
+	if ok {
+		cmd = exec.CommandContext(ctx, executable, "-overwrite_original", "-ICC_Profile<=-", src)
+		var b bytes.Buffer
+		b.Write(profile.Data())
+		cmd.Stdin = &b
 	}
-
-	cmd := exec.CommandContext(ctx, executable, "-overwrite_original", "-ICC_Profile=-", src)
 	r.logger.Info("run insert exif: ", executable, cmd.Args)
+	fmt.Println("run insert exif: ", executable, cmd.Args)
 	cmd.SysProcAttr = util.GetSysProcAttr()
-	var b bytes.Buffer
-	b.Write(profile.Data())
-	cmd.Stdin = &b
 	err = cmd.Run()
 	if err != nil {
 		return err

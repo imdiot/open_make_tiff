@@ -145,9 +145,9 @@ func (r *Runner) Run(ctx context.Context, src string) error {
 			}
 		}
 
-		if err = r.runCleanExif(ctx, tmpFilepathInitRaw); err != nil {
-			return err
-		}
+		//if err = r.runCleanExif(ctx, tmpFilepathInitRaw); err != nil {
+		//	return err
+		//}
 
 		if err = r.runDcrawEmuConvert(ctx, tmpFilepathInitRaw, tmpFilepathInitTIFF); err != nil {
 			return err

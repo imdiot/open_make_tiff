@@ -1,6 +1,7 @@
 package manager
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sync"
 	"sync/atomic"
 
@@ -70,6 +72,7 @@ func New() *Manager {
 	for k, v := range icc.Profiles {
 		setting.Profiles = append(setting.Profiles, &ProfileOption{Value: v.Name(), Label: k})
 	}
+	slices.SortStableFunc(setting.Profiles, func(a, b *ProfileOption) int { return cmp.Compare(a.Value, b.Value) })
 	return &Manager{
 		config:  newConfig(),
 		setting: setting,

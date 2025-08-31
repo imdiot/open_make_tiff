@@ -148,21 +148,19 @@ func (r *Runner) Run(ctx context.Context, src string) error {
 		if err = r.runCleanExif(ctx, tmpFilepathInitRaw); err != nil {
 			return err
 		}
-		err = r.runDcrawEmuConvert(ctx, tmpFilepathInitRaw, tmpFilepathInitTIFF)
-		if err != nil {
+
+		if err = r.runDcrawEmuConvert(ctx, tmpFilepathInitRaw, tmpFilepathInitTIFF); err != nil {
 			return err
 		}
 		_ = os.Remove(tmpFilepathInitRaw)
 
-		err = r.runTiffcp(ctx, tmpFilepathInitTIFF, tmpFilepathTIFF)
-		if err != nil {
+		if err = r.runTiffcp(ctx, tmpFilepathInitTIFF, tmpFilepathTIFF); err != nil {
 			return err
 		}
 		_ = os.Remove(tmpFilepathInitTIFF)
 	}
 
-	err = r.runCopyExif(ctx, src, tmpFilepathTIFF)
-	if err != nil {
+	if err = r.runCopyExif(ctx, src, tmpFilepathTIFF); err != nil {
 		return err
 	}
 
@@ -273,8 +271,8 @@ func (r *Runner) runDcrawEmuConvert(ctx context.Context, src string, dst string)
 		"-v", "-T", "-r", "1", "1", "1", "1", "-o", "0", "-4", "-Z", "-",
 		src,
 	}
-	r.logger.Info("run dcraw_emu: ", dcrawEmuExecutable, args)
 	cmd := exec.CommandContext(ctx, dcrawEmuExecutable, args...)
+	r.logger.Info("run dcraw_emu: ", cmd.Args)
 	cmd.SysProcAttr = util.GetSysProcAttr()
 	cmd.Stdout = dstFile
 	err = cmd.Run()
@@ -294,7 +292,7 @@ func (r *Runner) runCleanExif(ctx context.Context, src string) error {
 	}
 
 	cmd := exec.CommandContext(ctx, executable, "-overwrite_original", "-tagsfromfile", src, "-ALL=", src)
-	r.logger.Info("run clean exif IPTC: ", executable, cmd.Args)
+	r.logger.Info("run clean exif: ", cmd.Args)
 	cmd.SysProcAttr = util.GetSysProcAttr()
 	err = cmd.Run()
 	if err != nil {
@@ -302,22 +300,6 @@ func (r *Runner) runCleanExif(ctx context.Context, src string) error {
 	}
 	return nil
 }
-
-//func (r *Runner) runDeleteExifIPTC(ctx context.Context, src string) error {
-//	exiv2Executable, err := util.GetExiv2Executable()
-//	if err != nil {
-//		return err
-//	}
-//
-//	cmd := exec.CommandContext(ctx, exiv2Executable, "-di", src)
-//	r.logger.Info("run delete exif IPTC: ", exiv2Executable, cmd.Args)
-//	cmd.SysProcAttr = util.GetSysProcAttr()
-//	err = cmd.Run()
-//	if err != nil {
-//		return err
-//	}
-//	return nil
-//}
 
 func (r *Runner) runCopyExif(ctx context.Context, src string, dst string) error {
 	executable, err := util.GetExiftoolExecutable()
@@ -326,7 +308,7 @@ func (r *Runner) runCopyExif(ctx context.Context, src string, dst string) error 
 	}
 
 	cmd := exec.CommandContext(ctx, executable, "-overwrite_original", "-tagsfromfile", src, "-ALL:ALL", dst)
-	r.logger.Info("run copy exif: ", executable, cmd.Args)
+	r.logger.Info("run copy exif: ", cmd.Args)
 	cmd.SysProcAttr = util.GetSysProcAttr()
 	err = cmd.Run()
 	if err != nil {
@@ -334,32 +316,6 @@ func (r *Runner) runCopyExif(ctx context.Context, src string, dst string) error 
 	}
 	return nil
 }
-
-//func (r *Runner) runCopyExif(ctx context.Context, src string, dst string) error {
-//	exiv2Executable, err := util.GetExiv2Executable()
-//	if err != nil {
-//		return err
-//	}
-//
-//	cmdExtract := exec.CommandContext(ctx, exiv2Executable, "-ee-", src)
-//	r.logger.Info("run copy exif: ", exiv2Executable, cmdExtract.Args)
-//	cmdExtract.SysProcAttr = util.GetSysProcAttr()
-//	var b bytes.Buffer
-//	cmdExtract.Stdout = &b
-//	err = cmdExtract.Run()
-//	if err != nil {
-//		return err
-//	}
-//
-//	cmdInsert := exec.CommandContext(ctx, exiv2Executable, "-ie-", dst)
-//	cmdInsert.SysProcAttr = util.GetSysProcAttr()
-//	cmdInsert.Stdin = &b
-//	err = cmdInsert.Run()
-//	if err != nil {
-//		return err
-//	}
-//	return nil
-//}
 
 func (r *Runner) runInsertICC(ctx context.Context, src string, name string) error {
 	executable, err := util.GetExiftoolExecutable()
@@ -375,8 +331,7 @@ func (r *Runner) runInsertICC(ctx context.Context, src string, name string) erro
 		b.Write(profile.Data())
 		cmd.Stdin = &b
 	}
-	r.logger.Info("run insert exif: ", executable, cmd.Args)
-	fmt.Println("run insert exif: ", executable, cmd.Args)
+	r.logger.Info("run insert exif: ", cmd.Args)
 	cmd.SysProcAttr = util.GetSysProcAttr()
 	err = cmd.Run()
 	if err != nil {
@@ -385,28 +340,3 @@ func (r *Runner) runInsertICC(ctx context.Context, src string, name string) erro
 
 	return nil
 }
-
-//func (r *Runner) runInsertICC(ctx context.Context, src string, name string) error {
-//	exiv2Executable, err := util.GetExiv2Executable()
-//	if err != nil {
-//		return err
-//	}
-//
-//	profile, ok := icc.Profiles[name]
-//	if !ok {
-//		return nil
-//	}
-//
-//	cmd := exec.CommandContext(ctx, exiv2Executable, "-iC-", src)
-//	r.logger.Info("run insert exif: ", exiv2Executable, cmd.Args)
-//	cmd.SysProcAttr = util.GetSysProcAttr()
-//	var b bytes.Buffer
-//	b.Write(profile.Data())
-//	cmd.Stdin = &b
-//	err = cmd.Run()
-//	if err != nil {
-//		return err
-//	}
-//
-//	return nil
-//}

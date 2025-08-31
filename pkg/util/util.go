@@ -41,7 +41,6 @@ func GetDcrawEmuExecutable() (string, error) {
 }
 
 func GetTiffcpExecutable() (string, error) {
-	//return "D:\\Work\\open-make-tiff\\bin\\third-party\\tiffcp.exe", nil
 	self, err := os.Executable()
 	if err != nil {
 		return "", err
@@ -51,21 +50,6 @@ func GetTiffcpExecutable() (string, error) {
 		return filepath.Join(filepath.Dir(self), "third-party", "tiffcp.exe"), nil
 	case "darwin":
 		return filepath.Join(filepath.Dir(self), "third-party", "tiffcp"), nil
-	}
-	return "", nil
-}
-
-func GetExiv2Executable() (string, error) {
-	//return "D:\\Work\\open-make-tiff\\bin\\third-party\\exiv2.exe", nil
-	self, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	switch runtime.GOOS {
-	case "windows":
-		return filepath.Join(filepath.Dir(self), "third-party", "exiv2.exe"), nil
-	case "darwin":
-		return filepath.Join(filepath.Dir(self), "third-party", "exiv2"), nil
 	}
 	return "", nil
 }

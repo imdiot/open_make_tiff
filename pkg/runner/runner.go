@@ -268,14 +268,20 @@ func (r *Runner) runDcrawEmuConvert(ctx context.Context, src string, dst string)
 	}()
 
 	args := []string{
-		"-v", "-T", "-r", "1", "1", "1", "1", "-o", "0", "-4", "-Z", "-",
-		src,
+		"-T", "-r", "1", "1", "1", "1", "-o", "0", "-4", "-Z", "-",
+		filepath.Base(src),
 	}
 	cmd := exec.CommandContext(ctx, dcrawEmuExecutable, args...)
 	r.logger.Info("run dcraw_emu: ", cmd.Args)
 	cmd.SysProcAttr = util.GetSysProcAttr()
+	cmd.Dir = filepath.Dir(src)
 	cmd.Stdout = dstFile
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 	err = cmd.Run()
+	if stderr.String() != "" {
+		return fmt.Errorf(stderr.String())
+	}
 	if err = dstFile.Sync(); err != nil {
 		return err
 	}

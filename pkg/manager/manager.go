@@ -124,7 +124,7 @@ func (m *Manager) saveConfig() {
 		return
 	}
 
-	if err := os.MkdirAll(filepath.Dir(path), 0644); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return
 	}
 
@@ -134,7 +134,7 @@ func (m *Manager) saveConfig() {
 		return
 	}
 
-	if err := os.WriteFile(path, b, 0644); err != nil {
+	if err := os.WriteFile(path, b, 0755); err != nil {
 		return
 	}
 }

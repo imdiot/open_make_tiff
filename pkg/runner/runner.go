@@ -89,7 +89,7 @@ func (r *Runner) Run(ctx context.Context, src string) error {
 		break
 	}
 
-	if err = os.MkdirAll(dstDir, 0644); err != nil {
+	if err = os.MkdirAll(dstDir, 0755); err != nil {
 		return err
 	}
 

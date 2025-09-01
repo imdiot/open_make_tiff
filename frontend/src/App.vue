@@ -31,6 +31,7 @@ const setting = reactive({
   profiles: [],
   enableAdobeDNGConverter: false
 });
+
 const textarea = ref(DEFAULT_MESSAGE);
 const textareaRef = ref(null);
 
@@ -68,7 +69,8 @@ vue.onMounted(async () => {
 
   runtime.EventsOn("omt:convert:finished", () => {
     console.log("convert finished");
-    textarea.value = FINISHED_MESSAGE + "\n" + DEFAULT_MESSAGE;
+    textarea.value += FINISHED_MESSAGE + "\n";
+    textarea.value += DEFAULT_MESSAGE + "\n";
   });
 
   runtime.EventsOn("omt:convert:file:started", (path) => {
@@ -138,7 +140,7 @@ const handleConfigChange = async (value) => {
           />
         </el-col>
         <el-col :span="5">
-          <el-text>num workers:</el-text>
+          <el-text size="small" style="font-weight: 500">num workers:</el-text>
         </el-col>
         <el-col :span="7">
           <el-select
@@ -166,7 +168,7 @@ const handleConfigChange = async (value) => {
           />
         </el-col>
         <el-col :span="5">
-          <el-text>icc profile:</el-text>
+          <el-text size="small" style="font-weight: 500">icc profile:</el-text>
         </el-col>
         <el-col :span="7">
           <el-select

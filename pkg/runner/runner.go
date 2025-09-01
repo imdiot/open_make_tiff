@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"open-make-tiff/pkg/icc"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -16,6 +15,7 @@ import (
 	"github.com/google/uuid"
 
 	"open-make-tiff/pkg/binary"
+	"open-make-tiff/pkg/icc"
 	"open-make-tiff/pkg/util"
 )
 

@@ -26,7 +26,6 @@ func GetAdobeDNGConverterExecutable() string {
 }
 
 func GetDcrawEmuExecutable() (string, error) {
-	//return "D:\\Work\\open-make-tiff\\bin\\third-party\\dcraw_emu.exe", nil
 	self, err := os.Executable()
 	if err != nil {
 		return "", err
@@ -55,7 +54,6 @@ func GetTiffcpExecutable() (string, error) {
 }
 
 func GetExiftoolExecutable() (string, error) {
-	//return "D:\\Work\\open-make-tiff\\bin\\third-party\\exiv2.exe", nil
 	self, err := os.Executable()
 	if err != nil {
 		return "", err

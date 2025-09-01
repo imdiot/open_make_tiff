@@ -155,10 +155,6 @@ func (m *Manager) SetConfig(cfg *Config) *Config {
 	defer m.mu.Unlock()
 	m.config = cfg
 
-	if m.config.Workers < 1 || m.config.Workers > runtime.NumCPU() {
-		m.config.Workers = runtime.NumCPU()
-	}
-
 	m.checkConfig()
 	m.saveConfig()
 	return m.config
@@ -171,6 +167,9 @@ func (m *Manager) checkConfig() {
 		if !ok {
 			m.config.ICCProfile = ""
 		}
+	}
+	if m.config.Workers < 1 || m.config.Workers > runtime.NumCPU() {
+		m.config.Workers = runtime.NumCPU()
 	}
 }
 

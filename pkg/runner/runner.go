@@ -14,7 +14,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"open-make-tiff/pkg/binary"
 	"open-make-tiff/pkg/icc"
 	"open-make-tiff/pkg/util"
 )
@@ -212,42 +211,34 @@ func (r *Runner) runCopyFile(src, dst string) error {
 }
 
 func (r *Runner) runTiffcp(ctx context.Context, src string, dst string) error {
-	tiffcpExecutable, err := util.GetTiffcpExecutable()
+	executable, err := util.GetTiffcpExecutable()
 	if err != nil {
 		return err
 	}
 
-	cfg := binary.Config{
-		Executable: tiffcpExecutable,
-	}
-	cfg.Args = []string{
+	args := []string{
 		"-,=%",
 		fmt.Sprintf("%s%%0", src),
 		dst,
 	}
-	r.logger.Info("run tiffcp: ", cfg.Executable, cfg.Args)
-	if _, err := binary.New(cfg).Run(ctx); err != nil {
-		return err
-	}
-	return nil
+	cmd := exec.CommandContext(ctx, executable, args...)
+	r.logger.Info("run tiffcp: ", cmd.Args)
+	cmd.SysProcAttr = util.GetSysProcAttr()
+	return cmd.Run()
 }
 
 func (r *Runner) runAdobeDNGConverter(ctx context.Context, src string, dst string) error {
-	cfg := binary.Config{
-		Executable: util.GetAdobeDNGConverterExecutable(),
-	}
-	cfg.Args = []string{
+	executable := util.GetAdobeDNGConverterExecutable()
+	args := []string{
 		"-c", "-u", "-l", "-p0",
 		"-d", filepath.Dir(dst),
 		"-o", filepath.Base(dst),
 		src,
 	}
-	r.logger.Info("run adobe dng converter: ", cfg.Executable, cfg.Args)
-	_, err := binary.New(cfg).Run(ctx)
-	if err != nil {
-		return err
-	}
-	return nil
+	cmd := exec.CommandContext(ctx, executable, args...)
+	r.logger.Info("run adobe dng converter: ", cmd.Args)
+	cmd.SysProcAttr = util.GetSysProcAttr()
+	return cmd.Run()
 }
 
 func (r *Runner) runDcrawEmuConvert(ctx context.Context, src string, dst string) error {
@@ -261,10 +252,7 @@ func (r *Runner) runDcrawEmuConvert(ctx context.Context, src string, dst string)
 		return err
 	}
 	defer func() {
-		err = dstFile.Close()
-		if err != nil {
-			fmt.Println(err)
-		}
+		_ = dstFile.Close()
 	}()
 
 	args := []string{
@@ -278,15 +266,11 @@ func (r *Runner) runDcrawEmuConvert(ctx context.Context, src string, dst string)
 	cmd.Stdout = dstFile
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
-	err = cmd.Run()
+	if err = cmd.Run(); err != nil {
+		return err
+	}
 	if stderr.String() != "" {
 		return fmt.Errorf(stderr.String())
-	}
-	if err = dstFile.Sync(); err != nil {
-		return err
-	}
-	if err != nil {
-		return err
 	}
 	return nil
 }
@@ -300,11 +284,7 @@ func (r *Runner) runCleanExif(ctx context.Context, src string) error {
 	cmd := exec.CommandContext(ctx, executable, "-overwrite_original", "-tagsfromfile", src, "-ALL=", src)
 	r.logger.Info("run clean exif: ", cmd.Args)
 	cmd.SysProcAttr = util.GetSysProcAttr()
-	err = cmd.Run()
-	if err != nil {
-		return err
-	}
-	return nil
+	return cmd.Run()
 }
 
 func (r *Runner) runCopyExif(ctx context.Context, src string, dst string) error {
@@ -316,11 +296,7 @@ func (r *Runner) runCopyExif(ctx context.Context, src string, dst string) error 
 	cmd := exec.CommandContext(ctx, executable, "-overwrite_original", "-tagsfromfile", src, "-ALL:ALL", dst)
 	r.logger.Info("run copy exif: ", cmd.Args)
 	cmd.SysProcAttr = util.GetSysProcAttr()
-	err = cmd.Run()
-	if err != nil {
-		return err
-	}
-	return nil
+	return cmd.Run()
 }
 
 func (r *Runner) runInsertICC(ctx context.Context, src string, name string) error {
@@ -339,10 +315,5 @@ func (r *Runner) runInsertICC(ctx context.Context, src string, name string) erro
 	}
 	r.logger.Info("run insert exif: ", cmd.Args)
 	cmd.SysProcAttr = util.GetSysProcAttr()
-	err = cmd.Run()
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return cmd.Run()
 }

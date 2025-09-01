@@ -272,7 +272,7 @@ func (r *Runner) runCopyExifAndInsertIccProfile(ctx context.Context, src string,
 		return err
 	}
 
-	args := []string{"-overwrite_original", "-tagsfromfile", src, "-ALL:ALL", dst}
+	args := []string{"-overwrite_original", "-tagsfromfile", src, "-ALL:ALL"}
 	var stdin bytes.Buffer
 	profile, ok := icc.Profiles[profileName]
 	if ok {

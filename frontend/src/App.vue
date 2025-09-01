@@ -63,18 +63,15 @@ vue.onMounted(async () => {
   setting.profiles = profiles_;
 
   runtime.EventsOn("omt:convert:started", () => {
-    console.log("convert started");
     textarea.value = PROCESSING_MESSAGE + "\n";
   });
 
   runtime.EventsOn("omt:convert:finished", () => {
-    console.log("convert finished");
     textarea.value += FINISHED_MESSAGE + "\n";
     textarea.value += DEFAULT_MESSAGE + "\n";
   });
 
   runtime.EventsOn("omt:convert:file:started", (path) => {
-    console.log("convert file started", path);
     textarea.value += path + "\n";
   });
 })
@@ -85,7 +82,7 @@ vue.onUnmounted(() => {
   runtime.EventsOff("omt:convert:file:started");
 });
 
-vue.watch(textarea, (value) => {
+vue.watch(textarea, () => {
   vue.nextTick(() => {
     const textareaElement = textareaRef.value?.$el.querySelector("textarea");
     if (textareaElement) {
@@ -94,8 +91,7 @@ vue.watch(textarea, (value) => {
   });
 });
 
-const handleConfigChange = async (value) => {
-  console.log("config changed", value);
+const handleConfigChange = async () => {
   const cfg = new models.manager.Config({
     disable_adobe_dng_converter: config.disableAdobeDNGConverter,
     enable_window_top: config.enableWindowTop,
@@ -103,7 +99,13 @@ const handleConfigChange = async (value) => {
     icc_profile: config.iccProfile,
     workers: config.workers,
   })
-  await manager.SetConfig(cfg);
+
+  const config_= await manager.SetConfig(cfg);
+  config.disableAdobeDNGConverter = config_.disable_adobe_dng_converter || config.disableAdobeDNGConverter;
+  config.enableWindowTop = config_.enable_window_top || config.enableWindowTop;
+  config.enableSubfolder = config_.enable_subfolder || config.enableSubfolder;
+  config.iccProfile = config_.icc_profile || config.iccProfile;
+  config.workers = config_.workers || config.workers;
 };
 </script>
 

@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -109,8 +110,7 @@ func (m *Manager) loadConfig() {
 	}
 
 	cfg := newConfig()
-	err = json.Unmarshal(b, cfg)
-	if err != nil {
+	if err = json.Unmarshal(b, cfg); err != nil {
 		return
 	}
 
@@ -118,7 +118,6 @@ func (m *Manager) loadConfig() {
 }
 
 func (m *Manager) saveConfig() {
-	fmt.Println("saveConfig")
 	path := m.configPath()
 	if path == "" {
 		return
@@ -134,7 +133,7 @@ func (m *Manager) saveConfig() {
 		return
 	}
 
-	if err := os.WriteFile(path, b, 0755); err != nil {
+	if err = os.WriteFile(path, b, 0755); err != nil {
 		return
 	}
 }
@@ -178,11 +177,6 @@ func (m *Manager) Convert(paths []string) {
 		return
 	}
 
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	cfg := m.config
-
 	go func() {
 		m.running.Store(true)
 		wails_runtime.EventsEmit(m.ctx, "omt:convert:started")
@@ -199,28 +193,32 @@ func (m *Manager) Convert(paths []string) {
 				break
 			case semaphoreWorkerCh <- struct{}{}:
 				wg.Go(func() {
-					defer func() { <-semaphoreWorkerCh }()
+					defer func() {
+						<-semaphoreWorkerCh
+						if r := recover(); r != nil {
+							slog.Warn("panic", "error", r)
+						}
+					}()
 
 					f, err := os.Stat(path)
 					if err != nil {
 						return
 					}
-					if f.IsDir() {
-						return
-					}
-					if !f.Mode().IsRegular() {
+					if f.IsDir() || !f.Mode().IsRegular() {
 						return
 					}
 					wails_runtime.EventsEmit(m.ctx, "omt:convert:file:started", path)
-					r := runner.New(runner.Config{
+
+					m.mu.RLock()
+					cfg := m.config
+					m.mu.RUnlock()
+
+					if err = runner.New(runner.Config{
 						EnableAdobeDNGConverter: !cfg.DisableAdobeDNGConverter,
 						EnableSubfolder:         cfg.EnableSubfolder,
 						Profile:                 cfg.ICCProfile,
-					})
-					fmt.Println(path)
-					err = r.Run(m.ctx, path)
-					if err != nil {
-						fmt.Println(err)
+					}).Run(m.ctx, path); err != nil {
+						slog.Warn("convert", "error", err)
 					}
 				})
 			}

@@ -123,12 +123,12 @@ const handleConfigChange = async () => {
       <el-input
           ref="textareaRef"
           v-model="textarea"
+          @focus="(e) => e.target.blur()"
+          readonly
           type="textarea"
           resize="none"
-          readonly
           style="height: 100%"
           input-style="height: 100%"
-          @focus="(e) => e.target.blur()"
       />
     </el-main>
     <el-footer class="auto-height-footer">
@@ -146,9 +146,9 @@ const handleConfigChange = async () => {
         </el-col>
         <el-col :span="7">
           <el-select
+              size="small"
               v-model="config.workers"
               @change="handleConfigChange"
-              size="small"
               @focus="(e) => e.target.blur()"
           >
             <el-option
@@ -163,9 +163,9 @@ const handleConfigChange = async () => {
       <el-row>
         <el-col :span="12">
           <el-checkbox
-              v-model="config.enableSubfolder"
               label='put in "make_tiff" subfolder'
               size="small"
+              v-model="config.enableSubfolder"
               @change="handleConfigChange"
           />
         </el-col>
@@ -174,9 +174,9 @@ const handleConfigChange = async () => {
         </el-col>
         <el-col :span="7">
           <el-select
+              size="small"
               v-model="config.iccProfile"
               @change="handleConfigChange"
-              size="small"
               @focus="(e) => e.target.blur()"
           >
             <el-option
@@ -191,9 +191,9 @@ const handleConfigChange = async () => {
       <el-row>
         <el-checkbox
             v-if="setting.enableAdobeDNGConverter"
-            v-model="config.disableAdobeDNGConverter"
             label='without adobe dng converter(only libraw)'
             size="small"
+            v-model="config.disableAdobeDNGConverter"
             @change="handleConfigChange"
         />
         <el-checkbox

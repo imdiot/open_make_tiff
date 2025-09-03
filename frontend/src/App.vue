@@ -34,6 +34,7 @@ const setting = reactive({
 
 const textarea = ref(DEFAULT_MESSAGE);
 const textareaRef = ref(null);
+const running = ref(false);
 
 vue.onMounted(async () => {
   const config_ = await manager.GetConfig();
@@ -63,10 +64,12 @@ vue.onMounted(async () => {
   setting.profiles = profiles_;
 
   runtime.EventsOn("omt:convert:started", () => {
+    running.value = true;
     textarea.value = PROCESSING_MESSAGE + "\n";
   });
 
   runtime.EventsOn("omt:convert:finished", () => {
+    running.value = false;
     textarea.value += FINISHED_MESSAGE + "\n";
     textarea.value += DEFAULT_MESSAGE + "\n";
   });
@@ -100,7 +103,7 @@ const handleConfigChange = async () => {
     workers: config.workers,
   })
 
-  const config_= await manager.SetConfig(cfg);
+  const config_ = await manager.SetConfig(cfg);
   config.disableAdobeDNGConverter = config_.disable_adobe_dng_converter || config.disableAdobeDNGConverter;
   config.enableWindowTop = config_.enable_window_top || config.enableWindowTop;
   config.enableSubfolder = config_.enable_subfolder || config.enableSubfolder;
@@ -137,16 +140,29 @@ const handleConfigChange = async () => {
           <el-checkbox
               label="keep window top"
               size="small"
+              :disabled="running"
               v-model="config.enableWindowTop"
               @change="handleConfigChange"
           />
         </el-col>
         <el-col :span="5">
-          <el-text size="small" style="font-weight: 500">num workers:</el-text>
+          <el-text
+              v-if="running"
+              size="small"
+              style="font-weight: 500;color: var(--el-disabled-text-color)"
+          >num workers:
+          </el-text>
+          <el-text
+              v-else
+              size="small"
+              style="font-weight:500"
+          >num workers:
+          </el-text>
         </el-col>
         <el-col :span="7">
           <el-select
               size="small"
+              :disabled="running"
               v-model="config.workers"
               @change="handleConfigChange"
               @focus="(e) => e.target.blur()"
@@ -165,16 +181,29 @@ const handleConfigChange = async () => {
           <el-checkbox
               label='put in "make_tiff" subfolder'
               size="small"
+              :disabled="running"
               v-model="config.enableSubfolder"
               @change="handleConfigChange"
           />
         </el-col>
         <el-col :span="5">
-          <el-text size="small" style="font-weight: 500">icc profile:</el-text>
+          <el-text
+              v-if="running"
+              size="small"
+              style="font-weight: 500;color: var(--el-disabled-text-color)"
+          >icc profile:
+          </el-text>
+          <el-text
+              v-else
+              size="small"
+              style="font-weight:500"
+          >icc profile:
+          </el-text>
         </el-col>
         <el-col :span="7">
           <el-select
               size="small"
+              :disabled="running"
               v-model="config.iccProfile"
               @change="handleConfigChange"
               @focus="(e) => e.target.blur()"
@@ -193,6 +222,7 @@ const handleConfigChange = async () => {
             v-if="setting.enableAdobeDNGConverter"
             label='without adobe dng converter(only libraw)'
             size="small"
+            :disabled="running"
             v-model="config.disableAdobeDNGConverter"
             @change="handleConfigChange"
         />

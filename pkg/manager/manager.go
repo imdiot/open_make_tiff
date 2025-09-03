@@ -217,6 +217,7 @@ func (m *Manager) Convert(paths []string) {
 						EnableAdobeDNGConverter: !cfg.DisableAdobeDNGConverter,
 						EnableSubfolder:         cfg.EnableSubfolder,
 						Profile:                 cfg.ICCProfile,
+						DisableRemoveLog:        false,
 					}).Run(m.ctx, path); err != nil {
 						slog.Warn("convert", "error", err)
 					}

@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -22,6 +23,8 @@ type Config struct {
 	EnableAdobeDNGConverter bool
 	EnableSubfolder         bool
 	Profile                 string
+
+	DisableRemoveLog bool
 }
 
 type Runner struct {
@@ -101,7 +104,7 @@ func (r *Runner) Run(ctx context.Context, src string) error {
 			r.logger.Error(err.Error())
 		}
 		_ = f.Close()
-		if err == nil {
+		if err == nil && !r.cfg.DisableRemoveLog {
 			_ = os.Remove(tmpFilepathLog)
 		}
 	}()
@@ -119,44 +122,51 @@ func (r *Runner) Run(ctx context.Context, src string) error {
 		}
 		break
 	}
-	r.logger.Info("src filepath: ", src)
-	r.logger.Info("dst tiff filepath: ", dstFilepathTIFF)
-	r.logger.Info("tmp init raw filepath: ", tmpFilepathInitRaw)
-	r.logger.Info("tmf tiff filepath: ", tmpFilepathInitTIFF)
+	r.logger.Info("src", "filepath", src)
+	r.logger.Info("dst tiff", "filepath", dstFilepathTIFF)
+	r.logger.Info("tmp init raw", "filepath", tmpFilepathInitRaw)
+	r.logger.Info("tmf tiff", "filepath", tmpFilepathInitTIFF)
 
 	if srcFileExt == ".fff" {
+		now := time.Now()
 		err = r.runTiffcp(ctx, src, tmpFilepathTIFF)
+		r.logger.Info("runTiffcp", "time", time.Since(now).Seconds())
 		if err != nil {
 			return err
 		}
 	} else {
+		rawFilepath := src
 		if r.cfg.EnableAdobeDNGConverter && util.EnableAdobeDNGConverter() {
+			now := time.Now()
 			err = r.runAdobeDNGConverter(ctx, src, tmpFilepathInitRaw)
+			r.logger.Info("runAdobeDNGConverter", "time", time.Since(now).Seconds())
 			if err != nil {
 				r.logger.Warn(err.Error())
 				err = nil
 			}
-		} else {
-			err = r.runCopyFile(src, tmpFilepathInitRaw)
-			if err != nil {
-				return err
-			}
+			rawFilepath = tmpFilepathInitRaw
 		}
 
-		if err = r.runDcrawEmuConvert(ctx, tmpFilepathInitRaw, tmpFilepathInitTIFF); err != nil {
+		now := time.Now()
+		if err = r.runDcrawEmuConvert(ctx, rawFilepath, tmpFilepathInitTIFF); err != nil {
 			return err
 		}
+		r.logger.Info("runDcrawEmuConvert", "time", time.Since(now).Seconds())
 		_ = os.Remove(tmpFilepathInitRaw)
 
+		now = time.Now()
 		if err = r.runTiffcp(ctx, tmpFilepathInitTIFF, tmpFilepathTIFF); err != nil {
 			return err
 		}
+		r.logger.Info("runTiffcp", "time", time.Since(now).Seconds())
 		_ = os.Remove(tmpFilepathInitTIFF)
 	}
 
+	now := time.Now()
 	if err = r.runCopyExifAndInsertIccProfile(ctx, src, tmpFilepathTIFF, r.cfg.Profile); err != nil {
 		return err
 	}
+	r.logger.Info("runCopyExifAndInsertIccProfile", "time", time.Since(now).Seconds())
 
 	if err = os.Rename(tmpFilepathTIFF, dstFilepathTIFF); err != nil {
 		return err
@@ -213,7 +223,7 @@ func (r *Runner) runTiffcp(ctx context.Context, src string, dst string) error {
 		dst,
 	}
 	cmd := exec.CommandContext(ctx, executable, args...)
-	r.logger.Info("run tiffcp: ", cmd.Args)
+	r.logger.Info("run tiffcp", "args", cmd.Args)
 	cmd.SysProcAttr = util.GetSysProcAttr()
 	return cmd.Run()
 }
@@ -227,7 +237,7 @@ func (r *Runner) runAdobeDNGConverter(ctx context.Context, src string, dst strin
 		src,
 	}
 	cmd := exec.CommandContext(ctx, executable, args...)
-	r.logger.Info("run adobe dng converter: ", cmd.Args)
+	r.logger.Info("run adobe dng converter", "args", cmd.Args)
 	cmd.SysProcAttr = util.GetSysProcAttr()
 	return cmd.Run()
 }
@@ -251,7 +261,7 @@ func (r *Runner) runDcrawEmuConvert(ctx context.Context, src string, dst string)
 		filepath.Base(src),
 	}
 	cmd := exec.CommandContext(ctx, dcrawEmuExecutable, args...)
-	r.logger.Info("run dcraw_emu: ", cmd.Args)
+	r.logger.Info("run dcraw_emu", "args", cmd.Args)
 	cmd.SysProcAttr = util.GetSysProcAttr()
 	cmd.Dir = filepath.Dir(src)
 	cmd.Stdout = dstFile
@@ -282,7 +292,7 @@ func (r *Runner) runCopyExifAndInsertIccProfile(ctx context.Context, src string,
 		args = append(args, "-ICC_Profile=", dst)
 	}
 	cmd := exec.CommandContext(ctx, executable, args...)
-	r.logger.Info("run copy exif and insert icc profile: ", cmd.Args)
+	r.logger.Info("run copy exif and insert icc profile", "args", cmd.Args)
 	cmd.Stdin = &stdin
 	cmd.SysProcAttr = util.GetSysProcAttr()
 	return cmd.Run()

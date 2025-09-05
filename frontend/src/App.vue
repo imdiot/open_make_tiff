@@ -205,6 +205,7 @@ const handleConfigChange = async () => {
               size="small"
               :disabled="running"
               v-model="config.iccProfile"
+              :empty-values="[null, undefined]"
               @change="handleConfigChange"
               @focus="(e) => e.target.blur()"
           >

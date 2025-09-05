@@ -17,7 +17,7 @@ func main() {
 	m := manager.New()
 
 	err := wails.Run(&options.App{
-		Title:         "open-make-tiff",
+		Title:         "open make tiff",
 		Width:         512,
 		Height:        384,
 		DisableResize: true,

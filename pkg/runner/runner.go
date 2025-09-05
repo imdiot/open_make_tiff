@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
@@ -175,42 +174,6 @@ func (r *Runner) Run(ctx context.Context, src string) error {
 	return nil
 }
 
-func (r *Runner) runCopyFile(src, dst string) error {
-	srcFileStat, err := os.Stat(src)
-	if err != nil {
-		return err
-	}
-	if !srcFileStat.Mode().IsRegular() {
-		return fmt.Errorf("%s is not a regular file", src)
-	}
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = srcFile.Close()
-	}()
-
-	_, err = os.Stat(dst)
-	if err == nil || !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("%s already exists", dst)
-	}
-
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = dstFile.Close()
-	}()
-
-	_, err = io.Copy(dstFile, srcFile)
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
 func (r *Runner) runTiffcp(ctx context.Context, src string, dst string) error {
 	executable, err := util.GetTiffcpExecutable()
 	if err != nil {
@@ -231,7 +194,7 @@ func (r *Runner) runTiffcp(ctx context.Context, src string, dst string) error {
 func (r *Runner) runAdobeDNGConverter(ctx context.Context, src string, dst string) error {
 	executable := util.GetAdobeDNGConverterExecutable()
 	args := []string{
-		"-c", "-u", "-l", "-p0",
+		"-u", "-l", "-p0",
 		"-d", filepath.Dir(dst),
 		"-o", filepath.Base(dst),
 		src,
@@ -243,7 +206,7 @@ func (r *Runner) runAdobeDNGConverter(ctx context.Context, src string, dst strin
 }
 
 func (r *Runner) runDcrawEmuConvert(ctx context.Context, src string, dst string) error {
-	dcrawEmuExecutable, err := util.GetDcrawEmuExecutable()
+	executable, err := util.GetDcrawEmuExecutable()
 	if err != nil {
 		return err
 	}
@@ -257,10 +220,10 @@ func (r *Runner) runDcrawEmuConvert(ctx context.Context, src string, dst string)
 	}()
 
 	args := []string{
-		"-T", "-r", "1", "1", "1", "1", "-o", "0", "-4", "-Z", "-",
+		"-T", "-r", "1", "1", "1", "1", "-o", "0", "-t", "0", "-H", "0", "-4", "-Z", "-",
 		filepath.Base(src),
 	}
-	cmd := exec.CommandContext(ctx, dcrawEmuExecutable, args...)
+	cmd := exec.CommandContext(ctx, executable, args...)
 	r.logger.Info("run dcraw_emu", "args", cmd.Args)
 	cmd.SysProcAttr = util.GetSysProcAttr()
 	cmd.Dir = filepath.Dir(src)

@@ -1,6 +1,6 @@
 # OPEN MAKE TIFF
 
-![](./doc/screenshot-mac.png)
+![](./doc/screenshot.png)
 
 ## About
 

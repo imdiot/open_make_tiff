@@ -1,6 +1,6 @@
 {
   "$schema": "https://wails.io/schemas/config.v2.json",
-  "name": "open-make-tiff",
+  "name": "open make tiff",
   "outputfilename": "open-make-tiff",
   "frontend:install": "npm install",
   "frontend:build": "npm run build",
@@ -9,5 +9,12 @@
   "author": {
     "name": "imdiot",
     "email": "imdiot.y@gmail.com"
+  },
+  "info": {
+    "productVersion": "0.0.1",
+    "comments": "open make tiff"
+  },
+  "postBuildHooks": {
+    "windows/amd64": "powershell Remove-Item -Path ./third-party -Recurse -Force; Copy-Item ../../third-party/windows-x64 -Destination ./third-party -Recurse -Force"
   }
 }

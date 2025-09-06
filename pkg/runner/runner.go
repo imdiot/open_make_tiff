@@ -180,11 +180,7 @@ func (r *Runner) runTiffcp(ctx context.Context, src string, dst string) error {
 		return err
 	}
 
-	args := []string{
-		"-,=%",
-		fmt.Sprintf("%s%%0", src),
-		dst,
-	}
+	args := []string{"-,=%", fmt.Sprintf("%s%%0", src), dst}
 	cmd := exec.CommandContext(ctx, executable, args...)
 	r.logger.Info("run tiffcp", "args", cmd.Args)
 	cmd.SysProcAttr = util.GetSysProcAttr()
@@ -220,7 +216,7 @@ func (r *Runner) runDcrawEmuConvert(ctx context.Context, src string, dst string)
 	}()
 
 	args := []string{
-		"-T", "-r", "1", "1", "1", "1", "-o", "0", "-t", "0", "-H", "0", "-4", "-Z", "-",
+		"-T", "-r", "1", "1", "1", "1", "-o", "0", "-t", "0", "-H", "1", "-4", "-Z", "-",
 		filepath.Base(src),
 	}
 	cmd := exec.CommandContext(ctx, executable, args...)

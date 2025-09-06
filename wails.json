@@ -16,6 +16,6 @@
   },
   "postBuildHooks": {
     "windows/amd64": "powershell Remove-Item -Path ./third-party -Recurse -Force; Copy-Item ../../third-party/windows-x64 -Destination ./third-party -Recurse -Force",
-    "darwin/*": "cp -r ../../third-party/macos-universal ./open-make-tiff.app/Contents/MacOS/third-party"
+    "darwin/*": "cp -r ../../third-party/macos-universal/ ./open-make-tiff.app/Contents/MacOS/third-party"
   }
 }

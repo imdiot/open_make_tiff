@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/wailsapp/wails/v2/pkg/options"
 	wails_runtime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"open-make-tiff/pkg/icc"
@@ -83,6 +84,18 @@ func New() *Manager {
 func (m *Manager) OnStartup(ctx context.Context) {
 	m.ctx = ctx
 	m.loadConfig()
+	m.checkConfig()
+}
+
+func (m *Manager) OnSecondInstanceLaunch(_ options.SecondInstanceData) {
+	wails_runtime.WindowUnminimise(m.ctx)
+	wails_runtime.Show(m.ctx)
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.loadConfig()
+	m.checkConfig()
 	m.checkConfig()
 }
 

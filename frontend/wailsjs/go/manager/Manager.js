@@ -14,6 +14,10 @@ export function GetSetting() {
   return window['go']['manager']['Manager']['GetSetting']();
 }
 
+export function OnSecondInstanceLaunch(arg1) {
+  return window['go']['manager']['Manager']['OnSecondInstanceLaunch'](arg1);
+}
+
 export function SetConfig(arg1) {
   return window['go']['manager']['Manager']['SetConfig'](arg1);
 }

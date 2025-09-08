@@ -28,6 +28,10 @@ func main() {
 			Assets: assets,
 		},
 		OnStartup: m.OnStartup,
+		SingleInstanceLock: &options.SingleInstanceLock{
+			UniqueId:               "9424f8fb-426f-4df0-9476-f025f2a10da4",
+			OnSecondInstanceLaunch: m.OnSecondInstanceLaunch,
+		},
 		Bind: []interface{}{
 			m,
 		},

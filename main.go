@@ -2,6 +2,9 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
+	"fmt"
+	"log/slog"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -11,13 +14,33 @@ import (
 )
 
 //go:embed all:frontend/dist
+//go:embed wails.json
 var assets embed.FS
 
-func main() {
-	m := manager.New()
+type WailsConfig struct {
+	Info struct {
+		ProductName    string `json:"productName"`
+		ProductVersion string `json:"productVersion"`
+	} `json:"info"`
+}
 
-	err := wails.Run(&options.App{
-		Title:         "open make tiff",
+func main() {
+	b, err := assets.ReadFile("wails.json")
+	if err != nil {
+		slog.Error("Error:", err.Error())
+		return
+	}
+
+	var config WailsConfig
+	if err = json.Unmarshal(b, &config); err != nil {
+		slog.Error("Error:", err.Error())
+		return
+	}
+
+	mgr := manager.New()
+
+	if err = wails.Run(&options.App{
+		Title:         fmt.Sprintf("%s - %s", config.Info.ProductName, config.Info.ProductVersion),
 		Width:         512,
 		Height:        384,
 		DisableResize: true,
@@ -27,17 +50,15 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		OnStartup: m.OnStartup,
+		OnStartup: mgr.OnStartup,
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId:               "9424f8fb-426f-4df0-9476-f025f2a10da4",
-			OnSecondInstanceLaunch: m.OnSecondInstanceLaunch,
+			OnSecondInstanceLaunch: mgr.OnSecondInstanceLaunch,
 		},
 		Bind: []interface{}{
-			m.Api(),
+			mgr.Api(),
 		},
-	})
-
-	if err != nil {
-		println("Error:", err.Error())
+	}); err != nil {
+		slog.Error("Error:", err.Error())
 	}
 }

@@ -81,8 +81,16 @@ func New() *Manager {
 	}
 }
 
+func (m *Manager) Api() *Api {
+	return &Api{m: m}
+}
+
 func (m *Manager) OnStartup(ctx context.Context) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.ctx = ctx
+
 	m.loadConfig()
 	m.checkConfig()
 }
@@ -95,7 +103,6 @@ func (m *Manager) OnSecondInstanceLaunch(_ options.SecondInstanceData) {
 	defer m.mu.Unlock()
 
 	m.loadConfig()
-	m.checkConfig()
 	m.checkConfig()
 }
 
@@ -151,7 +158,23 @@ func (m *Manager) saveConfig() {
 	}
 }
 
+func (m *Manager) checkConfig() {
+	wails_runtime.WindowSetAlwaysOnTop(m.ctx, m.config.EnableWindowTop)
+	if m.config.ICCProfile != "" {
+		_, ok := icc.Profiles[m.config.ICCProfile]
+		if !ok {
+			m.config.ICCProfile = ""
+		}
+	}
+	if m.config.Workers < 1 || m.config.Workers > runtime.NumCPU() {
+		m.config.Workers = runtime.NumCPU()
+	}
+}
+
 func (m *Manager) GetSetting() *Setting {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
 	return m.setting
 }
 
@@ -165,24 +188,12 @@ func (m *Manager) GetConfig() *Config {
 func (m *Manager) SetConfig(cfg *Config) *Config {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
 	m.config = cfg
 
 	m.checkConfig()
 	m.saveConfig()
 	return m.config
-}
-
-func (m *Manager) checkConfig() {
-	wails_runtime.WindowSetAlwaysOnTop(m.ctx, m.config.EnableWindowTop)
-	if m.config.ICCProfile != "" {
-		_, ok := icc.Profiles[m.config.ICCProfile]
-		if !ok {
-			m.config.ICCProfile = ""
-		}
-	}
-	if m.config.Workers < 1 || m.config.Workers > runtime.NumCPU() {
-		m.config.Workers = runtime.NumCPU()
-	}
 }
 
 func (m *Manager) Convert(paths []string) {

@@ -33,7 +33,7 @@ func main() {
 			OnSecondInstanceLaunch: m.OnSecondInstanceLaunch,
 		},
 		Bind: []interface{}{
-			m,
+			m.Api(),
 		},
 	})
 

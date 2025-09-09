@@ -3,7 +3,7 @@ import * as vue from 'vue'
 import {reactive, ref} from 'vue'
 
 import * as runtime from "../wailsjs/runtime/runtime.js";
-import * as manager from "../wailsjs/go/manager/Manager.js";
+import * as api from "../wailsjs/go/manager/Api.js";
 import * as models from "../wailsjs/go/models.ts"
 
 window.addEventListener('dragover', e => {
@@ -12,7 +12,7 @@ window.addEventListener('dragover', e => {
 });
 
 runtime.OnFileDrop((x, y, paths) => {
-  manager.Convert(paths);
+  api.Convert(paths);
 }, false);
 
 const DEFAULT_MESSAGE = "DRAG-N-DROP MORE FILES HERE";
@@ -37,14 +37,14 @@ const textareaRef = ref(null);
 const running = ref(false);
 
 vue.onMounted(async () => {
-  const config_ = await manager.GetConfig();
+  const config_ = await api.GetConfig();
   config.disableAdobeDNGConverter = config_.disable_adobe_dng_converter || config.disableAdobeDNGConverter;
   config.enableWindowTop = config_.enable_window_top || config.enableWindowTop;
   config.enableSubfolder = config_.enable_subfolder || config.enableSubfolder;
   config.iccProfile = config_.icc_profile || config.iccProfile;
   config.workers = config_.workers || config.workers;
 
-  const setting_ = await manager.GetSetting();
+  const setting_ = await api.GetSetting();
   setting.enableAdobeDNGConverter = setting_.enable_adobe_dng_converter || setting.enableAdobeDNGConverter;
   const workerNums = [];
   for (const worker_num of setting_.worker_nums) {
@@ -103,7 +103,7 @@ const handleConfigChange = async () => {
     workers: config.workers,
   })
 
-  const config_ = await manager.SetConfig(cfg);
+  const config_ = await api.SetConfig(cfg);
   config.disableAdobeDNGConverter = config_.disable_adobe_dng_converter || config.disableAdobeDNGConverter;
   config.enableWindowTop = config_.enable_window_top || config.enableWindowTop;
   config.enableSubfolder = config_.enable_subfolder || config.enableSubfolder;

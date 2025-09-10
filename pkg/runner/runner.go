@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -52,7 +53,7 @@ func (r *Runner) Run(ctx context.Context, src string) error {
 	}
 	srcFileExt := filepath.Ext(src)
 	srcFilename := filepath.Base(src)
-	srcFilenameWithOutExt := srcFilename[:len(srcFilename)-len(filepath.Ext(srcFilename))]
+	srcFilenameWithOutExt := srcFilename[:len(srcFilename)-len(srcFileExt)]
 
 	var (
 		token               string
@@ -126,7 +127,7 @@ func (r *Runner) Run(ctx context.Context, src string) error {
 	r.logger.Info("tmp init raw", "filepath", tmpFilepathInitRaw)
 	r.logger.Info("tmf tiff", "filepath", tmpFilepathInitTIFF)
 
-	if srcFileExt == ".fff" {
+	if strings.ToLower(srcFileExt) == ".fff" {
 		now := time.Now()
 		err = r.runTiffcp(ctx, src, tmpFilepathTIFF)
 		r.logger.Info("runTiffcp", "time", time.Since(now).Seconds())

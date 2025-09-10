@@ -12,7 +12,7 @@
   },
   "info": {
     "productName": "Open Make Tiff",
-    "productVersion": "0.0.1",
+    "productVersion": "0.0.2",
     "comments": "open make tiff"
   },
   "postBuildHooks": {

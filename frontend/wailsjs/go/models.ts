@@ -4,6 +4,7 @@ export namespace manager {
 	    disable_adobe_dng_converter?: boolean;
 	    enable_window_top?: boolean;
 	    enable_subfolder?: boolean;
+	    enable_compression?: boolean;
 	    icc_profile?: string;
 	    workers?: number;
 	
@@ -16,6 +17,7 @@ export namespace manager {
 	        this.disable_adobe_dng_converter = source["disable_adobe_dng_converter"];
 	        this.enable_window_top = source["enable_window_top"];
 	        this.enable_subfolder = source["enable_subfolder"];
+	        this.enable_compression = source["enable_compression"];
 	        this.icc_profile = source["icc_profile"];
 	        this.workers = source["workers"];
 	    }

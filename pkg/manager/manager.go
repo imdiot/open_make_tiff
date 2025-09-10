@@ -42,6 +42,7 @@ type Config struct {
 	DisableAdobeDNGConverter bool   `json:"disable_adobe_dng_converter,omitempty"`
 	EnableWindowTop          bool   `json:"enable_window_top,omitempty"`
 	EnableSubfolder          bool   `json:"enable_subfolder,omitempty"`
+	EnableCompression        bool   `json:"enable_compression,omitempty"`
 	ICCProfile               string `json:"icc_profile,omitempty"`
 	Workers                  int    `json:"workers,omitempty"`
 }
@@ -240,6 +241,7 @@ func (m *Manager) Convert(paths []string) {
 					if err = runner.New(runner.Config{
 						EnableAdobeDNGConverter: !cfg.DisableAdobeDNGConverter,
 						EnableSubfolder:         cfg.EnableSubfolder,
+						EnableCompression:       cfg.EnableCompression,
 						Profile:                 cfg.ICCProfile,
 						DisableRemoveLog:        false,
 					}).Run(m.ctx, path); err != nil {

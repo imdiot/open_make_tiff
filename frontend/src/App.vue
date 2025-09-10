@@ -23,6 +23,7 @@ const config = reactive({
   disableAdobeDNGConverter: false,
   enableWindowTop: false,
   enableSubfolder: false,
+  enableCompression: false,
   iccProfile: "",
   workers: 0,
 });
@@ -41,6 +42,7 @@ vue.onMounted(async () => {
   config.disableAdobeDNGConverter = config_.disable_adobe_dng_converter || config.disableAdobeDNGConverter;
   config.enableWindowTop = config_.enable_window_top || config.enableWindowTop;
   config.enableSubfolder = config_.enable_subfolder || config.enableSubfolder;
+  config.enableCompression = config_.enable_compression || config.enableCompression;
   config.iccProfile = config_.icc_profile || config.iccProfile;
   config.workers = config_.workers || config.workers;
 
@@ -99,6 +101,7 @@ const handleConfigChange = async () => {
     disable_adobe_dng_converter: config.disableAdobeDNGConverter,
     enable_window_top: config.enableWindowTop,
     enable_subfolder: config.enableSubfolder,
+    enable_compression: config.enableCompression,
     icc_profile: config.iccProfile,
     workers: config.workers,
   })
@@ -107,6 +110,7 @@ const handleConfigChange = async () => {
   config.disableAdobeDNGConverter = config_.disable_adobe_dng_converter || config.disableAdobeDNGConverter;
   config.enableWindowTop = config_.enable_window_top || config.enableWindowTop;
   config.enableSubfolder = config_.enable_subfolder || config.enableSubfolder;
+  config.enableCompression = config_.enable_compression || config.enableCompression;
   config.iccProfile = config_.icc_profile || config.iccProfile;
   config.workers = config_.workers || config.workers;
 };
@@ -145,6 +149,26 @@ const handleConfigChange = async () => {
               @change="handleConfigChange"
           />
         </el-col>
+        <el-col :span="12">
+          <el-checkbox
+              label="lzw compression"
+              size="small"
+              :disabled="running"
+              v-model="config.enableCompression"
+              @change="handleConfigChange"
+          />
+        </el-col>
+      </el-row>
+      <el-row>
+        <el-col :span="12">
+          <el-checkbox
+              label='put in "make_tiff" subfolder'
+              size="small"
+              :disabled="running"
+              v-model="config.enableSubfolder"
+              @change="handleConfigChange"
+          />
+        </el-col>
         <el-col :span="5">
           <el-text
               v-if="running"
@@ -179,11 +203,19 @@ const handleConfigChange = async () => {
       <el-row>
         <el-col :span="12">
           <el-checkbox
-              label='put in "make_tiff" subfolder'
+              v-if="setting.enableAdobeDNGConverter"
+              label="without Adobe DNG Converter"
               size="small"
               :disabled="running"
-              v-model="config.enableSubfolder"
+              v-model="config.disableAdobeDNGConverter"
               @change="handleConfigChange"
+          />
+          <el-checkbox
+              v-else
+              disabled
+              checked
+              label="without Adobe DNG Converter"
+              size="small"
           />
         </el-col>
         <el-col :span="5">
@@ -217,23 +249,6 @@ const handleConfigChange = async () => {
             />
           </el-select>
         </el-col>
-      </el-row>
-      <el-row>
-        <el-checkbox
-            v-if="setting.enableAdobeDNGConverter"
-            label='without adobe dng converter(only libraw)'
-            size="small"
-            :disabled="running"
-            v-model="config.disableAdobeDNGConverter"
-            @change="handleConfigChange"
-        />
-        <el-checkbox
-            v-else
-            disabled
-            checked
-            label='without `Adobe DNG Converter`(only `libraw`)'
-            size="small"
-        />
       </el-row>
     </el-footer>
   </el-container>

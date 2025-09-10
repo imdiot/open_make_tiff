@@ -22,6 +22,7 @@ import (
 type Config struct {
 	EnableAdobeDNGConverter bool
 	EnableSubfolder         bool
+	EnableCompression       bool
 	Profile                 string
 
 	DisableRemoveLog bool
@@ -181,7 +182,11 @@ func (r *Runner) runTiffcp(ctx context.Context, src string, dst string) error {
 		return err
 	}
 
-	args := []string{"-,=%", fmt.Sprintf("%s%%0", src), dst}
+	var args []string
+	if r.cfg.EnableCompression {
+		args = append(args, "-c", "lzw:2")
+	}
+	args = append(args, "-,=%", fmt.Sprintf("%s%%0", src), dst)
 	cmd := exec.CommandContext(ctx, executable, args...)
 	r.logger.Info("run tiffcp", "args", cmd.Args)
 	cmd.SysProcAttr = util.GetSysProcAttr()

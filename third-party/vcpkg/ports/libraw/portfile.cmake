@@ -1,9 +1,12 @@
-vcpkg_from_github(
-    OUT_SOURCE_PATH SOURCE_PATH
-    REPO LibRaw/LibRaw
-    REF "${VERSION}"
-    SHA512 d8366d62f32f02466128ecfedf9a9b39289834a73d89d57004cf7df63919e66808ba283cddf5843b25fe903d72eb988ac5b490525083e2b5d84a05c7679b4014
-    HEAD_REF master
+vcpkg_download_distfile(ARCHIVE
+    URLS "https://github.com/LibRaw/LibRaw/archive/ae32c08bfe2374c651176ecf32e07a3751697488.zip"
+    FILENAME "LibRaw-ae32c08bfe2374c651176ecf32e07a3751697488.zip"
+    SHA512 6c4088adf2da4f5771bf5c68d0d23e02223f70c34c8552d6466a4dd55f9a2e582aabfab3c3c13f05b489bdaa9df1a4249cc1202952e24e547de7698c57cfa91c
+)
+
+vcpkg_extract_source_archive(
+    SOURCE_PATH
+    ARCHIVE "${ARCHIVE}"
 )
 
 vcpkg_from_github(

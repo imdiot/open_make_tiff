@@ -1,6 +1,6 @@
 {
   "name": "libraw",
-  "version": "0.21.4",
+  "version-string": "ae32c08bfe2374c651176ecf32e07a3751697488",
   "description": "raw image decoder library",
   "homepage": "https://www.libraw.org",
   "license": "LGPL-2.1-only OR CDDL-1.0",

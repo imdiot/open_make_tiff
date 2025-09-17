@@ -14,8 +14,10 @@ import (
 )
 
 //go:embed all:frontend/dist
-//go:embed wails.json
 var assets embed.FS
+
+//go:embed wails.json
+var wailsConfigContext []byte
 
 type WailsConfig struct {
 	Info struct {
@@ -25,21 +27,15 @@ type WailsConfig struct {
 }
 
 func main() {
-	b, err := assets.ReadFile("wails.json")
-	if err != nil {
-		slog.Error("Error:", err.Error())
-		return
-	}
-
 	var config WailsConfig
-	if err = json.Unmarshal(b, &config); err != nil {
+	if err := json.Unmarshal(wailsConfigContext, &config); err != nil {
 		slog.Error("Error:", err.Error())
 		return
 	}
 
 	mgr := manager.New()
 
-	if err = wails.Run(&options.App{
+	if err := wails.Run(&options.App{
 		Title:         fmt.Sprintf("%s - %s", config.Info.ProductName, config.Info.ProductVersion),
 		Width:         512,
 		Height:        384,

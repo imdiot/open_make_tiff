@@ -5,7 +5,7 @@ import _ "embed"
 var (
 	//go:embed AdobeRGB1998.icc
 	_AdobeRGB1998 []byte
-	//go:embed ITU-2020.icc
+	//go:embed BT2020.icc
 	_BT2020 []byte
 	//go:embed DisplayP3.icc
 	_DisplayP3 []byte
@@ -18,12 +18,12 @@ var (
 )
 
 var Profiles = map[string]*Profile{
-	"Adobe RGB 1998": {name: "Adobe RGB 1998", data: _AdobeRGB1998},
-	"BT.2020":        {name: "BT.2020", data: _BT2020},
-	"Display P3":     {name: "Display P3", data: _DisplayP3},
-	"Hasselblad RGB": {name: "Hasselblad RGB", data: _HasselbladRGB},
-	"ProPhoto":       {name: "ProPhoto", data: _ProPhoto},
-	"sRGB":           {name: "sRGB", data: _sRGB},
+	"AdobeRGB1998":  {name: "Adobe RGB 1998", data: _AdobeRGB1998},
+	"BT2020":        {name: "BT.2020", data: _BT2020},
+	"DisplayP3":     {name: "Display P3", data: _DisplayP3},
+	"HasselbladRGB": {name: "Hasselblad RGB", data: _HasselbladRGB},
+	"ProPhoto":      {name: "ProPhoto", data: _ProPhoto},
+	"sRGB":          {name: "sRGB", data: _sRGB},
 }
 
 type Profile struct {

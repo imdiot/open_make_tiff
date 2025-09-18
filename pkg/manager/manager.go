@@ -55,14 +55,18 @@ func newConfig() *Config {
 }
 
 type Manager struct {
-	ctx     context.Context
-	config  *Config
-	setting *Setting
+	ctx context.Context
+
 	mu      sync.RWMutex
 	running atomic.Bool
+
+	config  *Config
+	setting *Setting
+
+	tmpDir string
 }
 
-func New() *Manager {
+func New(tmpDir string) *Manager {
 	setting := &Setting{
 		WorkerNums:              make([]*WorkerNumOption, 0),
 		Profiles:                make([]*ProfileOption, 0),
@@ -79,6 +83,7 @@ func New() *Manager {
 	return &Manager{
 		config:  newConfig(),
 		setting: setting,
+		tmpDir:  tmpDir,
 	}
 }
 
@@ -236,6 +241,9 @@ func (m *Manager) Convert(paths []string) {
 
 					m.mu.RLock()
 					cfg := m.config
+					if err = m.extractICCProfile(cfg.ICCProfile); err != nil {
+						slog.Warn("convert", "error", err)
+					}
 					m.mu.RUnlock()
 
 					if err = runner.New(runner.Config{
@@ -243,6 +251,7 @@ func (m *Manager) Convert(paths []string) {
 						EnableSubfolder:         cfg.EnableSubfolder,
 						EnableCompression:       cfg.EnableCompression,
 						Profile:                 cfg.ICCProfile,
+						ProfilePath:             fmt.Sprintf("%s.icc", filepath.Join(m.tmpDir, cfg.ICCProfile)),
 						DisableRemoveLog:        false,
 					}).Run(m.ctx, path); err != nil {
 						slog.Warn("convert", "error", err)
@@ -252,4 +261,22 @@ func (m *Manager) Convert(paths []string) {
 		}
 		wg.Wait()
 	}()
+}
+
+func (m *Manager) extractICCProfile(profileName string) error {
+	profile, ok := icc.Profiles[profileName]
+	if !ok {
+		return nil
+	}
+
+	iccFilepath := fmt.Sprintf("%s.icc", filepath.Join(m.tmpDir, profile.Name()))
+	if _, err := os.Stat(iccFilepath); errors.Is(err, os.ErrNotExist) {
+		if err = os.MkdirAll(filepath.Dir(iccFilepath), 0755); err != nil {
+			return err
+		}
+		if err = os.WriteFile(iccFilepath, profile.Data(), 0755); err != nil {
+			return err
+		}
+	}
+	return nil
 }

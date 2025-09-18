@@ -24,6 +24,7 @@ type Config struct {
 	EnableSubfolder         bool
 	EnableCompression       bool
 	Profile                 string
+	ProfilePath             string
 
 	DisableRemoveLog bool
 }
@@ -164,7 +165,7 @@ func (r *Runner) Run(ctx context.Context, src string) error {
 	}
 
 	now := time.Now()
-	if err = r.runCopyExifAndInsertIccProfile(ctx, src, tmpFilepathTIFF, r.cfg.Profile); err != nil {
+	if err = r.runCopyExifAndInsertIccProfile(ctx, src, tmpFilepathTIFF, r.cfg.Profile, r.cfg.ProfilePath); err != nil {
 		return err
 	}
 	r.logger.Info("runCopyExifAndInsertIccProfile", "time", time.Since(now).Seconds())
@@ -241,24 +242,23 @@ func (r *Runner) runDcrawEmuConvert(ctx context.Context, src string, dst string)
 	return nil
 }
 
-func (r *Runner) runCopyExifAndInsertIccProfile(ctx context.Context, src string, dst string, profileName string) error {
+func (r *Runner) runCopyExifAndInsertIccProfile(
+	ctx context.Context, src string, dst string, profileName string, profilePath string,
+) error {
 	executable, err := util.GetExiftoolExecutable()
 	if err != nil {
 		return err
 	}
 
 	args := []string{"-overwrite_original", "-tagsfromfile", src, "-EXIF:ALL"}
-	var stdin bytes.Buffer
-	profile, ok := icc.Profiles[profileName]
+	_, ok := icc.Profiles[profileName]
 	if ok {
-		args = append(args, "-ICC_Profile<=-", dst)
-		stdin.Write(profile.Data())
+		args = append(args, fmt.Sprintf("-ICC_Profile<=%s", profilePath), dst)
 	} else {
 		args = append(args, "-ICC_Profile=", dst)
 	}
 	cmd := exec.CommandContext(ctx, executable, args...)
 	r.logger.Info("run copy exif and insert icc profile", "args", cmd.Args)
-	cmd.Stdin = &stdin
 	cmd.SysProcAttr = util.GetSysProcAttr()
 	return cmd.Run()
 }

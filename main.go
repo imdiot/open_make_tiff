@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"os"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -33,7 +34,16 @@ func main() {
 		return
 	}
 
-	mgr := manager.New()
+	tmpDir, err := os.MkdirTemp("", "open-make-tiff")
+	if err != nil {
+		slog.Error("Error:", err.Error())
+		return
+	}
+	defer func() {
+		_ = os.RemoveAll(tmpDir)
+	}()
+
+	mgr := manager.New(tmpDir)
 
 	if err := wails.Run(&options.App{
 		Title:         fmt.Sprintf("%s - %s", config.Info.ProductName, config.Info.ProductVersion),

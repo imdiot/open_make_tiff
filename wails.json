@@ -16,7 +16,7 @@
     "comments": "open make tiff"
   },
   "postBuildHooks": {
-    "windows/amd64": "powershell Remove-Item -Path ./third-party -Recurse -Force; Copy-Item ../../third-party/windows-x64 -Destination ./third-party -Recurse -Force",
-    "darwin/*": "cp -r ../../third-party/macos-universal/ ./open-make-tiff.app/Contents/MacOS/third-party"
+    "windows/amd64": "powershell -File ../../scripts/copy-third-party.ps1",
+    "darwin/*": "bash ../../scripts/copy-third-party.sh"
   }
 }

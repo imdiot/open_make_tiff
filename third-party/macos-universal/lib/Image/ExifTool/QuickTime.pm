@@ -49,7 +49,7 @@ use Image::ExifTool qw(:DataAccess :Utils);
 use Image::ExifTool::Exif;
 use Image::ExifTool::GPS;
 
-$VERSION = '3.19';
+$VERSION = '3.29';
 
 sub ProcessMOV($$;$);
 sub ProcessKeys($$$);
@@ -494,6 +494,7 @@ my %qtFlags = ( #12
     ispe => 1,  # primary item must have an ispe and pixi, so no need to inherit these
     pixi => 1,
     irot => 1,  # (tmap may have a different irot)
+    imir => 1,  # (ditto)
     pasp => 1,  # (NC)
     hvcC => 2,  # (hvcC is a property of hvc1 referred to by primary grid)
     colr => 2,  # (colr is a property of primary grid or hvc1 referred to by primary)
@@ -579,9 +580,27 @@ my %userDefined = (
             },
             Binary => 1,
         },{
+            Name => 'HighlightMarkers',
+            # (DJI Action 4, forum17700)
+            Notes => 'written by some DJI models',
+            Condition => '$$valPt =~ /^data.{4}hglg.{5}/s',
+            RawConv => q{
+                my $len = unpack 'x4N', $val;
+                return undef if $len < 13 or $len + 4 > length($val);
+                my $n = int(($len - 13) / 5);
+                my @a = map $_/1000, unpack "x17(xV)$n", $val;
+                return \@a;
+            },
+        },{
             Unknown => 1,
             Binary => 1,
         },
+        # DJI videos also have block of offset/size of various atoms, eg)
+        #        Atom name   ????        Offset      Size
+        #  0000: 63 6f 76 72 00 00 00 00 00 ed 6f da 00 0a 46 e0 [covr......o...F.]
+        #  0010: 73 6e 61 6c 00 00 00 00 00 f7 b6 d2 00 0a 46 e0 [snal..........F.]
+        #  0020: 68 67 6c 67 00 00 00 00 01 02 0a a2 00 00 00 21 [hglg...........!]
+        #  0030: 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 [................]
         # (also Samsung WB750 uncompressed thumbnail data starting with "SDIC\0")
     ],
     # fre1 - 4 bytes: "june" (Kodak PixPro SP360)
@@ -953,6 +972,7 @@ my %userDefined = (
         Binary => 1,
         # note that this may be written and/or deleted, but can't currently be added back again
         Writable => 'undef',
+        WriteLast => 1, # (must come after mdat according to https://developer.android.com/media/platform/motion-photo-format)
     },
     # '35AX'? - seen "AT" (Yada RoadCam Pro 4K dashcam)
     cust => 'CustomInfo', # 70mai A810
@@ -968,6 +988,25 @@ my %userDefined = (
             TagTable => 'Image::ExifTool::QuickTime::Stream',
             ProcessProc => \&ProcessInsta360,
         },
+    },
+    # Kandao tags (Kandao QooCam 3 Ultra)
+    kvar => {
+        Name => 'KVAR',
+        BlockExtract => 1,
+        Notes => q{
+            by default, data in this tag is parsed to extract some embedded metadata,
+            but it may also be extracted as a KVAR file via the "KVAR" tag or by setting
+            the API BlockExtract option
+        },
+        SubDirectory => { TagTable => 'Image::ExifTool::Kandao::Main' },
+    },
+    kfix => {
+        Name => 'KFIX',
+        SubDirectory => { TagTable => 'Image::ExifTool::Kandao::Main' },
+    },
+    kstb => { # (NC)
+        Name => 'KSTB',
+        SubDirectory => { TagTable => 'Image::ExifTool::Kandao::Main' },
     },
 );
 
@@ -2270,6 +2309,27 @@ my %userDefined = (
             ByteOrder => 'LittleEndian',
         },
     },{
+        Name => 'MakerNoteRicohPentax2',
+        # used by cameras such as the Ricoh GR III
+        Condition => '$$valPt=~/^RICOH\0II/',
+        SubDirectory => {
+            TagTable => 'Image::ExifTool::Pentax::Main',
+            ProcessProc => \&Image::ExifTool::Exif::ProcessExif, # (because ProcessMOV is default)
+            Start => 8,
+            Base => '$start - 8',
+            ByteOrder => 'LittleEndian',
+        },
+    },{
+        Name => 'MakerNoteRicohPentax3',
+        Condition => '$$valPt=~/^RICOH\0MM/', # (just in case)
+        SubDirectory => {
+            TagTable => 'Image::ExifTool::Pentax::Main',
+            ProcessProc => \&Image::ExifTool::Exif::ProcessExif, # (because ProcessMOV is default)
+            Start => 8,
+            Base => '$start - 8',
+            ByteOrder => 'BigEndian',
+        },
+    },{
         Name => 'MakerNotePentaxUnknown',
         Binary => 1,
     }],
@@ -2628,6 +2688,7 @@ my %userDefined = (
             ByteOrder => 'BigEndian',
         },
     },
+    # PREX - seen written by Sony ILCE-7M5 (apparently contains another video profile?)
 );
 
 # FPRF atom information (ref 11)
@@ -2794,6 +2855,7 @@ my %userDefined = (
    'xml ' => {
         Name => 'XML',
         Flags => [ 'Binary', 'Protected' ],
+        BlockExtract => 1,
         SubDirectory => {
             TagTable => 'Image::ExifTool::XMP::XML',
             IgnoreProp => { NonRealTimeMeta => 1 }, # ignore container for Sony 'nrtm'
@@ -2844,6 +2906,7 @@ my %userDefined = (
     },
     idat => {
         Name => 'MetaImageSize', #PH (NC)
+        Condition => '$$self{FileType} eq "HEIC"',
         Format => 'int16u',
         # (don't know what the first two numbers are for)
         PrintConv => '$val =~ s/^(\d+) (\d+) (\d+) (\d+)/${3}x$4/; $val',
@@ -2929,7 +2992,6 @@ my %userDefined = (
         Condition => '$$valPt =~ /^(prof|rICC)/',
         # (don't do this because Apple Preview won't display an HEIC with a 0-length profile)
         # Permanent => 0, # (in QuickTime, this writes a zero-length box instead of deleting)
-        Permanent => 1,
         SubDirectory => {
             TagTable => 'Image::ExifTool::ICC_Profile::Main',
             Start => 4,
@@ -2948,6 +3010,22 @@ my %userDefined = (
             1 => 'Rotate 270 CW',
             2 => 'Rotate 180',
             3 => 'Rotate 90 CW',
+        },
+    },
+    imir => { # (applied before rotation)
+        Name => 'Mirroring',
+        Format => 'int8u',
+        # yes, I realize this making this writable is useless without the ability to
+        # create/delete this box because it is the existence of this box that is
+        # significant.  (The people who wrote the specification succeeded in making
+        # this as complicated as possible because creating/deleting boxes from the
+        # item property container is a real pain in the ass!)
+        Writable => 'int8u',
+        Protected => 1,
+        PrintConv => {
+            0 => 'Vertical',
+            1 => 'Horizontal',
+            # (it would have been great if the specification allowed for a "no mirroring" value)
         },
     },
     ispe => {
@@ -3364,7 +3442,7 @@ my %userDefined = (
     ssrc => { Name => 'Non-primarySourceTrack', Format => 'int32u' }, #29
     sync => { Name => 'SyncronizedTrack',       Format => 'int32u' }, #29
     # hint - Original media for hint track (ref 29)
-    # cdep (Structural Dependency QT tag?)    
+    # cdep (Structural Dependency QT tag?)
 );
 
 # track aperture mode dimensions atoms
@@ -6581,7 +6659,7 @@ my %userDefined = (
         This directory contains a list of key names which are used to decode tags
         written by the "mdta" handler.  Also in this table are a few tags found in
         timed metadata that are not yet writable by ExifTool.  The prefix of
-        "com.apple.quicktime." has been removed from the TagID's below.  These tags
+        "com.apple.quicktime." has been removed from most TagID's below.  These tags
         support alternate languages in the same way as the
         L<ItemList|Image::ExifTool::TagNames/QuickTime ItemList Tags> tags.  Note
         that by default,
@@ -6675,14 +6753,17 @@ my %userDefined = (
     'encoder' => { }, # forum15418 (written by ffmpeg)
 #
 # the following tags aren't in the com.apple.quicktime namespace:
+# (Note: must add any non-'com' prefix to %fullKeysID in WriteQuickTime.pl
+#  to avoid adding the 'com.apple.quicktime' prefix when writing)
 #
     'com.android.version' => 'AndroidVersion',
     'com.android.capture.fps' => { Name  => 'AndroidCaptureFPS', Writable => 'float' },
     'com.android.manufacturer' => 'AndroidMake',
     'com.android.model' => 'AndroidModel',
     'com.xiaomi.preview_video_cover' => { Name => 'XiaomiPreviewVideoCover', Writable => 'int32s' },
-    'xiaomi.exifInfo.videoinfo' => 'XiaomiExifInfo',
     'com.xiaomi.hdr10' => { Name => 'XiaomiHDR10', Writable => 'int32s' },
+    'xiaomi.exifInfo.videoinfo' => 'XiaomiExifInfo',
+    'samsung.android.utc_offset' => { Name => 'AndroidTimeZone', Groups => { 2 => 'Time' } },
 #
 # also seen
 #
@@ -6845,17 +6926,17 @@ my %userDefined = (
         # the 'Triplet' flag tells ProcessMOV() to generate
         # a single tag from the mean/name/data triplet
         Triplet => 1,
-        Hidden => 1,
+        Hidden => 2,
     },
     name => {
         Name => 'Name',
         Triplet => 1,
-        Hidden => 1,
+        Hidden => 2,
     },
     data => {
         Name => 'Data',
         Triplet => 1,
-        Hidden => 1,
+        Hidden => 2,
     },
     # the tag ID's below are composed from "mean/name",
     # but "mean/" is omitted if it is "com.apple.iTunes/":
@@ -7301,6 +7382,7 @@ my %userDefined = (
         },
         {
             Name => 'TimeToSampleTable',
+            Format => 'undef',
             Flags => ['Binary','Unknown'],
         },
     ],
@@ -8965,13 +9047,13 @@ sub GetString($$)
 sub PrintableTagID($;$)
 {
     my $tag = $_[0];
-    my $n = ($tag =~ s/([\x00-\x1f\x7f-\xff])/'x'.unpack('H*',$1)/eg);
+    my $n = ($tag =~ s/([^-_a-zA-Z0-9])/'x'.unpack('H*',$1)/eg);
     if ($n and $_[1]) {
         if ($n > 2 and $_[1] & 0x01) {
             $tag = '0x' . unpack('H8', $_[0]);
             $tag =~ s/^0x0000/0x/;
         } elsif ($_[1] & 0x02) {
-            ($tag = $_[0]) =~ s/([\x00-\x1f\x7f-\xff])/'\\x'.unpack('H*',$1)/eg;
+            ($tag = $_[0]) =~ s/([^-_a-zA-Z0-9])/'\\x'.unpack('H*',$1)/eg;
         }
     }
     return $tag;
@@ -9734,6 +9816,7 @@ sub ProcessKeys($$$)
             $name = "Tag_$name" if length $name < 2;
             $newInfo = { Name => $name, Groups => { 1 => 'Keys' } };
             $msg = ' (Unknown)';
+            $et->VPrint(0, $$et{INDENT}, "[adding Keys:$tag]\n");
         }
         # substitute this tag in the ItemList table with the given index
         my $id = $$et{KeysCount} . '.' . $index;
@@ -10063,14 +10146,14 @@ sub ProcessMOV($$;$)
                 ProcessKenwoodTrailer($et, { RAF => $raf }, $tbl);
                 last;
             }
-            $ignore = 1;
-            if ($tagInfo and not $$tagInfo{Unknown} and not $eeTag) {
+            if (not $tagInfo or $$tagInfo{Unknown}) {
+                $ignore = 1;
+            } elsif ($size > 0x8000000) {
                 my $t = PrintableTagID($tag,2);
-                if ($size > 0x8000000) {
-                    $et->Warn("Skipping '${t}' atom > 128 MiB", 1);
-                } else {
-                    $et->Warn("Skipping '${t}' atom > 32 MiB", 2) or $ignore = 0;
-                }
+                $et->Warn("Skipping '${t}' atom > 128 MiB", $eeTag ? 2 : 1) and $ignore = 1;
+            } elsif (not $eeTag) {
+                my $t = PrintableTagID($tag,2);
+                $et->Warn("Skipping '${t}' atom > 32 MiB", 2) and $ignore = 1;
             }
         }
         if (defined $tagInfo and not $ignore and not ($tagInfo and $$tagInfo{DontRead})) {
@@ -10243,7 +10326,7 @@ ItemID:         foreach $id (reverse sort { $a <=> $b } keys %$items) {
                         if ($tag eq 'ipco' and not $$et{IsItemProperty}) {
                             $$et{ItemPropertyContainer} = [ \%dirInfo, $subTable, $proc ];
                             $et->VPrint(0,"$$et{INDENT}\[Process ipco box later]");
-                        } else {
+                        } elsif ($fast < 2 or not $$tagInfo{MakerNotes}) {
                             $et->ProcessDirectory(\%dirInfo, $subTable, $proc);
                         }
                     }
@@ -10464,8 +10547,12 @@ ItemID:         foreach $id (reverse sort { $a <=> $b } keys %$items) {
                 $raf->Seek($seekTo);
             }
             unless ($raf->Seek($seekTo-1) and $raf->Read($buff, 1) == 1) {
-                my $t = PrintableTagID($tag,2);
-                $warnStr = sprintf("Truncated '${t}' data at offset 0x%x", $lastPos);
+                if (pack('N',$size) =~ /^<b[r>]/) { # check for corrupted HEIC file downloaded from heic.digital
+                    $warnStr = sprintf('Extraneous HTML text appended to file at offset 0x%x', $lastPos);
+                } else {
+                    my $t = PrintableTagID($tag,2);
+                    $warnStr = sprintf("Truncated '${t}' data at offset 0x%x", $lastPos);
+                }
                 last;
             }
         }
@@ -10493,9 +10580,9 @@ ItemID:         foreach $id (reverse sort { $a <=> $b } keys %$items) {
             $et->Warn($warnStr);
         }
     }
-    # tweak file type based on track content ("iso*" and "dash" ftyp only)
+    # tweak file type based on track content ("iso*" and "dash" ftyp only ["mp42" added in 13.39])
     if ($topLevel and $$et{FileType} and $$et{FileType} eq 'MP4' and
-        $$et{save_ftyp} and $$et{HasHandler} and $$et{save_ftyp} =~ /^(iso|dash)/ and
+        $$et{save_ftyp} and $$et{HasHandler} and $$et{save_ftyp} =~ /^(iso|dash|mp42)/ and
         $$et{HasHandler}{soun} and not $$et{HasHandler}{vide})
     {
         $et->OverrideFileType('M4A', 'audio/mp4');
@@ -10552,7 +10639,7 @@ QTLang: foreach $tag (@{$$et{QTLang}}) {
     }
     # brute force scan for metadata embedded in media data
     # (and process Insta360 trailer if it exists)
-    ScanMediaData($et) if $ee and $topLevel;
+    ScanMediaData($et) if $ee and $topLevel and not $$et{OPTIONS}{FastScan};
 
     # restore any changed options
     $et->Options($_ => $saveOptions{$_}) foreach keys %saveOptions;
@@ -10607,7 +10694,7 @@ information from QuickTime and MP4 video, M4A audio, and HEIC image files.
 
 =head1 AUTHOR
 
-Copyright 2003-2025, Phil Harvey (philharvey66 at gmail.com)
+Copyright 2003-2026, Phil Harvey (philharvey66 at gmail.com)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

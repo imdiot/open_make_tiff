@@ -52,7 +52,7 @@ my %bool = ( PrintConv => { 0 => 'No', 1 => 'Yes' }, PrintConvColumns => 2 );
     GROUPS => { 0 => 'WTV', 1 => 'WTV', 2 => 'Video' },
     PROCESS_PROC => \&ProcessMetadata,
     NOTES => 'ExifTool will extract any tag found, even if not in this table.',
-    VARS => { NO_ID => 1 },
+    VARS => { ID_FMT => 'none' },
     'Duration'  => {
         Name => 'Duration',
         ValueConv => '$val/1e7',
@@ -297,7 +297,7 @@ This module contains definitions required by Image::ExifTool to read WTV
 
 =head1 AUTHOR
 
-Copyright 2003-2025, Phil Harvey (philharvey66 at gmail.com)
+Copyright 2003-2026, Phil Harvey (philharvey66 at gmail.com)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

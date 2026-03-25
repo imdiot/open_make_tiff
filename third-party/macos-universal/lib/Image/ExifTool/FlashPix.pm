@@ -23,7 +23,7 @@ use Image::ExifTool::Exif;
 use Image::ExifTool::ASF;   # for GetGUID()
 use Image::ExifTool::Microsoft; # for %codePage
 
-$VERSION = '1.50';
+$VERSION = '1.51';
 
 sub ProcessFPX($$);
 sub ProcessFPXR($$$);
@@ -290,12 +290,12 @@ my %fpxFileType = (
     # save these tables until after the WordDocument was processed
     '0Table' => {
         Name => 'Table0',
-        Hidden => 1, # (used only as temporary storage until table is processed)
+        Hidden => 2, # (used only as temporary storage until table is processed)
         Binary => 1,
     },
     '1Table' => {
         Name => 'Table1',
-        Hidden => 1, # (used only as temporary storage until table is processed)
+        Hidden => 2, # (used only as temporary storage until table is processed)
         Binary => 1,
     },
     Preview => {
@@ -1093,7 +1093,7 @@ my %fpxFileType = (
 %Image::ExifTool::FlashPix::DocTable = (
     GROUPS => { 1 => 'MS-DOC', 2 => 'Document' },
     NOTES => 'Tags extracted from the Microsoft Word document table.',
-    VARS => { NO_ID => 1 },
+    VARS => { ID_FMT => 'none' },
     CommentBy => {
         Groups => { 2 => 'Author' },
         Notes => 'enable L<Duplicates|../ExifTool.html#Duplicates> option to extract all entries',
@@ -1117,20 +1117,20 @@ my %fpxFileType = (
 #
 # tags below are used internally in intermediate steps to extract the tags above
 #
-    TableOffsets => { Hidden => 1 }, # stores offsets to extract data from document table
+    TableOffsets => { Hidden => 2 }, # stores offsets to extract data from document table
     CommentByBlock => {   # entire block of CommentBy entries
         SubDirectory => {
             TagTable => 'Image::ExifTool::FlashPix::DocTable',
             ProcessProc => \&ProcessCommentBy,
         },
-        Hidden => 1,
+        Hidden => 2,
     },
     LastSavedByBlock => {   # entire block of LastSavedBy entries
         SubDirectory => {
             TagTable => 'Image::ExifTool::FlashPix::DocTable',
             ProcessProc => \&ProcessLastSavedBy,
         },
-        Hidden => 1,
+        Hidden => 2,
     },
 );
 
@@ -1454,7 +1454,7 @@ sub ProcessContents($$$)
         my ($w, $h) = unpack('V2',$2);
         $et->FoundTag(ImageWidth => $w);
         $et->FoundTag(ImageHeight => $h);
-        $et->HandleTag($tagTablePtr, OriginalFileName => $name);        
+        $et->HandleTag($tagTablePtr, OriginalFileName => $name);
         if ($$dataPt =~ /\G\x01\0{4}(.{12})/sg) {
             # (first 4 bytes seem to be number of objects, next 4 bytes are zero, then ICC size)
             my $size = unpack('x8V', $1);
@@ -2402,7 +2402,7 @@ JPEG images.
 
 =head1 AUTHOR
 
-Copyright 2003-2025, Phil Harvey (philharvey66 at gmail.com)
+Copyright 2003-2026, Phil Harvey (philharvey66 at gmail.com)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

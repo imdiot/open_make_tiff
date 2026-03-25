@@ -59,7 +59,7 @@ use Image::ExifTool::Exif;
 use Image::ExifTool::GPS;
 use Image::ExifTool::HP;
 
-$VERSION = '3.55';
+$VERSION = '3.60';
 
 sub CryptShutterCount($$);
 sub PrintFilter($$$);
@@ -401,7 +401,8 @@ sub AFAreasK3III($$);
 #
 # Q-mount lenses (21=auto focus lens, 22=manual focus)
 #
-    '21 0' => 'Pentax Q Manual Lens', #PH
+    '20 0' => 'Pentax Q Manual Lens (Q, Q10)', #27
+    '21 0' => 'Pentax Q Manual Lens', #PH (Q7, Q-S1)
     '21 1' => '01 Standard Prime 8.5mm F1.9', #PH
     '21 2' => '02 Standard Zoom 5-15mm F2.8-4.5', #PH
     '22 3' => '03 Fish-eye 3.2mm F5.6', #PH
@@ -416,6 +417,8 @@ sub AFAreasK3III($$);
 #
     '31 1' => '18.3mm F2.8', #PH (GR III built-in)
     '31 4' => '26.1mm F2.8', #PH (GR IIIx built-in)
+    '31 5' => '26.1mm F2.8 GT-2 TC', #KG (GR IIIx built-in plus GT-2 TC)
+    '31 8' => '18.3mm F2.8', #KG (GR IV built-in)
 );
 
 # Pentax model ID codes - PH
@@ -564,6 +567,7 @@ my %pentaxModelID = (
     0x1329a => 'GR IIIx', # (Ricoh)
     0x132b8 => 'KF', #github322 (Ricoh)
     0x132d6 => 'K-3 Mark III Monochrome', #github226 (Ricoh)
+    0x132e0 => 'GR IV', #github347 (Ricoh)
 );
 
 # Pentax city codes - (PH, Optio WP)
@@ -906,10 +910,18 @@ my %binaryDataAttrs = (
         # 11.3.0.0 - K-S1
         # 11.5.0.0 - K-S2
         # 11.6.1.0 - K-3 II
-        # 11.7.5.0 - WG-M2
+        # 11.7.5.0 - Ricoh WG-M2
         # 12.0.0.0 - K-1
         # 12.1.3.0 - K-70
         # 12.1.5.0 - KP
+        # 12.3.2.0 - K-1 Mark II
+        # 12.7.5.0 - Ricoh WG-M2
+        # 13.0.0.0 - Ricoh GR III / G900SE
+        # 13.1.1.0 - Ricoh WG-70
+        # 14.0.0.0 - K-3 Mark III
+        # 14.0.1.0 - Ricoh GR IIIx
+        # 14.2.0.0 - KF
+        # 15.2.3.0 - Ricoh GR IV
     },
     0x0001 => { #PH
         Name => 'PentaxModelType',
@@ -1182,7 +1194,8 @@ my %binaryDataAttrs = (
                 0x111 => 'AF-C (Release-priority)', #PH (K-5,K-3)
                 0x112 => 'AF-A (Release-priority)', #PH (K-3)
                 0x120 => 'Contrast-detect (Release-priority)', #PH (K-01)
-                # bit 15 indicates macro mode (disabled for MF, and defaults to Select for Snap, Infinity)
+                # bit 15 indicates macro mode (disabled for MF, and defaults to Select for Snap, Infinity)  #KG 'disabled for MF' - in contradiction with 0x8003 ??
+                0x8003 => 'Manual (Macro)', # (GR IV)
                 0x8006 => 'Auto-area (Macro)', # (GR III)
                 0x8007 => 'Zone Select (Macro)', # (GR III)
                 0x8008 => 'Select (Macro)', # (GR III)
@@ -1943,7 +1956,8 @@ my %binaryDataAttrs = (
             '0 28' => 'Quick Macro', # (Q)
             '0 29' => 'Forest', # (Q)
             '0 30' => 'Backlight Silhouette', # (Q)
-            '0 32' => 'DOF', #PH (GR III)
+            '0 31' => 'Max. Aperture Priority', #KG (Ricoh GR III)
+            '0 32' => 'DOF', #PH (GR III)       #KG ???? GR III 'DOF Priority (Deep)' is mapped to '0 2' ???
             # AUTO PICT modes (auto-selected)
             '1 4'  => 'Auto PICT (Standard)', #13
             '1 5'  => 'Auto PICT (Portrait)', #7 (K100D)
@@ -1958,7 +1972,11 @@ my %binaryDataAttrs = (
             '2 22' => 'Shallow DOF (HyP)', #PH (K-5)
             '3 0'  => 'Green Mode', #16
             '4 0'  => 'Shutter Speed Priority',
+            '4 2'  => 'Shutter Speed Priority 2', #KG  Coding error? 'DOF Priority' in Tv makes no sense
+            '4 31' => 'Shutter Speed Priority 31',#KG  Coding error? 'Max Aperture' in Tv makes no sense
             '5 0'  => 'Aperture Priority',
+            '5 2'  => 'Aperture Priority 2',      #KG  Coding error? 'DOF Priority' in Av makes no sense
+            '5 31' => 'Aperture Priority 31',     #KG  Coding error? 'DOF Priority' in Av makes no sense
             '6 0'  => 'Program Tv Shift',
             '7 0'  => 'Program Av Shift', #19
             '8 0'  => 'Manual',
@@ -1969,16 +1987,18 @@ my %binaryDataAttrs = (
             '19 0' => 'Astrotracer', #29
             # extra K10D modes (ref 16)
             '13 0' => 'Shutter & Aperture Priority AE',
+            '14 0' => 'Shutter Priority AE', #KG (K-3III))
             '15 0' => 'Sensitivity Priority AE',
             '16 0' => 'Flash X-Sync Speed AE',
+            '17 0' => 'Flash X-Sync Speed', #KG (K-3III))
             '18 0' => 'Auto Program (Normal)', #PH (K-5)
             '18 1' => 'Auto Program (Hi-speed)', #PH (NC)
             '18 2' => 'Auto Program (DOF)', #PH (K-5)
             '18 3' => 'Auto Program (MTF)', #PH (NC)
             '18 22' => 'Auto Program (Shallow DOF)', #PH (NC)
             '20 22' => 'Blur Control', #PH (Q)
-            '24 0' => 'Aperture Priority (Adv.Hyp)', #KG
-            '25 0' => 'Manual Exposure (Adv.Hyp)', #KG
+            '24 0' => 'Aperture Priority (Adv.Hyp)', #KG (K-3III)
+            '25 0' => 'Manual Exposure (Adv.Hyp)', #KG (K-3III)
             '26 0' => 'Shutter and Aperture Priority (TAv)', #PH (K-3III)
             '249 0' => 'Movie (TAv)', #31
             '250 0' => 'Movie (TAv, Auto Aperture)', #31
@@ -2208,7 +2228,9 @@ my %binaryDataAttrs = (
             # 256 - seen for GR III
             # 257 - seen for GR III
             # 262 - seen for GR III
-            32768 => 'n/a',
+            32768 => 'Standard', #KG (K-3IIIm) (was "n/a" previously - PH)
+            32769 => 'Hard', #KG (K-3IIIm)
+            32770 => 'Soft', #KG (K-3IIIm)
         },
     },
     0x0050 => { #PH
@@ -5120,52 +5142,52 @@ my %binaryDataAttrs = (
         PrintConv => { 0 => 'Off', 1 => 'Short', 2 => 'Medium', 3 => 'Long' },
     },
     0x021f => { #KG
-          Name => 'FirstFrameActionInAFC',
-          Condition => '$$self{Model} =~ /K-3 Mark III/',
-          PrintConv => {
-              '0'   => 'Auto',
-              '1'   => 'Release Priority',
-              '2'   => 'Focus Priority',
-              # there is at least another value '3' but I couldn't figure out the
-              # meaning. However, this occurs for a few AF-S captures, so it has
-              # no real practical meaning.
-          },
+        Name => 'FirstFrameActionInAFC',
+        Condition => '$$self{Model} =~ /K-3 Mark III/',
+        PrintConv => {
+            '0'   => 'Auto',
+            '1'   => 'Release Priority',
+            '2'   => 'Focus Priority',
+            # there is at least another value '3' but I couldn't figure out the
+            # meaning. However, this occurs for a few AF-S captures, so it has
+            # no real practical meaning.
+        },
     },
     0x0220 => { #KG
-          Name => 'ActionInAFCCont',
-          Condition => '$$self{Model} =~ /K-3 Mark III/',
-          PrintConv => {
-              '0'   => 'Auto',
-              '1'   => 'Focus Priority',
-              '2'   => 'FPS Priority',
-          },
+        Name => 'ActionInAFCCont',
+        Condition => '$$self{Model} =~ /K-3 Mark III/',
+        PrintConv => {
+            '0'   => 'Auto',
+            '1'   => 'Focus Priority',
+            '2'   => 'FPS Priority',
+        },
     },
     545 => { #KG
-          Name => 'AFCHold',
-          Condition => '$$self{Model} =~ /K-3 Mark III/',
-          Mask => 0x03,
-          PrintConv => { 0 => 'Low', 1 => 'Medium', 2 => 'High', 3 => 'Off' },
+        Name => 'AFCHold',
+        Condition => '$$self{Model} =~ /K-3 Mark III/',
+        Mask => 0x03,
+        PrintConv => { 0 => 'Low', 1 => 'Medium', 2 => 'High', 3 => 'Off' },
     },
     545.1 => { #KG
-        Name => 'AFCSensitivity',
+        Name => 'AFCPointTracking',
         Condition => '$$self{Model} =~ /K-3 Mark III/',
         Mask => 0x0c,
+        PrintConv => { 0 => 'Type 1', 1 => 'Type 2', 2 => 'Type 3' },
+    },
+    545.2 => { #KG
+        Name => 'AFCSensitivity',
+        Condition => '$$self{Model} =~ /K-3 Mark III/',
+        Mask => 0x70,
         PrintConv => '5 - $val',
         PrintConvInv => '5 - $val',
     },
-    545.2 => { #KG
-        Name => 'AFCPointTracking',
-        Condition => '$$self{Model} =~ /K-3 Mark III/',
-        Mask => 0x70,
-        PrintConv => { 0 => 'Type 1', 1 => 'Type 2', 2 => 'Type 3' },
-    },
     0x0960 => { #KG
-          Name => 'SubjectRecognition',
-          Condition => '$$self{Model} =~ /K-3 Mark III/',
-          PrintConv => {
-              0 => 'Off',
-              1 => 'On',
-          },
+        Name => 'SubjectRecognition',
+        Condition => '$$self{Model} =~ /K-3 Mark III/',
+        PrintConv => {
+            0 => 'Off',
+            1 => 'On',
+        },
     },
 );
 
@@ -5855,8 +5877,8 @@ my %binaryDataAttrs = (
     %binaryDataAttrs,
     GROUPS => { 0 => 'MakerNotes', 2 => 'Camera' },
     FORMAT => 'int16u',
-    DATAMEMBER => [ 3 ],
-    NOTES => 'AF tags written by the K-3 Mark III, GR III and GR IIIx.',
+    DATAMEMBER => [ 2, 3 ],
+    NOTES => 'AF tags written by the K-3 Mark III, GR III, GR IIIx and GR IV.',
     0 => {
         Name => 'AFInfo',
         Format => 'int16u[$size/2]',
@@ -5901,6 +5923,10 @@ my %binaryDataAttrs = (
             0x200a => 'Contrast-detect Zone Select', # (GR III)
             0x200b => 'Contrast-detect Spot',
         },
+    },
+    2 => {
+        Name => 'MaxNumAFPoints',
+        RawConv => '$$self{MaxNumAFPoints} = $val',
     },
     3 => {
         Name => 'NumAFPoints',
@@ -6899,7 +6925,7 @@ tags, and everyone who helped contribute to the LensType values.
 
 =head1 AUTHOR
 
-Copyright 2003-2025, Phil Harvey (philharvey66 at gmail.com)
+Copyright 2003-2026, Phil Harvey (philharvey66 at gmail.com)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

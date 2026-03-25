@@ -1304,8 +1304,9 @@ sub SetNewValuesFromFile($$;@)
                     IgnoreTags ImageHashType KeepUTCTime Lang LargeFileSupport
                     LigoGPSScale ListItem ListSep MDItemTags MissingTagValue NoPDFList
                     NoWarning Password PrintConv QuickTimeUTC RequestTags SaveFormat
-                    SavePath ScanForXMP StructFormat SystemTags TimeZone Unknown UserParam
-                    Validate WindowsLongPath WindowsWideFile XAttrTags XMPAutoConv))
+                    SavePath ScanForXMP StructFormat SystemTags SystemTimeRes TimeZone
+                    Unknown UserParam Validate WindowsLongPath WindowsWideFile XAttrTags
+                    XMPAutoConv))
         {
             $srcExifTool->Options($_ => $$options{$_});
         }
@@ -1352,7 +1353,8 @@ sub SetNewValuesFromFile($$;@)
         # get all tags from source file (including MakerNotes block)
         $info = $srcExifTool->ImageInfo($srcFile);
     }
-    return $info if $$info{Error} and $$info{Error} eq 'Error opening file';
+    # (allow processing to continue if we have alternate files that may have been read OK)
+    return $info if $$info{Error} and $$info{Error} eq 'Error opening file' and not $$self{ALT_EXIFTOOL};
     delete $$srcExifTool{VALUE}{Error}; # delete so we can check this later
 
     # sort tags in file order with priority tags last
@@ -2830,8 +2832,9 @@ sub GetAllGroups($;$)
     my %allGroups;
     # add family 1 groups not in tables
     no warnings; # (avoid "possible attempt to put comments in qw()")
+    # start with family 1 groups that are missing from the tables
     $family == 1 and map { $allGroups{$_} = 1 } qw(Garmin AudioItemList AudioUserData
-        VideoItemList VideoUserData Track#Keys Track#ItemList Track#UserData);
+        VideoItemList VideoUserData Track#Keys Track#ItemList Track#UserData KFIX);
     use warnings;
     # loop through all tag tables and get all group names
     while (@tableNames) {
@@ -3791,7 +3794,7 @@ sub GetGeolocateTags($$;$)
         'xmp-exif'      => [ qw(GPSLatitude GPSLongitude) ],
         'itemlist'      => [ 'GPSCoordinates' ],
         'userdata'      => [ 'GPSCoordinates' ],
-        # more general groups not in this lookup: XMP and QuickTime 
+        # more general groups not in this lookup: XMP and QuickTime
     );
     my (@tags, $grp);
     # set specific City and GPS tags
@@ -3844,7 +3847,9 @@ sub GetNewValueHash($$;$$$$)
             # QuickTime and All are special cases because all group1 tags may be updated at once
             last if $$nvHash{WriteGroup} =~ /^(QuickTime|All)$/;
             # replace existing entry if WriteGroup is 'All' (avoids confusion of forum10349)
-            last if $$tagInfo{WriteGroup} and $$tagInfo{WriteGroup} eq 'All';
+            #last if $$tagInfo{WriteGroup} and $$tagInfo{WriteGroup} eq 'All'; # (didn't work for forum17770)
+            # forum17770 patch (also handles case where "EXIF" is specified as a write group)
+            last if $writeGroup eq 'All' or $$nvHash{WriteGroup} eq 'EXIF' and $writeGroup =~ /IFD/;
             $nvHash = $$nvHash{Next};
         }
     }
@@ -7397,7 +7402,7 @@ used routines.
 
 =head1 AUTHOR
 
-Copyright 2003-2025, Phil Harvey (philharvey66 at gmail.com)
+Copyright 2003-2026, Phil Harvey (philharvey66 at gmail.com)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

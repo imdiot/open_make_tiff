@@ -116,7 +116,7 @@ my %componentDataDef = (
 # Note: The Binary flag is automatically set for all Unknown tags with unknown Type
 %Image::ExifTool::MXF::Main = (
     GROUPS => { 2 => 'Video' },
-    VARS => { NO_LOOKUP => 1, NO_ID => 1 }, # tag ID's are too bulky
+    VARS => { NO_LOOKUP => 1, ID_FMT => 'none' }, # tag ID's are too bulky
     NOTES => q{
         Tags extracted from Material Exchange Format files.  Tag ID's are not listed
         because they are bulky 16-byte binary values.
@@ -2987,7 +2987,7 @@ information from MXF (Material Exchange Format) files.
 
 =head1 AUTHOR
 
-Copyright 2003-2025, Phil Harvey (philharvey66 at gmail.com)
+Copyright 2003-2026, Phil Harvey (philharvey66 at gmail.com)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

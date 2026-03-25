@@ -345,7 +345,7 @@ sub ProcessProps($$$)
                 }
             }
             if (not defined $val) {
-                $val = ReadValue($dataPt, $pos, $fmt, $count, $size); 
+                $val = ReadValue($dataPt, $pos, $fmt, $count, $size);
                 if ($type == 0x06 or $type == 0x07 or $type == 0x0b or $type == 0x40) {
                     my @a = split ' ', $val;
                     if ($type == 0x06) {        # currency
@@ -377,7 +377,7 @@ sub ProcessProps($$$)
                 my $copy = $val;
                 $val = \$copy;  # change to a binary data reference
             }
-            $et->HandleTag($tagTbl, $tag, $val, 
+            $et->HandleTag($tagTbl, $tag, $val,
                 DataPt  => $dataPt,
                 DataPos => $dataPos,
                 Start   => $pos,
@@ -458,7 +458,7 @@ This module contains definitions required by Image::ExifTool to read TNEF
 
 =head1 AUTHOR
 
-Copyright 2003-2025, Phil Harvey (philharvey66 at gmail.com)
+Copyright 2003-2026, Phil Harvey (philharvey66 at gmail.com)
 
 This library is free software; you can redistribute it and/or modify it
 under the same terms as Perl itself.

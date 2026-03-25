@@ -8,11 +8,12 @@ import (
 )
 
 func EnableAdobeDNGConverter() bool {
-	_, err := os.Stat(GetAdobeDNGConverterExecutable())
-	if err == nil || !errors.Is(err, os.ErrNotExist) {
-		return true
+	path := GetAdobeDNGConverterExecutable()
+	if path == "" {
+		return false
 	}
-	return false
+	_, err := os.Stat(path)
+	return err == nil || !errors.Is(err, os.ErrNotExist)
 }
 
 func GetAdobeDNGConverterExecutable() string {

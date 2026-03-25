@@ -29,7 +29,7 @@ type WailsConfig struct {
 func main() {
 	var config WailsConfig
 	if err := json.Unmarshal(wailsConfigContext, &config); err != nil {
-		slog.Error("Error:", err.Error())
+		slog.Error("config parse failed", "err", err)
 		return
 	}
 
@@ -55,6 +55,6 @@ func main() {
 			mgr.Api(),
 		},
 	}); err != nil {
-		slog.Error("Error:", err.Error())
+		slog.Error("wails run failed", "err", err)
 	}
 }

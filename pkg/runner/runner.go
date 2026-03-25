@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -83,13 +84,17 @@ func (r *Runner) Run(ctx context.Context, src string) error {
 		tmpFilepathInitRaw = filepath.Join(dstDir, fmt.Sprintf("%s_%s.init", srcFilenameWithOutExt, token))
 		tmpFilepathInitTIFF = filepath.Join(dstDir, fmt.Sprintf("%s_%s.init.tiff", srcFilenameWithOutExt, token))
 		tmpFilepathTIFF = filepath.Join(dstDir, fmt.Sprintf("%s_%s.tiff", srcFilenameWithOutExt, token))
-		for _, f := range []string{tmpFilepathLog, tmpFilepathInitRaw, tmpFilepathInitTIFF, tmpFilepathTIFF} {
-			_, err = os.Stat(f)
-			if err == nil || !errors.Is(err, os.ErrNotExist) {
-				continue
-			}
+
+		conflict := slices.ContainsFunc(
+			[]string{tmpFilepathLog, tmpFilepathInitRaw, tmpFilepathInitTIFF, tmpFilepathTIFF},
+			func(f string) bool {
+				_, err := os.Stat(f)
+				return err == nil || !errors.Is(err, os.ErrNotExist)
+			},
+		)
+		if !conflict {
+			break
 		}
-		break
 	}
 
 	if err = os.MkdirAll(dstDir, 0755); err != nil {

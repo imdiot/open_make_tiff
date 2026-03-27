@@ -6,13 +6,16 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/google/uuid"
 
@@ -77,13 +80,22 @@ func (r *Runner) Run(ctx context.Context, src string) error {
 		}
 	}()
 
+	hasNonASCII := runtime.GOOS == "windows" && !isASCII(srcFilename)
+
 	for {
 		u := uuid.New()
 		token = hex.EncodeToString(u[:])
-		tmpFilepathLog = filepath.Join(dstDir, fmt.Sprintf("%s_%s.log", srcFilenameWithOutExt, token))
-		tmpFilepathInitRaw = filepath.Join(dstDir, fmt.Sprintf("%s_%s.init", srcFilenameWithOutExt, token))
-		tmpFilepathInitTIFF = filepath.Join(dstDir, fmt.Sprintf("%s_%s.init.tiff", srcFilenameWithOutExt, token))
-		tmpFilepathTIFF = filepath.Join(dstDir, fmt.Sprintf("%s_%s.tiff", srcFilenameWithOutExt, token))
+		if hasNonASCII {
+			tmpFilepathLog = filepath.Join(dstDir, fmt.Sprintf("omt_%s.log", token))
+			tmpFilepathInitRaw = filepath.Join(dstDir, fmt.Sprintf("omt_%s.init", token))
+			tmpFilepathInitTIFF = filepath.Join(dstDir, fmt.Sprintf("omt_%s.init.tiff", token))
+			tmpFilepathTIFF = filepath.Join(dstDir, fmt.Sprintf("omt_%s.tiff", token))
+		} else {
+			tmpFilepathLog = filepath.Join(dstDir, fmt.Sprintf("%s_%s.log", srcFilenameWithOutExt, token))
+			tmpFilepathInitRaw = filepath.Join(dstDir, fmt.Sprintf("%s_%s.init", srcFilenameWithOutExt, token))
+			tmpFilepathInitTIFF = filepath.Join(dstDir, fmt.Sprintf("%s_%s.init.tiff", srcFilenameWithOutExt, token))
+			tmpFilepathTIFF = filepath.Join(dstDir, fmt.Sprintf("%s_%s.tiff", srcFilenameWithOutExt, token))
+		}
 
 		conflict := slices.ContainsFunc(
 			[]string{tmpFilepathLog, tmpFilepathInitRaw, tmpFilepathInitTIFF, tmpFilepathTIFF},
@@ -149,6 +161,14 @@ func (r *Runner) Run(ctx context.Context, src string) error {
 			if err != nil {
 				r.logger.Warn(err.Error())
 				err = nil
+			}
+			rawFilepath = tmpFilepathInitRaw
+		} else if hasNonASCII {
+			now := time.Now()
+			err = r.copyFile(src, tmpFilepathInitRaw)
+			r.logger.Info("copy raw file", "time", time.Since(now).Seconds())
+			if err != nil {
+				return err
 			}
 			rawFilepath = tmpFilepathInitRaw
 		}
@@ -266,4 +286,30 @@ func (r *Runner) runCopyExifAndInsertIccProfile(ctx context.Context, src string,
 	cmd.Stdin = &stdin
 	cmd.SysProcAttr = util.GetSysProcAttr()
 	return cmd.Run()
+}
+
+func isASCII(s string) bool {
+	for _, r := range s {
+		if r > unicode.MaxASCII {
+			return false
+		}
+	}
+	return true
+}
+
+func (r *Runner) copyFile(src string, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	return err
 }

@@ -17,9 +17,76 @@ find_package(JPEG REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(expat CONFIG REQUIRED)
 
-# libjxl uses pkg-config
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(LIBJXL REQUIRED libjxl libjxl_threads)
+# libjxl - use CONFIG on Windows, PkgConfig on Unix
+if(WIN32)
+    # Manual find for vcpkg on Windows (libjxl doesn't provide CMake config)
+    # Use vcpkg's installed directory from _VCPKG_INSTALLED_DIR
+    if(DEFINED _VCPKG_INSTALLED_DIR)
+        set(VCPKG_INSTALLED "${_VCPKG_INSTALLED_DIR}")
+        set(VCPKG_TRIPLET "x64-windows-static-release")
+    else()
+        # Fallback to default vcpkg location
+        set(VCPKG_INSTALLED "$ENV{USERPROFILE}/vcpkg/installed")
+        set(VCPKG_TRIPLET "x64-windows-static-release")
+    endif()
+
+    set(VCPKG_INCLUDE "${VCPKG_INSTALLED}/${VCPKG_TRIPLET}/include")
+    set(VCPKG_LIB "${VCPKG_INSTALLED}/${VCPKG_TRIPLET}/lib")
+
+    find_path(JXL_INCLUDE_DIR NAMES jxl/decode.h
+        PATHS "${VCPKG_INCLUDE}"
+        NO_DEFAULT_PATH
+    )
+    find_library(JXL_LIB NAMES jxl
+        PATHS "${VCPKG_LIB}"
+        NO_DEFAULT_PATH
+    )
+    find_library(JXL_THREADS_LIB NAMES jxl_threads
+        PATHS "${VCPKG_LIB}"
+        NO_DEFAULT_PATH
+    )
+    find_library(JXL_CMS_LIB NAMES jxl_cms
+        PATHS "${VCPKG_LIB}"
+        NO_DEFAULT_PATH
+    )
+    find_library(HWY_LIB NAMES hwy
+        PATHS "${VCPKG_LIB}"
+        NO_DEFAULT_PATH
+    )
+    find_library(BROTLIENC_LIB NAMES brotlienc
+        PATHS "${VCPKG_LIB}"
+        NO_DEFAULT_PATH
+    )
+    find_library(BROTLIDEC_LIB NAMES brotlidec
+        PATHS "${VCPKG_LIB}"
+        NO_DEFAULT_PATH
+    )
+    find_library(BROTLICOMMON_LIB NAMES brotlicommon
+        PATHS "${VCPKG_LIB}"
+        NO_DEFAULT_PATH
+    )
+
+    if(NOT JXL_LIB OR NOT JXL_THREADS_LIB)
+        message(FATAL_ERROR "libjxl not found. Searched in: ${VCPKG_LIB}")
+    endif()
+
+    if(NOT JXL_INCLUDE_DIR)
+        message(FATAL_ERROR "libjxl headers not found. Searched in: ${VCPKG_INCLUDE}")
+    endif()
+
+    set(LIBJXL_INCLUDE_DIRS "${JXL_INCLUDE_DIR}")
+    set(LIBJXL_LIBRARY_DIRS "${VCPKG_LIB}")
+    set(JXL_LIB_PATH "${JXL_LIB}")
+    set(JXL_THREADS_LIB_PATH "${JXL_THREADS_LIB}")
+    set(JXL_CMS_LIB_PATH "${JXL_CMS_LIB}")
+    set(HWY_LIB_PATH "${HWY_LIB}")
+    set(BROTLIENC_LIB_PATH "${BROTLIENC_LIB}")
+    set(BROTLIDEC_LIB_PATH "${BROTLIDEC_LIB}")
+    set(BROTLICOMMON_LIB_PATH "${BROTLICOMMON_LIB}")
+else()
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(LIBJXL REQUIRED libjxl libjxl_threads)
+endif()
 
 # Find the actual library files using absolute paths
 find_library(JXL_LIB_PATH NAMES jxl PATHS ${LIBJXL_LIBRARY_DIRS} NO_DEFAULT_PATH)
@@ -45,6 +112,9 @@ elseif(WIN32)
     add_compile_definitions(
         qMacOS=0 qWinOS=1 qLinux=0
         WIN_ENV=1 XMP_WinBuild=1
+        NOMINMAX=1  # Prevent Windows min/max macro conflicts
+        UNICODE=0   # Disable Unicode to use ANSI APIs
+        _UNICODE=0  # Disable Unicode to use ANSI APIs
     )
 else()
     add_compile_definitions(
@@ -110,6 +180,7 @@ file(GLOB XMP_TOOLKIT_SOURCES
 # Exclude platform-specific files
 if(WIN32)
     list(FILTER XMP_TOOLKIT_SOURCES EXCLUDE REGEX ".*-Unix\\.cpp$")
+    list(FILTER XMP_TOOLKIT_SOURCES EXCLUDE REGEX ".*-POSIX\\.cpp$")
     list(FILTER XMP_TOOLKIT_SOURCES EXCLUDE REGEX ".*-Mac\\.cpp$")
 elseif(APPLE)
     list(FILTER XMP_TOOLKIT_SOURCES EXCLUDE REGEX ".*-Win\\.cpp$")
@@ -182,7 +253,7 @@ if(APPLE)
 elseif(WIN32)
     target_link_libraries(xmp PUBLIC
         ole32.lib
-        shells32.lib
+        shell32.lib
     )
 endif()
 
@@ -234,10 +305,13 @@ target_link_libraries(dng
         ${BROTLIENC_LIB_PATH}
         ${BROTLIDEC_LIB_PATH}
         ${BROTLICOMMON_LIB_PATH}
-        m
-        c++
         ZLIB::ZLIB
 )
+
+# Unix-specific libraries
+if(UNIX)
+    target_link_libraries(dng PUBLIC m c++)
+endif()
 
 target_include_directories(dng PRIVATE ${LIBJXL_INCLUDE_DIRS})
 

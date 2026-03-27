@@ -1,5 +1,7 @@
 .PHONY: build-mac build-windows dev clean \
-        vcpkg-install vcpkg-install-arm64 vcpkg-install-x64 vcpkg-install-universal \
+        vcpkg-install vcpkg-install-macos-arm64 vcpkg-install-macos-x64 vcpkg-install-macos-universal \
+        vcpkg-install-windows vcpkg-clean-windows vcpkg-rebuild-windows \
+        vcpkg-clean-macos vcpkg-rebuild-macos \
         vcpkg-clean vcpkg-rebuild
 
 build-mac:
@@ -16,34 +18,48 @@ clean:
 
 
 # Vcpkg configuration
+# On Windows, prefer USERPROFILE; on Unix, use HOME
+ifeq ($(OS),Windows_NT)
+VCPKG_ROOT ?= $(USERPROFILE)/vcpkg
+else
 VCPKG_ROOT ?= $(HOME)/vcpkg
+endif
+
 VCPKG = $(VCPKG_ROOT)/vcpkg
+ifeq ($(OS),Windows_NT)
+VCPKG = $(VCPKG_ROOT)/vcpkg.exe
+endif
 OVERLAY_PORTS = third-party/vcpkg/ports
 VCPKG_INSTALLED = $(VCPKG_ROOT)/installed
 OUTPUT_DIR = third-party/macos-universal
 
 # Vcpkg build targets
-# Install all dependencies (universal)
-vcpkg-install: vcpkg-install-universal
+# Install all dependencies (platform auto-detect)
+vcpkg-install:
+ifeq ($(OS),Windows_NT)
+	$(MAKE) vcpkg-install-windows
+else
+	$(MAKE) vcpkg-install-macos-universal
+endif
 
-# ARM64 only
-vcpkg-install-arm64:
+# macOS ARM64 only
+vcpkg-install-macos-arm64:
 	$(VCPKG) install \
 		libraw[6by9rpi,dng-lossy,dngsdk,rawspeed,x3ftools] \
 		tiff[cxx,jpeg,lerc,libdeflate,lzma,tools,webp,zip,zstd] \
 		--overlay-ports=$(OVERLAY_PORTS) \
 		--triplet=arm64-osx-release
 
-# x64 only
-vcpkg-install-x64:
+# macOS x64 only
+vcpkg-install-macos-x64:
 	$(VCPKG) install \
 		libraw[6by9rpi,dng-lossy,dngsdk,rawspeed,x3ftools] \
 		tiff[cxx,jpeg,lerc,libdeflate,lzma,tools,webp,zip,zstd] \
 		--overlay-ports=$(OVERLAY_PORTS) \
 		--triplet=x64-osx-release
 
-# Merge universal binaries
-vcpkg-install-universal: vcpkg-install-arm64 vcpkg-install-x64
+# Merge macOS universal binaries
+vcpkg-install-macos-universal: vcpkg-install-macos-arm64 vcpkg-install-macos-x64
 	@echo "Merging dcraw_emu..."
 	@if [ -f "$(VCPKG_INSTALLED)/arm64-osx-release/bin/dcraw_emu" ] && [ -f "$(VCPKG_INSTALLED)/x64-osx-release/bin/dcraw_emu" ]; then \
 		lipo -create \
@@ -71,11 +87,47 @@ vcpkg-install-universal: vcpkg-install-arm64 vcpkg-install-x64
 		echo "tiffcp (arm64 only) copied to: $(OUTPUT_DIR)/tiffcp"; \
 	fi
 
-# Clean vcpkg build artifacts
+# Clean vcpkg build artifacts (platform auto-detect)
 vcpkg-clean:
+ifeq ($(OS),Windows_NT)
+	$(MAKE) vcpkg-clean-windows
+else
+	$(MAKE) vcpkg-clean-macos
+endif
+
+# Clean macOS build artifacts
+vcpkg-clean-macos:
 	$(VCPKG) remove libraw tiff --triplet=arm64-osx-release-release
 	$(VCPKG) remove libraw tiff --triplet=x64-osx-release
 	rm -f $(OUTPUT_DIR)/dcraw_emu $(OUTPUT_DIR)/tiffcp
 
-# Rebuild
-vcpkg-rebuild: vcpkg-clean vcpkg-install
+# Rebuild (platform auto-detect)
+vcpkg-rebuild:
+ifeq ($(OS),Windows_NT)
+	$(MAKE) vcpkg-rebuild-windows
+else
+	$(MAKE) vcpkg-rebuild-macos
+endif
+
+# Rebuild macOS
+vcpkg-rebuild-macos: vcpkg-clean-macos vcpkg-install
+
+# Windows vcpkg build targets (静态链接)
+vcpkg-install-windows:
+	$(VCPKG) install \
+		libraw[6by9rpi,dng-lossy,dngsdk,rawspeed,x3ftools] \
+		tiff[cxx,jpeg,lerc,libdeflate,lzma,tools,webp,zip,zstd] \
+		--overlay-ports=$(OVERLAY_PORTS) \
+		--triplet=x64-windows-static-release \
+		--recurse
+	@echo "Copying Windows static binaries..."
+	@powershell -Command "Copy-Item '$(VCPKG_INSTALLED)/x64-windows-static-release/bin/dcraw_emu.exe' -Destination 'third-party/windows-x64/' -ErrorAction SilentlyContinue"
+	@powershell -Command "Copy-Item '$(VCPKG_INSTALLED)/x64-windows-static-release/tools/tiff/tiffcp.exe' -Destination 'third-party/windows-x64/' -ErrorAction SilentlyContinue"
+	@echo "Static binaries copied (no DLL dependencies)"
+
+vcpkg-clean-windows:
+	$(VCPKG) remove libraw tiff --triplet=x64-windows-static-release --recurse
+	@powershell -Command "Remove-Item 'third-party/windows-x64/dcraw_emu.exe' -ErrorAction SilentlyContinue"
+	@powershell -Command "Remove-Item 'third-party/windows-x64/tiffcp.exe' -ErrorAction SilentlyContinue"
+
+vcpkg-rebuild-windows: vcpkg-clean-windows vcpkg-install-windows

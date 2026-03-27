@@ -1,0 +1,13 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+
+find_dependency(JPEG)
+find_dependency(PkgConfig)
+pkg_check_modules(LIBJXL REQUIRED libjxl libjxl_threads)
+find_dependency(ZLIB)
+find_dependency(expat CONFIG)
+
+include("${CMAKE_CURRENT_LIST_DIR}/adobe-dng-sdkTargets.cmake")
+
+check_required_components(adobe-dng-sdk)

@@ -17,6 +17,7 @@ vcpkg_from_github(
     HEAD_REF master
     PATCHES
         dependencies.patch
+        dngsdk-support.patch
         # Move the non-thread-safe library to manual-link. This is unfortunately needed
         # because otherwise libraries that build on top of libraw have to choose.
         fix-install.patch
@@ -31,6 +32,10 @@ vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
         openmp      ENABLE_OPENMP
         openmp      CMAKE_REQUIRE_FIND_PACKAGE_OpenMP
         dng-lossy   CMAKE_REQUIRE_FIND_PACKAGE_JPEG
+        dngsdk      ENABLE_DNGSDK
+        rawspeed   ENABLE_RAWSPEED
+        x3ftools   ENABLE_X3FTOOLS
+        6by9rpi    ENABLE_6BY9RPI
 )
 
 vcpkg_cmake_configure(

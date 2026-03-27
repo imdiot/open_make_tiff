@@ -1,0 +1,29 @@
+{
+  "name": "adobe-dng-sdk",
+  "version": "1.7.1",
+  "port-version": 0,
+  "description": "Adobe DNG SDK for reading and writing DNG (Digital Negative) files",
+  "homepage": "https://helpx.adobe.com/camera-raw/digital-negative.html",
+  "license": null,
+  "supports": "!uwp & !xbox",
+  "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    },
+    "libjpeg-turbo",
+    "libjxl",
+    "zlib",
+    "expat"
+  ],
+  "features": {
+    "tools": {
+      "description": "Build dng_validate command-line tool",
+      "supports": "!uwp"
+    }
+  }
+}

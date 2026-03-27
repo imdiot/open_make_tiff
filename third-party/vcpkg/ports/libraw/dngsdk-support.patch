@@ -1,0 +1,61 @@
+--- CMakeLists.txt	2024-04-15 14:52:22
++++ CMakeLists.txt	2026-03-27 15:21:30
+@@ -76,7 +76,10 @@
+ message(STATUS "LibRaw ID version:     ${RAW_LIB_VERSION_ID}")
+ message(STATUS "LibRaw SO version:     ${RAW_LIB_SO_VERSION_STRING}")
+ 
+-project(libraw VERSION ${RAW_LIB_VERSION_STRING} LANGUAGES CXX)
++project(libraw VERSION ${RAW_LIB_VERSION_STRING} LANGUAGES C CXX)
++set(CMAKE_CXX_STANDARD 11)
++set(CMAKE_CXX_STANDARD_REQUIRED ON)
++set(CMAKE_CXX_EXTENSIONS OFF)
+ 
+ # ==================================================================================================
+ # Project Options
+@@ -86,6 +89,7 @@
+ option(ENABLE_JASPER               "Build library with libjasper support            (default=ON)"                 ON)
+ option(ENABLE_EXAMPLES             "Build library with sample command-line programs (default=ON)"    ${MASTER_PROJECT})
+ option(ENABLE_RAWSPEED             "Build library with extra RawSpeed codec support (default=OFF)"                OFF)
++option(ENABLE_DNGSDK               "Build library with Adobe DNG SDK support        (default=OFF)"                OFF)
+ option(ENABLE_DCRAW_DEBUG          "Build library with debug message from dcraw     (default=OFF)"                OFF)
+ option(ENABLE_X3FTOOLS             "Build library with Foveon X3F support           (default=OFF)"                OFF)
+ option(ENABLE_6BY9RPI              "Build library with Raspberry Pi RAW support     (default=OFF)"                OFF)
+@@ -235,6 +239,16 @@
+ 
+ # For registration to libraw_config.h
+ MACRO_BOOL_TO_01(JASPER_SUPPORT_CAN_BE_COMPILED LIBRAW_USE_REDCINECODEC)
++
++# Adobe DNG SDK support
++if(ENABLE_DNGSDK)
++    if(NOT TARGET adobe::dng)
++        find_package(adobe-dng-sdk CONFIG REQUIRED)
++    endif()
++    add_definitions(-DUSE_DNGSDK)
++    set(DNGSDK_SUPPORT_CAN_BE_COMPILED true)
++endif()
++MACRO_BOOL_TO_01(DNGSDK_SUPPORT_CAN_BE_COMPILED LIBRAW_USE_DNGSDK)
+ 
+ # For RawSpeed Codec Support
+ 
+@@ -521,6 +535,10 @@
+     target_link_libraries(raw PUBLIC ${JASPER_LIBRARIES})
+ endif()
+ 
++if(DNGSDK_SUPPORT_CAN_BE_COMPILED)
++    target_link_libraries(raw PUBLIC adobe::dng)
++endif()
++
+ if(RAWSPEED_SUPPORT_CAN_BE_COMPILED)
+     target_link_libraries(raw PUBLIC ${LIBXML2_LIBRARIES})
+ endif()
+@@ -588,6 +606,10 @@
+     target_link_libraries(raw_r PUBLIC ${JASPER_LIBRARIES})
+ endif()
+ 
++if(DNGSDK_SUPPORT_CAN_BE_COMPILED)
++    target_link_libraries(raw_r PUBLIC adobe::dng)
++endif()
++
+ if(RAWSPEED_SUPPORT_CAN_BE_COMPILED)
+     target_link_libraries(raw_r PUBLIC ${LIBXML2_LIBRARIES} Threads::Threads)
+ endif()

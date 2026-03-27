@@ -33,8 +33,30 @@
         }
       ]
     },
+    "dngsdk": {
+      "description": "Adobe DNG SDK integration for enhanced DNG support",
+      "dependencies": [
+        {"name": "adobe-dng-sdk"},
+        {
+          "name": "libjpeg-turbo",
+          "features": ["jpeg8"]
+        }
+      ]
+    },
     "openmp": {
       "description": "Build library with OpenMP support"
+    },
+    "rawspeed": {
+      "description": "Build library with extra RawSpeed codec support",
+      "dependencies": [
+        "libxml2"
+      ]
+    },
+    "x3ftools": {
+      "description": "Build library with Foveon X3F support"
+    },
+    "6by9rpi": {
+      "description": "Build library with Raspberry Pi RAW support"
     }
   }
 }

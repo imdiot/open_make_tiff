@@ -97,7 +97,7 @@ endif
 
 # Clean macOS build artifacts
 vcpkg-clean-macos:
-	$(VCPKG) remove libraw tiff --triplet=arm64-osx-release-release
+	$(VCPKG) remove libraw tiff --triplet=arm64-osx-release
 	$(VCPKG) remove libraw tiff --triplet=x64-osx-release
 	rm -f $(OUTPUT_DIR)/dcraw_emu $(OUTPUT_DIR)/tiffcp
 

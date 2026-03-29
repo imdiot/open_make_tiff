@@ -36,6 +36,19 @@ const setting = reactive({
 const textarea = ref(DEFAULT_MESSAGE);
 const textareaRef = ref(null);
 const running = ref(false);
+const fileStates = ref([]);
+
+const updateTextarea = () => {
+  const symbols = {
+    processing: "→ ",
+    success: "✓ ",
+    skipped: "⊘ ",
+    error: "✗ ",
+  };
+  textarea.value = fileStates.value
+    .map(f => `${symbols[f.state]}${f.path}`)
+    .join("\n") + "\n";
+};
 
 vue.onMounted(async () => {
   const config_ = await api.GetConfig();
@@ -67,6 +80,7 @@ vue.onMounted(async () => {
 
   runtime.EventsOn("omt:convert:started", () => {
     running.value = true;
+    fileStates.value = [];
     textarea.value = PROCESSING_MESSAGE + "\n";
   });
 
@@ -77,7 +91,26 @@ vue.onMounted(async () => {
   });
 
   runtime.EventsOn("omt:convert:file:started", (path) => {
-    textarea.value += path + "\n";
+    fileStates.value.push({ path, state: "processing" });
+    updateTextarea();
+  });
+
+  runtime.EventsOn("omt:convert:file:success", (path) => {
+    const item = fileStates.value.find(f => f.path === path);
+    if (item) item.state = "success";
+    updateTextarea();
+  });
+
+  runtime.EventsOn("omt:convert:file:skipped", (path) => {
+    const item = fileStates.value.find(f => f.path === path);
+    if (item) item.state = "skipped";
+    updateTextarea();
+  });
+
+  runtime.EventsOn("omt:convert:file:error", (path) => {
+    const item = fileStates.value.find(f => f.path === path);
+    if (item) item.state = "error";
+    updateTextarea();
   });
 })
 
@@ -85,6 +118,9 @@ vue.onUnmounted(() => {
   runtime.EventsOff("omt:convert:started");
   runtime.EventsOff("omt:convert:finished");
   runtime.EventsOff("omt:convert:file:started");
+  runtime.EventsOff("omt:convert:file:success");
+  runtime.EventsOff("omt:convert:file:skipped");
+  runtime.EventsOff("omt:convert:file:error");
 });
 
 vue.watch(textarea, () => {

@@ -23,6 +23,8 @@ import (
 	"open-make-tiff/pkg/util"
 )
 
+var ErrDstFileExists = errors.New("destination file already exists")
+
 type Config struct {
 	EnableAdobeDNGConverter bool
 	EnableSubfolder         bool
@@ -60,13 +62,17 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	ext := filepath.Ext(srcPath)
 	base := name[:len(name)-len(ext)]
 
+	dstPath := filepath.Join(dstDir, fmt.Sprintf("%s.tiff", base))
+	if _, err := os.Stat(dstPath); err == nil {
+		return fmt.Errorf("%w: %s", ErrDstFileExists, dstPath)
+	}
+
 	var (
 		token         string
 		logPath       string
 		dngIntPath    string
 		tiffIntPath   string
 		tiffFinalPath string
-		dstPath       string
 	)
 
 	defer func() {
@@ -85,15 +91,16 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	for {
 		u := uuid.New()
 		token = hex.EncodeToString(u[:])
+
 		if hasNonASCII {
 			logPath = filepath.Join(dstDir, fmt.Sprintf("omt_%s.log", token))
-			dngIntPath = filepath.Join(dstDir, fmt.Sprintf("omt_%s.init", token))
-			tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("omt_%s.init.tiff", token))
+			dngIntPath = filepath.Join(dstDir, fmt.Sprintf("omt_%s.int.dng", token))
+			tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("omt_%s.int.tiff", token))
 			tiffFinalPath = filepath.Join(dstDir, fmt.Sprintf("omt_%s.tiff", token))
 		} else {
 			logPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.log", base, token))
-			dngIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.init", base, token))
-			tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.init.tiff", base, token))
+			dngIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.dng", base, token))
+			tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.tiff", base, token))
 			tiffFinalPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.tiff", base, token))
 		}
 
@@ -128,18 +135,6 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	}()
 	r.logger = slog.New(slog.NewTextHandler(f, nil))
 
-	dstBase := base
-	for i := 0; ; i++ {
-		if i != 0 {
-			dstBase = fmt.Sprintf("%s_%d", base, i)
-		}
-		dstPath = filepath.Join(dstDir, fmt.Sprintf("%s.tiff", dstBase))
-		_, err = os.Stat(dstPath)
-		if err == nil || !errors.Is(err, os.ErrNotExist) {
-			continue
-		}
-		break
-	}
 	r.logger.Info("src", "path", srcPath)
 	r.logger.Info("dst tiff", "path", dstPath)
 	r.logger.Info("dng int", "path", dngIntPath)

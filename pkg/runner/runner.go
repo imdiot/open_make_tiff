@@ -77,7 +77,8 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	var (
 		token         string
 		logPath       string
-		dngIntPath    string
+		dngIntPath    string  // 中间非插值 DNG（第一阶段输出）
+		dngLinearPath string  // 线性 DNG（第二阶段输出）
 		tiffIntPath   string
 		tiffFinalPath string
 	)
@@ -99,17 +100,14 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		u := uuid.New()
 		token = hex.EncodeToString(u[:])
 
+		prefix := base
 		if hasNonASCII {
-			logPath = filepath.Join(dstDir, fmt.Sprintf("omt_%s.log", token))
-			dngIntPath = filepath.Join(dstDir, fmt.Sprintf("omt_%s.int.dng", token))
-			tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("omt_%s.int.tiff", token))
-			tiffFinalPath = filepath.Join(dstDir, fmt.Sprintf("omt_%s.tiff", token))
-		} else {
-			logPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.log", base, token))
-			dngIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.dng", base, token))
-			tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.tiff", base, token))
-			tiffFinalPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.tiff", base, token))
+			prefix = "omt"
 		}
+		logPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.log", prefix, token))
+		dngIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.dng", prefix, token))
+		tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.tiff", prefix, token))
+		tiffFinalPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.tiff", prefix, token))
 
 		conflict := slices.ContainsFunc(
 			[]string{logPath, dngIntPath, tiffIntPath, tiffFinalPath},

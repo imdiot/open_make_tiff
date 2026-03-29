@@ -44,61 +44,61 @@ func New(cfg Config) *Runner {
 	}
 }
 
-func (r *Runner) Run(ctx context.Context, src string) error {
+func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	var err error
-	src, err = filepath.Abs(src)
+	srcPath, err = filepath.Abs(srcPath)
 	if err != nil {
 		return err
 	}
 
-	srcDir := filepath.Dir(src)
+	srcDir := filepath.Dir(srcPath)
 	dstDir := srcDir
 	if r.cfg.EnableSubfolder {
 		dstDir = filepath.Join(dstDir, "make_tiff")
 	}
-	srcFileExt := filepath.Ext(src)
-	srcFilename := filepath.Base(src)
-	srcFilenameWithOutExt := srcFilename[:len(srcFilename)-len(srcFileExt)]
+	name := filepath.Base(srcPath)
+	ext := filepath.Ext(srcPath)
+	base := name[:len(name)-len(ext)]
 
 	var (
-		token               string
-		tmpFilepathLog      string
-		tmpFilepathInitRaw  string
-		tmpFilepathInitTIFF string
-		tmpFilepathTIFF     string
-		dstFilepathTIFF     string
+		token         string
+		logPath       string
+		dngIntPath    string
+		tiffIntPath   string
+		tiffFinalPath string
+		dstPath       string
 	)
 
 	defer func() {
-		for _, f := range []string{tmpFilepathInitRaw, tmpFilepathInitTIFF, tmpFilepathTIFF} {
+		for _, f := range []string{dngIntPath, tiffIntPath, tiffFinalPath} {
 			if f != "" {
 				_ = os.Remove(f)
 			}
 		}
 		if err != nil {
-			_ = os.Remove(dstFilepathTIFF)
+			_ = os.Remove(dstPath)
 		}
 	}()
 
-	hasNonASCII := runtime.GOOS == "windows" && !isASCII(srcFilename)
+	hasNonASCII := runtime.GOOS == "windows" && !isASCII(name)
 
 	for {
 		u := uuid.New()
 		token = hex.EncodeToString(u[:])
 		if hasNonASCII {
-			tmpFilepathLog = filepath.Join(dstDir, fmt.Sprintf("omt_%s.log", token))
-			tmpFilepathInitRaw = filepath.Join(dstDir, fmt.Sprintf("omt_%s.init", token))
-			tmpFilepathInitTIFF = filepath.Join(dstDir, fmt.Sprintf("omt_%s.init.tiff", token))
-			tmpFilepathTIFF = filepath.Join(dstDir, fmt.Sprintf("omt_%s.tiff", token))
+			logPath = filepath.Join(dstDir, fmt.Sprintf("omt_%s.log", token))
+			dngIntPath = filepath.Join(dstDir, fmt.Sprintf("omt_%s.init", token))
+			tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("omt_%s.init.tiff", token))
+			tiffFinalPath = filepath.Join(dstDir, fmt.Sprintf("omt_%s.tiff", token))
 		} else {
-			tmpFilepathLog = filepath.Join(dstDir, fmt.Sprintf("%s_%s.log", srcFilenameWithOutExt, token))
-			tmpFilepathInitRaw = filepath.Join(dstDir, fmt.Sprintf("%s_%s.init", srcFilenameWithOutExt, token))
-			tmpFilepathInitTIFF = filepath.Join(dstDir, fmt.Sprintf("%s_%s.init.tiff", srcFilenameWithOutExt, token))
-			tmpFilepathTIFF = filepath.Join(dstDir, fmt.Sprintf("%s_%s.tiff", srcFilenameWithOutExt, token))
+			logPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.log", base, token))
+			dngIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.init", base, token))
+			tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.init.tiff", base, token))
+			tiffFinalPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.tiff", base, token))
 		}
 
 		conflict := slices.ContainsFunc(
-			[]string{tmpFilepathLog, tmpFilepathInitRaw, tmpFilepathInitTIFF, tmpFilepathTIFF},
+			[]string{logPath, dngIntPath, tiffIntPath, tiffFinalPath},
 			func(f string) bool {
 				_, err := os.Stat(f)
 				return err == nil || !errors.Is(err, os.ErrNotExist)
@@ -113,7 +113,7 @@ func (r *Runner) Run(ctx context.Context, src string) error {
 		return err
 	}
 
-	f, err := os.Create(tmpFilepathLog)
+	f, err := os.Create(logPath)
 	if err != nil {
 		return err
 	}
@@ -123,78 +123,79 @@ func (r *Runner) Run(ctx context.Context, src string) error {
 		}
 		_ = f.Close()
 		if err == nil && !r.cfg.DisableRemoveLog {
-			_ = os.Remove(tmpFilepathLog)
+			_ = os.Remove(logPath)
 		}
 	}()
 	r.logger = slog.New(slog.NewTextHandler(f, nil))
 
-	dstFilenameWithOutExt := srcFilenameWithOutExt
+	dstBase := base
 	for i := 0; ; i++ {
 		if i != 0 {
-			dstFilenameWithOutExt = fmt.Sprintf("%s_%d", srcFilenameWithOutExt, i)
+			dstBase = fmt.Sprintf("%s_%d", base, i)
 		}
-		dstFilepathTIFF = filepath.Join(dstDir, fmt.Sprintf("%s.tiff", dstFilenameWithOutExt))
-		_, err = os.Stat(dstFilepathTIFF)
+		dstPath = filepath.Join(dstDir, fmt.Sprintf("%s.tiff", dstBase))
+		_, err = os.Stat(dstPath)
 		if err == nil || !errors.Is(err, os.ErrNotExist) {
 			continue
 		}
 		break
 	}
-	r.logger.Info("src", "filepath", src)
-	r.logger.Info("dst tiff", "filepath", dstFilepathTIFF)
-	r.logger.Info("tmp init raw", "filepath", tmpFilepathInitRaw)
-	r.logger.Info("tmf tiff", "filepath", tmpFilepathInitTIFF)
+	r.logger.Info("src", "path", srcPath)
+	r.logger.Info("dst tiff", "path", dstPath)
+	r.logger.Info("dng int", "path", dngIntPath)
+	r.logger.Info("tiff int", "path", tiffIntPath)
+	r.logger.Info("tiff final", "path", tiffFinalPath)
 
-	if strings.ToLower(srcFileExt) == ".fff" {
+	if strings.ToLower(ext) == ".fff" {
 		now := time.Now()
-		err = r.runTiffcp(ctx, src, tmpFilepathTIFF)
+		err = r.runTiffcp(ctx, srcPath, tiffIntPath)
 		r.logger.Info("runTiffcp", "time", time.Since(now).Seconds())
 		if err != nil {
 			return err
 		}
 	} else {
-		rawFilepath := src
+		rawPath := srcPath
 		if r.cfg.EnableAdobeDNGConverter && util.EnableAdobeDNGConverter() {
 			now := time.Now()
-			err = r.runAdobeDNGConverter(ctx, src, tmpFilepathInitRaw)
+			err = r.runAdobeDNGConverter(ctx, srcPath, dngIntPath)
 			r.logger.Info("runAdobeDNGConverter", "time", time.Since(now).Seconds())
 			if err != nil {
 				r.logger.Warn(err.Error())
 				err = nil
 			}
-			rawFilepath = tmpFilepathInitRaw
+			rawPath = dngIntPath
 		} else if hasNonASCII {
 			now := time.Now()
-			err = r.copyFile(src, tmpFilepathInitRaw)
+			err = r.copyFile(srcPath, dngIntPath)
 			r.logger.Info("copy raw file", "time", time.Since(now).Seconds())
 			if err != nil {
 				return err
 			}
-			rawFilepath = tmpFilepathInitRaw
+			rawPath = dngIntPath
 		}
 
 		now := time.Now()
-		if err = r.runDcrawEmuConvert(ctx, rawFilepath, tmpFilepathInitTIFF); err != nil {
+		if err = r.runDcrawEmuConvert(ctx, rawPath, tiffIntPath); err != nil {
 			return err
 		}
 		r.logger.Info("runDcrawEmuConvert", "time", time.Since(now).Seconds())
-		_ = os.Remove(tmpFilepathInitRaw)
+		_ = os.Remove(dngIntPath)
 
 		now = time.Now()
-		if err = r.runTiffcp(ctx, tmpFilepathInitTIFF, tmpFilepathTIFF); err != nil {
+		if err = r.runTiffcp(ctx, tiffIntPath, tiffFinalPath); err != nil {
 			return err
 		}
 		r.logger.Info("runTiffcp", "time", time.Since(now).Seconds())
-		_ = os.Remove(tmpFilepathInitTIFF)
+		_ = os.Remove(tiffIntPath)
 	}
 
 	now := time.Now()
-	if err = r.runCopyExifAndInsertIccProfile(ctx, src, tmpFilepathTIFF, r.cfg.Profile); err != nil {
+	if err = r.runCopyExifAndInsertIccProfile(ctx, srcPath, tiffFinalPath, r.cfg.Profile); err != nil {
 		return err
 	}
 	r.logger.Info("runCopyExifAndInsertIccProfile", "time", time.Since(now).Seconds())
 
-	if err = os.Rename(tmpFilepathTIFF, dstFilepathTIFF); err != nil {
+	if err = os.Rename(tiffFinalPath, dstPath); err != nil {
 		return err
 	}
 

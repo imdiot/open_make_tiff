@@ -67,6 +67,10 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		return fmt.Errorf("%w: %s", ErrDstFileExists, dstPath)
 	}
 
+	if err = os.MkdirAll(dstDir, 0755); err != nil {
+		return err
+	}
+
 	var (
 		token         string
 		logPath       string
@@ -114,10 +118,6 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		if !conflict {
 			break
 		}
-	}
-
-	if err = os.MkdirAll(dstDir, 0755); err != nil {
-		return err
 	}
 
 	f, err := os.Create(logPath)

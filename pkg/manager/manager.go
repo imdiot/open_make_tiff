@@ -245,7 +245,14 @@ func (m *Manager) Convert(paths []string) {
 						Profile:                 cfg.ICCProfile,
 						DisableRemoveLog:        false,
 					}).Run(m.ctx, path); err != nil {
-						slog.Warn("convert", "error", err)
+						if errors.Is(err, runner.ErrDstFileExists) {
+							wails_runtime.EventsEmit(m.ctx, "omt:convert:file:skipped", path)
+						} else {
+							slog.Warn("convert", "error", err)
+							wails_runtime.EventsEmit(m.ctx, "omt:convert:file:error", path)
+						}
+					} else {
+						wails_runtime.EventsEmit(m.ctx, "omt:convert:file:success", path)
 					}
 				})
 			}

@@ -136,7 +136,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 			_ = os.Remove(logPath)
 		}
 	}()
-	r.logger = slog.New(slog.NewTextHandler(f, nil))
+	r.logger = slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
 	r.logger.Info("src", "path", srcPath)
 	r.logger.Info("dst tiff", "path", dstPath)
@@ -154,6 +154,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		tiffcp.WithExecutable(tiffcpExec),
 		tiffcp.WithCommaSeparator("%"),
 		tiffcp.WithFormatSpecifier("%0"),
+		tiffcp.WithLogger(r.logger),
 	}
 	if r.cfg.EnableCompression {
 		tiffcpOpts = append(tiffcpOpts, tiffcp.WithLZWCompression(2))
@@ -166,7 +167,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 			returnErr = err
 			return returnErr
 		}
-		err = tiffConv.Convert(ctx, srcPath, tiffIntPath)
+		err = tiffConv.Convert(ctx, srcPath, tiffFinalPath)
 		r.logger.Info("run tiffcp", "time", time.Since(now).Seconds())
 		if err != nil {
 			returnErr = err
@@ -255,6 +256,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 			dcrawemu.WithWorkingDir(dstDir),
 			dcrawemu.WithStderr(&stderr),
 			dcrawemu.WithCheckStderr(true),
+			dcrawemu.WithLogger(r.logger),
 		}
 
 		dcrawConv, err := dcrawemu.New(dcrawOpts...)

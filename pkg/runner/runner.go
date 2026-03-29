@@ -19,7 +19,10 @@ import (
 
 	"github.com/google/uuid"
 
+	"open-make-tiff/pkg/dcrawemu"
+	"open-make-tiff/pkg/dngconverter"
 	"open-make-tiff/pkg/icc"
+	"open-make-tiff/pkg/tiffcp"
 	"open-make-tiff/pkg/util"
 )
 
@@ -47,8 +50,7 @@ func New(cfg Config) *Runner {
 }
 
 func (r *Runner) Run(ctx context.Context, srcPath string) error {
-	var err error
-	srcPath, err = filepath.Abs(srcPath)
+	srcPath, err := filepath.Abs(srcPath)
 	if err != nil {
 		return err
 	}
@@ -67,10 +69,11 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		return fmt.Errorf("%w: %s", ErrDstFileExists, dstPath)
 	}
 
-	if err = os.MkdirAll(dstDir, 0755); err != nil {
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
 		return err
 	}
 
+	var returnErr error
 	var (
 		token         string
 		logPath       string
@@ -85,7 +88,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 				_ = os.Remove(f)
 			}
 		}
-		if err != nil {
+		if returnErr != nil {
 			_ = os.Remove(dstPath)
 		}
 	}()
@@ -124,12 +127,13 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	if err != nil {
 		return err
 	}
+
 	defer func() {
-		if err != nil {
-			r.logger.Error(err.Error())
+		if returnErr != nil {
+			r.logger.Error(returnErr.Error())
 		}
 		_ = f.Close()
-		if err == nil && !r.cfg.DisableRemoveLog {
+		if returnErr == nil && !r.cfg.DisableRemoveLog {
 			_ = os.Remove(logPath)
 		}
 	}()
@@ -141,124 +145,133 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	r.logger.Info("tiff int", "path", tiffIntPath)
 	r.logger.Info("tiff final", "path", tiffFinalPath)
 
+	tiffcpExec, err := util.GetTiffcpExecutable()
+	if err != nil {
+		returnErr = err
+		return returnErr
+	}
+	tiffcpOpts := []tiffcp.Option{
+		tiffcp.WithExecutable(tiffcpExec),
+		tiffcp.WithCommaSeparator("%"),
+		tiffcp.WithFormatSpecifier("%0"),
+	}
+	if r.cfg.EnableCompression {
+		tiffcpOpts = append(tiffcpOpts, tiffcp.WithLZWCompression(2))
+	}
+
 	if strings.ToLower(ext) == ".fff" {
 		now := time.Now()
-		err = r.runTiffcp(ctx, srcPath, tiffIntPath)
+		tiffConv, err := tiffcp.New(tiffcpOpts...)
+		if err != nil {
+			returnErr = err
+			return returnErr
+		}
+		err = tiffConv.Convert(ctx, srcPath, tiffIntPath)
 		r.logger.Info("runTiffcp", "time", time.Since(now).Seconds())
 		if err != nil {
-			return err
+			returnErr = err
+			return returnErr
 		}
 	} else {
 		rawPath := srcPath
 		if r.cfg.EnableAdobeDNGConverter && util.EnableAdobeDNGConverter() {
 			now := time.Now()
-			err = r.runAdobeDNGConverter(ctx, srcPath, dngIntPath)
-			r.logger.Info("runAdobeDNGConverter", "time", time.Since(now).Seconds())
-			if err != nil {
-				r.logger.Warn(err.Error())
-				err = nil
+			dngConv, err := dngconverter.New(
+				dngconverter.WithUncompressed(true),
+				dngconverter.WithLinear(true),
+				dngconverter.WithPreviewSize(dngconverter.PreviewNone),
+				dngconverter.WithOutputDir(dstDir),
+				dngconverter.WithOutputFilename(filepath.Base(dngIntPath)),
+			)
+			if err == nil {
+				err = dngConv.Convert(ctx, srcPath)
+				r.logger.Info("runAdobeDNGConverter", "time", time.Since(now).Seconds())
+				if err != nil {
+					r.logger.Warn(err.Error())
+					err = nil
+				}
+				rawPath = dngIntPath
 			}
-			rawPath = dngIntPath
 		} else if hasNonASCII {
 			now := time.Now()
-			err = r.copyFile(srcPath, dngIntPath)
-			r.logger.Info("copy raw file", "time", time.Since(now).Seconds())
-			if err != nil {
-				return err
+			if err := r.copyFile(srcPath, dngIntPath); err != nil {
+				returnErr = err
+				return returnErr
 			}
+			r.logger.Info("copy raw file", "time", time.Since(now).Seconds())
 			rawPath = dngIntPath
 		}
 
+		dcrawExec, err := util.GetDcrawEmuExecutable()
+		if err != nil {
+			returnErr = err
+			return returnErr
+		}
+
 		now := time.Now()
-		if err = r.runDcrawEmuConvert(ctx, rawPath, tiffIntPath); err != nil {
-			return err
+		dstFile, err := os.Create(tiffIntPath)
+		if err != nil {
+			returnErr = err
+			return returnErr
+		}
+		defer dstFile.Close()
+
+		var stderr bytes.Buffer
+
+		dcrawOpts := []dcrawemu.Option{
+			dcrawemu.WithExecutable(dcrawExec),
+			dcrawemu.WithTIFFOutput(),
+			dcrawemu.WithCustomWhiteBalance(1, 1, 1, 1),
+			dcrawemu.WithOutputColorSpace(dcrawemu.ColorSpaceRaw),
+			dcrawemu.WithFlip(dcrawemu.FlipNone),
+			dcrawemu.WithHighlightMode(dcrawemu.HighlightUnclip),
+			dcrawemu.WithLinear16Bit(),
+			dcrawemu.WithOutputSuffix("-"),
+			dcrawemu.WithWorkingDir(filepath.Dir(rawPath)),
+			dcrawemu.WithStdout(dstFile),
+			dcrawemu.WithStderr(&stderr),
+			dcrawemu.WithCheckStderr(true),
+		}
+
+		dcrawConv, err := dcrawemu.New(dcrawOpts...)
+		if err != nil {
+			returnErr = err
+			return returnErr
+		}
+
+		if err := dcrawConv.Convert(ctx, rawPath); err != nil {
+			returnErr = err
+			return returnErr
 		}
 		r.logger.Info("runDcrawEmuConvert", "time", time.Since(now).Seconds())
 		_ = os.Remove(dngIntPath)
 
 		now = time.Now()
-		if err = r.runTiffcp(ctx, tiffIntPath, tiffFinalPath); err != nil {
-			return err
+		tiffConv, err := tiffcp.New(tiffcpOpts...)
+		if err != nil {
+			returnErr = err
+			return returnErr
+		}
+		if err := tiffConv.Convert(ctx, tiffIntPath, tiffFinalPath); err != nil {
+			returnErr = err
+			return returnErr
 		}
 		r.logger.Info("runTiffcp", "time", time.Since(now).Seconds())
 		_ = os.Remove(tiffIntPath)
 	}
 
 	now := time.Now()
-	if err = r.runCopyExifAndInsertIccProfile(ctx, srcPath, tiffFinalPath, r.cfg.Profile); err != nil {
-		return err
+	if err := r.runCopyExifAndInsertIccProfile(ctx, srcPath, tiffFinalPath, r.cfg.Profile); err != nil {
+		returnErr = err
+		return returnErr
 	}
 	r.logger.Info("runCopyExifAndInsertIccProfile", "time", time.Since(now).Seconds())
 
-	if err = os.Rename(tiffFinalPath, dstPath); err != nil {
-		return err
+	if err := os.Rename(tiffFinalPath, dstPath); err != nil {
+		returnErr = err
+		return returnErr
 	}
 
-	return nil
-}
-
-func (r *Runner) runTiffcp(ctx context.Context, src string, dst string) error {
-	executable, err := util.GetTiffcpExecutable()
-	if err != nil {
-		return err
-	}
-
-	var args []string
-	if r.cfg.EnableCompression {
-		args = append(args, "-c", "lzw:2")
-	}
-	args = append(args, "-,=%", fmt.Sprintf("%s%%0", src), dst)
-	cmd := exec.CommandContext(ctx, executable, args...)
-	r.logger.Info("run tiffcp", "args", cmd.Args)
-	cmd.SysProcAttr = util.GetSysProcAttr()
-	return cmd.Run()
-}
-
-func (r *Runner) runAdobeDNGConverter(ctx context.Context, src string, dst string) error {
-	executable := util.GetAdobeDNGConverterExecutable()
-	args := []string{
-		"-u", "-l", "-p0",
-		"-d", filepath.Dir(dst),
-		"-o", filepath.Base(dst),
-		src,
-	}
-	cmd := exec.CommandContext(ctx, executable, args...)
-	r.logger.Info("run adobe dng converter", "args", cmd.Args)
-	cmd.SysProcAttr = util.GetSysProcAttr()
-	return cmd.Run()
-}
-
-func (r *Runner) runDcrawEmuConvert(ctx context.Context, src string, dst string) error {
-	executable, err := util.GetDcrawEmuExecutable()
-	if err != nil {
-		return err
-	}
-
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_ = dstFile.Close()
-	}()
-
-	args := []string{
-		"-T", "-r", "1", "1", "1", "1", "-o", "0", "-t", "0", "-H", "1", "-4", "-Z", "-",
-		filepath.Base(src),
-	}
-	cmd := exec.CommandContext(ctx, executable, args...)
-	r.logger.Info("run dcraw_emu", "args", cmd.Args)
-	cmd.SysProcAttr = util.GetSysProcAttr()
-	cmd.Dir = filepath.Dir(src)
-	cmd.Stdout = dstFile
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err = cmd.Run(); err != nil {
-		return err
-	}
-	if stderr.String() != "" {
-		return fmt.Errorf(stderr.String())
-	}
 	return nil
 }
 

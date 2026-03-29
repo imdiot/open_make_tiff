@@ -268,6 +268,9 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 			return returnErr
 		}
 		r.logger.Info("run dcraw_emu", "time", time.Since(now).Seconds())
+		if rawPath != srcPath {
+			_ = os.Remove(rawPath)
+		}
 
 		now = time.Now()
 		tiffConv, err := tiffcp.New(tiffcpOpts...)

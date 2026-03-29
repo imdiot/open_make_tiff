@@ -207,6 +207,21 @@ func TestBuildArgs(t *testing.T) {
 			want:   []string{"-Z", ".tif", "test.nef"},
 		},
 		{
+			name:   "with output file",
+			opts:   []Option{WithOutputFile("output.tiff")},
+			inputs: []string{"test.nef"},
+			want:   []string{"-Z", "output.tiff", "test.nef"},
+		},
+		{
+			name: "output file takes priority over output suffix",
+			opts: []Option{
+				WithOutputFile("output.tiff"),
+				WithOutputSuffix(".tif"),
+			},
+			inputs: []string{"test.nef"},
+			want:   []string{"-Z", "output.tiff", "test.nef"},
+		},
+		{
 			name:   "with verbose",
 			opts:   []Option{WithVerbose(2)},
 			inputs: []string{"test.nef"},

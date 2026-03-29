@@ -75,6 +75,10 @@ func (c *Converter) Convert(ctx context.Context, input string, opts ...Option) e
 		return fmt.Errorf("failed to access input file: %w", err)
 	}
 
+	if cfg.outputFile != "" && cfg.stdout != nil {
+		return fmt.Errorf("%w: WithOutputFile and WithStdout cannot be used together", ErrMutuallyExclusiveOptions)
+	}
+
 	args, err := c.buildArgs(cfg, input)
 	if err != nil {
 		return err
@@ -367,7 +371,9 @@ func (c *Converter) buildArgs(cfg Options, inputs ...string) ([]string, error) {
 		args = append(args, "-mem")
 	}
 
-	if cfg.outputSuffix != "" {
+	if cfg.outputFile != "" {
+		args = append(args, "-Z", cfg.outputFile)
+	} else if cfg.outputSuffix != "" {
 		args = append(args, "-Z", cfg.outputSuffix)
 	}
 

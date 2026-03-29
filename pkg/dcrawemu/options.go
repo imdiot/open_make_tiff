@@ -255,6 +255,7 @@ type Options struct {
 	useMmap      bool
 	useMem       bool
 	outputSuffix string
+	outputFile   string
 
 	verbose int
 	timing  bool
@@ -537,6 +538,12 @@ func WithAdjustMaxThreshold(threshold float64) Option {
 func WithOutputSuffix(suffix string) Option {
 	return func(o *Options) {
 		o.outputSuffix = suffix
+	}
+}
+
+func WithOutputFile(filename string) Option {
+	return func(o *Options) {
+		o.outputFile = filename
 	}
 }
 

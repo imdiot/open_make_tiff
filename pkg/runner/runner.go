@@ -209,15 +209,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		}
 
 		now := time.Now()
-		dstFile, err := os.Create(tiffIntPath)
-		if err != nil {
-			returnErr = err
-			return returnErr
-		}
-		defer dstFile.Close()
-
 		var stderr bytes.Buffer
-
 		dcrawOpts := []dcrawemu.Option{
 			dcrawemu.WithExecutable(dcrawExec),
 			dcrawemu.WithTIFFOutput(),
@@ -226,9 +218,8 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 			dcrawemu.WithFlip(dcrawemu.FlipNone),
 			dcrawemu.WithHighlightMode(dcrawemu.HighlightUnclip),
 			dcrawemu.WithLinear16Bit(),
-			dcrawemu.WithOutputSuffix("-"),
-			dcrawemu.WithWorkingDir(filepath.Dir(rawPath)),
-			dcrawemu.WithStdout(dstFile),
+			dcrawemu.WithOutputFile(filepath.Base(tiffIntPath)),
+			dcrawemu.WithWorkingDir(dstDir),
 			dcrawemu.WithStderr(&stderr),
 			dcrawemu.WithCheckStderr(true),
 		}

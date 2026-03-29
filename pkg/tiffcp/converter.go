@@ -9,8 +9,6 @@ import (
 	"os"
 	"os/exec"
 	"strings"
-
-	"open-make-tiff/pkg/util"
 )
 
 var (
@@ -50,7 +48,7 @@ func New(opts ...Option) (*Converter, error) {
 }
 
 func GetDefaultExecutablePath() string {
-	path, err := util.GetTiffcpExecutable()
+	path, err := exec.LookPath("tiffcp")
 	if err != nil {
 		return ""
 	}

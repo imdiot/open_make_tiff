@@ -3,6 +3,7 @@ package dngconverter
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 )
 
@@ -17,7 +18,13 @@ func TestBuildArgs(t *testing.T) {
 			name:   "no options - uses tool defaults",
 			opts:   nil,
 			inputs: []string{"test.nef"},
-			want:   []string{"test.nef"}, // No options, tool uses its defaults
+			want: func() []string {
+				// Windows requires at least one option to prevent UI display
+				if runtime.GOOS == "windows" {
+					return []string{"-c", "test.nef"}
+				}
+				return []string{"test.nef"}
+			}(),
 		},
 		{
 			name:   "with compress option",
@@ -298,8 +305,11 @@ func TestNoOptionsBehavior(t *testing.T) {
 	cfg := defaultOptions() // No options set
 	got := c.buildArgs(cfg, "test.nef")
 
-	// Should only have the input file, no other options
+	// Windows requires at least one option to prevent UI display
 	expected := []string{"test.nef"}
+	if runtime.GOOS == "windows" {
+		expected = []string{"-c", "test.nef"}
+	}
 	if len(got) != len(expected) {
 		t.Errorf("len(got) = %d, want %d\ngot:  %v\nwant: %v", len(got), len(expected), got, expected)
 	}

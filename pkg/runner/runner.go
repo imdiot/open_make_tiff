@@ -77,14 +77,14 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	var (
 		token         string
 		logPath       string
-		dngIntPath    string  // 中间非插值 DNG（第一阶段输出）
-		dngLinearPath string  // 线性 DNG（第二阶段输出）
+		dngIntPath    string
+		dngLinearPath string
 		tiffIntPath   string
 		tiffFinalPath string
 	)
 
 	defer func() {
-		for _, f := range []string{dngIntPath, tiffIntPath, tiffFinalPath} {
+		for _, f := range []string{dngIntPath, dngLinearPath, tiffIntPath, tiffFinalPath} {
 			if f != "" {
 				_ = os.Remove(f)
 			}
@@ -106,11 +106,12 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		}
 		logPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.log", prefix, token))
 		dngIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.dng", prefix, token))
+		dngLinearPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.linear.dng", prefix, token))
 		tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.tiff", prefix, token))
 		tiffFinalPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.tiff", prefix, token))
 
 		conflict := slices.ContainsFunc(
-			[]string{logPath, dngIntPath, tiffIntPath, tiffFinalPath},
+			[]string{logPath, dngIntPath, dngLinearPath, tiffIntPath, tiffFinalPath},
 			func(f string) bool {
 				_, err := os.Stat(f)
 				return err == nil || !errors.Is(err, os.ErrNotExist)
@@ -140,6 +141,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	r.logger.Info("src", "path", srcPath)
 	r.logger.Info("dst tiff", "path", dstPath)
 	r.logger.Info("dng int", "path", dngIntPath)
+	r.logger.Info("dng linear", "path", dngLinearPath)
 	r.logger.Info("tiff int", "path", tiffIntPath)
 	r.logger.Info("tiff final", "path", tiffFinalPath)
 
@@ -165,31 +167,64 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 			return returnErr
 		}
 		err = tiffConv.Convert(ctx, srcPath, tiffIntPath)
-		r.logger.Info("runTiffcp", "time", time.Since(now).Seconds())
+		r.logger.Info("run tiffcp", "time", time.Since(now).Seconds())
 		if err != nil {
 			returnErr = err
 			return returnErr
 		}
 	} else {
 		rawPath := srcPath
+		var err error
 		if r.cfg.EnableAdobeDNGConverter && util.EnableAdobeDNGConverter() {
 			now := time.Now()
-			dngConv, err := dngconverter.New(
+			var dngConv2 *dngconverter.Converter
+			dngConv1, err := dngconverter.New(
+				dngconverter.WithUncompressed(true),
+				dngconverter.WithPreviewSize(dngconverter.PreviewNone),
+				dngconverter.WithCameraRawCompat(dngconverter.CameraRaw54),
+				dngconverter.WithOutputDir(dstDir),
+				dngconverter.WithOutputFilename(filepath.Base(dngIntPath)),
+				dngconverter.WithLogger(r.logger),
+			)
+			if err != nil {
+				r.logger.Warn("create raw converter failed: " + err.Error())
+				goto afterDNG
+			}
+
+			err = dngConv1.Convert(ctx, srcPath)
+			r.logger.Info("dng converter (raw)", "time", time.Since(now).Seconds())
+			if err != nil {
+				r.logger.Warn("raw stage failed: " + err.Error())
+				goto afterDNG
+			}
+
+			now = time.Now()
+			dngConv2, err = dngconverter.New(
 				dngconverter.WithUncompressed(true),
 				dngconverter.WithLinear(true),
 				dngconverter.WithPreviewSize(dngconverter.PreviewNone),
+				dngconverter.WithDNGVersion(dngconverter.DNG11),
 				dngconverter.WithOutputDir(dstDir),
-				dngconverter.WithOutputFilename(filepath.Base(dngIntPath)),
+				dngconverter.WithOutputFilename(filepath.Base(dngLinearPath)),
+				dngconverter.WithLogger(r.logger),
 			)
-			if err == nil {
-				err = dngConv.Convert(ctx, srcPath)
-				r.logger.Info("runAdobeDNGConverter", "time", time.Since(now).Seconds())
-				if err != nil {
-					r.logger.Warn(err.Error())
-					err = nil
-				}
-				rawPath = dngIntPath
+			if err != nil {
+				r.logger.Warn("create linear converter failed: " + err.Error())
+				_ = os.Remove(dngIntPath)
+				goto afterDNG
 			}
+
+			err = dngConv2.Convert(ctx, dngIntPath)
+			r.logger.Info("dng converter (linear)", "time", time.Since(now).Seconds())
+			if err != nil {
+				r.logger.Warn("linear stage failed: " + err.Error())
+				_ = os.Remove(dngIntPath)
+				goto afterDNG
+			}
+
+			_ = os.Remove(dngIntPath)
+			rawPath = dngLinearPath
+		afterDNG:
 		} else if hasNonASCII {
 			now := time.Now()
 			if err := r.copyFile(srcPath, dngIntPath); err != nil {
@@ -232,8 +267,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 			returnErr = err
 			return returnErr
 		}
-		r.logger.Info("runDcrawEmuConvert", "time", time.Since(now).Seconds())
-		_ = os.Remove(dngIntPath)
+		r.logger.Info("run dcraw_emu", "time", time.Since(now).Seconds())
 
 		now = time.Now()
 		tiffConv, err := tiffcp.New(tiffcpOpts...)
@@ -245,7 +279,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 			returnErr = err
 			return returnErr
 		}
-		r.logger.Info("runTiffcp", "time", time.Since(now).Seconds())
+		r.logger.Info("run tiffcp", "time", time.Since(now).Seconds())
 		_ = os.Remove(tiffIntPath)
 	}
 
@@ -254,7 +288,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		returnErr = err
 		return returnErr
 	}
-	r.logger.Info("runCopyExifAndInsertIccProfile", "time", time.Since(now).Seconds())
+	r.logger.Info("copy exif and insert icc profile", "time", time.Since(now).Seconds())
 
 	if err := os.Rename(tiffFinalPath, dstPath); err != nil {
 		returnErr = err

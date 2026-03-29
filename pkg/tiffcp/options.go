@@ -187,6 +187,12 @@ type Options struct {
 
 type Option func(*Options)
 
+func WithExecutable(path string) Option {
+	return func(o *Options) {
+		o.executable = path
+	}
+}
+
 func WithAppend(append bool) Option {
 	return func(o *Options) {
 		o.Append = append

@@ -22,6 +22,7 @@ import (
 	"open-make-tiff/pkg/dcrawemu"
 	"open-make-tiff/pkg/dngconverter"
 	"open-make-tiff/pkg/icc"
+	"open-make-tiff/pkg/rawidentify"
 	"open-make-tiff/pkg/tiffcp"
 	"open-make-tiff/pkg/util"
 )
@@ -179,9 +180,36 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	}
 
 	useDNG := r.cfg.EnableAdobeDNGConverter
+	var isNonRawFFF bool
+
 	if strings.ToLower(ext) == ".fff" {
-		useDNG = false
+		rawIdentifyExec, err := util.GetRawIdentifyExecutable()
+		if err != nil {
+			returnErr = fmt.Errorf("raw-identify executable not found: %w", err)
+			return returnErr
+		}
+		identifier, err := rawidentify.New(
+			rawidentify.WithExecutable(rawIdentifyExec),
+			rawidentify.WithLogger(r.logger),
+		)
+		if err != nil {
+			returnErr = fmt.Errorf("raw-identify init failed: %w", err)
+			return returnErr
+		}
+		_, err = identifier.IdentifyAndParse(ctx, srcPath)
+		if err != nil {
+			r.logger.Info("fff file is TIFF-based, using tiffcp directly", "path", srcPath)
+			if err := r.convertNonRawFFF(ctx, env); err != nil {
+				returnErr = err
+				return returnErr
+			}
+			isNonRawFFF = true
+		} else {
+			r.logger.Info("fff file is RAW, using dcraw_emu", "path", srcPath)
+			useDNG = false
+		}
 	}
+
 	if useDNG {
 		if err := r.convertTiffWithDNG(ctx, env); err != nil {
 			r.logger.Warn("DNG converter path failed, falling back to direct: " + err.Error())
@@ -189,7 +217,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		}
 	}
 
-	if !useDNG {
+	if !useDNG && !isNonRawFFF {
 		if err := r.convertTiffDirect(ctx, env); err != nil {
 			returnErr = err
 			return returnErr
@@ -343,6 +371,39 @@ func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv) error {
 		return err
 	}
 	r.logger.Info("run dcraw_emu (direct)", "time", time.Since(now).Seconds())
+
+	return nil
+}
+
+func (r *Runner) convertNonRawFFF(ctx context.Context, env ConvertEnv) error {
+	inputPath := env.SrcPath
+	if env.HasNonASCII {
+		now := time.Now()
+		if err := r.copyFile(env.SrcPath, env.DngIntPath); err != nil {
+			return err
+		}
+		r.logger.Info("copy fff file (non-ascii)", "time", time.Since(now).Seconds())
+		inputPath = env.DngIntPath
+	}
+
+	now := time.Now()
+	tiffcpExec, err := util.GetTiffcpExecutable()
+	if err != nil {
+		return err
+	}
+	tiffConv, err := tiffcp.New(
+		tiffcp.WithExecutable(tiffcpExec),
+		tiffcp.WithCommaSeparator("%"),
+		tiffcp.WithFormatSpecifier("%0"),
+		tiffcp.WithLogger(r.logger),
+	)
+	if err != nil {
+		return err
+	}
+	if err := tiffConv.Convert(ctx, inputPath, env.TiffIntPath); err != nil {
+		return err
+	}
+	r.logger.Info("run tiffcp (TIFF-based fff to tiffIntPath)", "time", time.Since(now).Seconds())
 
 	return nil
 }

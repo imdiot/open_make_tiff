@@ -86,6 +86,19 @@ vcpkg-install-macos-universal: vcpkg-install-macos-arm64 vcpkg-install-macos-x64
 		chmod +x $(OUTPUT_DIR)/tiffcp; \
 		echo "tiffcp (arm64 only) copied to: $(OUTPUT_DIR)/tiffcp"; \
 	fi
+	@echo "Merging raw-identify..."
+	@if [ -f "$(VCPKG_INSTALLED)/arm64-osx-release/bin/raw-identify" ] && [ -f "$(VCPKG_INSTALLED)/x64-osx-release/bin/raw-identify" ]; then \
+		lipo -create \
+			$(VCPKG_INSTALLED)/arm64-osx-release/bin/raw-identify \
+			$(VCPKG_INSTALLED)/x64-osx-release/bin/raw-identify \
+			-output $(OUTPUT_DIR)/raw-identify; \
+		chmod +x $(OUTPUT_DIR)/raw-identify; \
+		echo "Universal raw-identify created at: $(OUTPUT_DIR)/raw-identify"; \
+	elif [ -f "$(VCPKG_INSTALLED)/arm64-osx-release/bin/raw-identify" ]; then \
+		cp $(VCPKG_INSTALLED)/arm64-osx-release/bin/raw-identify $(OUTPUT_DIR)/raw-identify; \
+		chmod +x $(OUTPUT_DIR)/raw-identify; \
+		echo "raw-identify (arm64 only) copied to: $(OUTPUT_DIR)/raw-identify"; \
+	fi
 
 # Clean vcpkg build artifacts (platform auto-detect)
 vcpkg-clean:
@@ -99,7 +112,7 @@ endif
 vcpkg-clean-macos:
 	$(VCPKG) remove libraw tiff --triplet=arm64-osx-release
 	$(VCPKG) remove libraw tiff --triplet=x64-osx-release
-	rm -f $(OUTPUT_DIR)/dcraw_emu $(OUTPUT_DIR)/tiffcp
+	rm -f $(OUTPUT_DIR)/dcraw_emu $(OUTPUT_DIR)/raw-identify $(OUTPUT_DIR)/tiffcp
 
 # Rebuild (platform auto-detect)
 vcpkg-rebuild:
@@ -122,12 +135,14 @@ vcpkg-install-windows:
 		--recurse
 	@echo "Copying Windows static binaries..."
 	@powershell -Command "Copy-Item '$(VCPKG_INSTALLED)/x64-windows-static-release/bin/dcraw_emu.exe' -Destination 'third-party/windows-x64/' -ErrorAction SilentlyContinue"
+	@powershell -Command "Copy-Item '$(VCPKG_INSTALLED)/x64-windows-static-release/bin/raw-identify.exe' -Destination 'third-party/windows-x64/' -ErrorAction SilentlyContinue"
 	@powershell -Command "Copy-Item '$(VCPKG_INSTALLED)/x64-windows-static-release/tools/tiff/tiffcp.exe' -Destination 'third-party/windows-x64/' -ErrorAction SilentlyContinue"
 	@echo "Static binaries copied (no DLL dependencies)"
 
 vcpkg-clean-windows:
 	$(VCPKG) remove libraw tiff --triplet=x64-windows-static-release --recurse
 	@powershell -Command "Remove-Item 'third-party/windows-x64/dcraw_emu.exe' -ErrorAction SilentlyContinue"
+	@powershell -Command "Remove-Item 'third-party/windows-x64/raw-identify.exe' -ErrorAction SilentlyContinue"
 	@powershell -Command "Remove-Item 'third-party/windows-x64/tiffcp.exe' -ErrorAction SilentlyContinue"
 
 vcpkg-rebuild-windows: vcpkg-clean-windows vcpkg-install-windows

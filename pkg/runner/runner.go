@@ -169,59 +169,47 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		tiffcpOpts = append(tiffcpOpts, tiffcp.WithLZWCompression(2))
 	}
 
+	env := ConvertEnv{
+		SrcPath:       srcPath,
+		DstDir:        dstDir,
+		DngIntPath:    dngIntPath,
+		DngLinearPath: dngLinearPath,
+		TiffIntPath:   tiffIntPath,
+		HasNonASCII:   hasNonASCII,
+	}
+
+	useDNG := r.cfg.EnableAdobeDNGConverter
 	if strings.ToLower(ext) == ".fff" {
-		now := time.Now()
-		tiffConv, err := tiffcp.New(tiffcpOpts...)
-		if err != nil {
-			returnErr = err
-			return returnErr
+		useDNG = false
+	}
+	if useDNG {
+		if err := r.convertTiffWithDNG(ctx, env); err != nil {
+			r.logger.Warn("DNG converter path failed, falling back to direct: " + err.Error())
+			useDNG = false
 		}
-		err = tiffConv.Convert(ctx, srcPath, tiffFinalPath)
-		r.logger.Info("run tiffcp", "time", time.Since(now).Seconds())
-		if err != nil {
-			returnErr = err
-			return returnErr
-		}
-	} else {
-		env := ConvertEnv{
-			SrcPath:       srcPath,
-			DstDir:        dstDir,
-			DngIntPath:    dngIntPath,
-			DngLinearPath: dngLinearPath,
-			TiffIntPath:   tiffIntPath,
-			HasNonASCII:   hasNonASCII,
-		}
+	}
 
-		useDNG := r.cfg.EnableAdobeDNGConverter
-		if useDNG {
-			if err := r.convertTiffWithDNG(ctx, env); err != nil {
-				r.logger.Warn("DNG converter path failed, falling back to direct: " + err.Error())
-				useDNG = false
-			}
-		}
-
-		if !useDNG {
-			if err := r.convertTiffDirect(ctx, env); err != nil {
-				returnErr = err
-				return returnErr
-			}
-		}
-
-		now := time.Now()
-		tiffConv, err := tiffcp.New(tiffcpOpts...)
-		if err != nil {
+	if !useDNG {
+		if err := r.convertTiffDirect(ctx, env); err != nil {
 			returnErr = err
 			return returnErr
 		}
-		if err := tiffConv.Convert(ctx, tiffIntPath, tiffFinalPath); err != nil {
-			returnErr = err
-			return returnErr
-		}
-		r.logger.Info("run tiffcp", "time", time.Since(now).Seconds())
-		_ = os.Remove(tiffIntPath)
 	}
 
 	now := time.Now()
+	tiffConv, err := tiffcp.New(tiffcpOpts...)
+	if err != nil {
+		returnErr = err
+		return returnErr
+	}
+	if err := tiffConv.Convert(ctx, tiffIntPath, tiffFinalPath); err != nil {
+		returnErr = err
+		return returnErr
+	}
+	r.logger.Info("run tiffcp", "time", time.Since(now).Seconds())
+	_ = os.Remove(tiffIntPath)
+
+	now = time.Now()
 	if err := r.runCopyExifAndInsertIccProfile(ctx, srcPath, tiffFinalPath, r.cfg.Profile); err != nil {
 		returnErr = err
 		return returnErr

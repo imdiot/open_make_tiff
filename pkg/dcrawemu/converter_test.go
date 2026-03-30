@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"testing"
 )
 
@@ -261,6 +262,54 @@ func TestBuildArgs(t *testing.T) {
 			inputs: []string{"test.nef"},
 			want:   []string{"-aexpo", "0.5000", "0.8000", "test.nef"},
 		},
+		{
+			name:   "with DNG SDK enabled",
+			opts:   []Option{WithDNGSDK(true)},
+			inputs: []string{"test.nef"},
+			want:   []string{"-dngsdk", "test.nef"},
+		},
+		{
+			name:   "with DNG SDK disabled",
+			opts:   []Option{WithDNGSDK(false)},
+			inputs: []string{"test.nef"},
+			want:   []string{"test.nef"},
+		},
+		{
+			name:   "with ARS bits",
+			opts:   []Option{WithARSBits(768)},
+			inputs: []string{"test.nef"},
+			want:   []string{"-arsbits", "768", "test.nef"},
+		},
+		{
+			name:   "with output format tiff",
+			opts:   []Option{WithOutputFormat(OutputFormatTIFF)},
+			inputs: []string{"test.nef"},
+			want:   []string{"-Z", "tiff", "test.nef"},
+		},
+		{
+			name:   "with output format stdout",
+			opts:   []Option{WithOutputFormat(OutputFormatStdout)},
+			inputs: []string{"test.nef"},
+			want:   []string{"-Z", "-", "test.nef"},
+		},
+		{
+			name: "output file takes priority over output format",
+			opts: []Option{
+				WithOutputFile("output.tiff"),
+				WithOutputFormat(OutputFormatTIFF),
+			},
+			inputs: []string{"test.nef"},
+			want:   []string{"-Z", "output.tiff", "test.nef"},
+		},
+		{
+			name: "output format takes priority over output suffix",
+			opts: []Option{
+				WithOutputFormat(OutputFormatTIFF),
+				WithOutputSuffix(".tif"),
+			},
+			inputs: []string{"test.nef"},
+			want:   []string{"-Z", "tiff", "test.nef"},
+		},
 	}
 
 	c := &Converter{
@@ -328,6 +377,9 @@ func TestEnumString(t *testing.T) {
 		{"ColorSpace Adobe", ColorSpaceAdobe, "adobe"},
 		{"FlipMode 90CCW", Flip90CCW, "90ccw"},
 		{"FBDDMode light", FBDDLight, "light"},
+		{"OutputFormat tiff", OutputFormatTIFF, "tiff"},
+		{"OutputFormat stdout", OutputFormatStdout, "-"},
+		{"OutputFormat none", OutputFormatNone, "none"},
 	}
 
 	for _, tt := range tests {
@@ -426,4 +478,32 @@ func TestConverterMethods(t *testing.T) {
 	if emptyC.Executable() != "" {
 		t.Errorf("Executable() = %s, want empty string", emptyC.Executable())
 	}
+}
+
+func TestConvertMutualExclusion(t *testing.T) {
+	tmpFile, err := os.CreateTemp("", "test_*.nef")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.Remove(tmpFile.Name())
+	tmpFile.Close()
+
+	c := &Converter{
+		executable: "/mock/dcraw_emu",
+		defaults:   defaultOptions(),
+	}
+
+	ctx := context.Background()
+
+	t.Run("output file and output format are mutually exclusive", func(t *testing.T) {
+		err := c.Convert(ctx, tmpFile.Name(),
+			WithOutputFile("output.tiff"),
+			WithOutputFormat(OutputFormatTIFF),
+		)
+		if err == nil {
+			t.Error("expected error for mutually exclusive options")
+		} else if !errors.Is(err, ErrMutuallyExclusiveOptions) {
+			t.Errorf("expected ErrMutuallyExclusiveOptions, got %v", err)
+		}
+	})
 }

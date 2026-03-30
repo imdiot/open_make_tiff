@@ -149,6 +149,25 @@ func (f FlipMode) String() string {
 	}
 }
 
+type OutputFormat int
+
+const (
+	OutputFormatNone   OutputFormat = iota
+	OutputFormatTIFF                // -Z tiff
+	OutputFormatStdout              // -Z -
+)
+
+func (f OutputFormat) String() string {
+	switch f {
+	case OutputFormatTIFF:
+		return "tiff"
+	case OutputFormatStdout:
+		return "-"
+	default:
+		return "none"
+	}
+}
+
 type FBDDMode int
 
 const (
@@ -250,6 +269,13 @@ type Options struct {
 	rawOptionsSet bool
 	adjustMaxThreshold float64
 	adjustMaxThresholdSet bool
+
+	dngSDK     bool
+	dngSDKSet  bool
+	arsbits    int
+	arsbitsSet bool
+	outputFormat    OutputFormat
+	outputFormatSet bool
 
 	useFileIO    bool
 	useMmap      bool
@@ -604,6 +630,27 @@ func WithStderr(w io.Writer) Option {
 func WithCheckStderr(check bool) Option {
 	return func(o *Options) {
 		o.checkStderr = check
+	}
+}
+
+func WithDNGSDK(enabled bool) Option {
+	return func(o *Options) {
+		o.dngSDK = enabled
+		o.dngSDKSet = true
+	}
+}
+
+func WithARSBits(bits int) Option {
+	return func(o *Options) {
+		o.arsbits = bits
+		o.arsbitsSet = true
+	}
+}
+
+func WithOutputFormat(format OutputFormat) Option {
+	return func(o *Options) {
+		o.outputFormat = format
+		o.outputFormatSet = true
 	}
 }
 

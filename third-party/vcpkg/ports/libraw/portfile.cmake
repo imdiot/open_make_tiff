@@ -18,6 +18,7 @@ vcpkg_from_github(
     PATCHES
         dependencies.patch
         dngsdk-support.patch
+        rawspeed-bits.patch
         # Move the non-thread-safe library to manual-link. This is unfortunately needed
         # because otherwise libraries that build on top of libraw have to choose.
         fix-install.patch

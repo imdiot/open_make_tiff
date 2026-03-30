@@ -112,7 +112,7 @@ endif
 # Rebuild macOS
 vcpkg-rebuild-macos: vcpkg-clean-macos vcpkg-install
 
-# Windows vcpkg build targets (静态链接)
+# Windows vcpkg build targets (static linking)
 vcpkg-install-windows:
 	$(VCPKG) install \
 		libraw[6by9rpi,dng-lossy,dngsdk,rawspeed,x3ftools] \

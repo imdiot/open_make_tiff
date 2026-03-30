@@ -42,6 +42,15 @@ type Runner struct {
 	logger *slog.Logger
 }
 
+type ConvertEnv struct {
+	SrcPath       string
+	DstDir        string
+	DngIntPath    string
+	DngLinearPath string
+	TiffIntPath   string
+	HasNonASCII   bool
+}
+
 func New(cfg Config) *Runner {
 	return &Runner{
 		cfg:    cfg,
@@ -174,107 +183,31 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 			return returnErr
 		}
 	} else {
-		rawPath := srcPath
-		var err error
-		if r.cfg.EnableAdobeDNGConverter && util.EnableAdobeDNGConverter() {
-			now := time.Now()
-			var dngConv2 *dngconverter.Converter
-			dngConv1, err := dngconverter.New(
-				dngconverter.WithUncompressed(true),
-				dngconverter.WithPreviewSize(dngconverter.PreviewNone),
-				dngconverter.WithCameraRawCompat(dngconverter.CameraRaw54),
-				dngconverter.WithOutputDir(dstDir),
-				dngconverter.WithOutputFilename(filepath.Base(dngIntPath)),
-				dngconverter.WithLogger(r.logger),
-			)
-			if err != nil {
-				r.logger.Warn("create raw converter failed: " + err.Error())
-				goto afterDNG
-			}
+		env := ConvertEnv{
+			SrcPath:       srcPath,
+			DstDir:        dstDir,
+			DngIntPath:    dngIntPath,
+			DngLinearPath: dngLinearPath,
+			TiffIntPath:   tiffIntPath,
+			HasNonASCII:   hasNonASCII,
+		}
 
-			err = dngConv1.Convert(ctx, srcPath)
-			r.logger.Info("dng converter (raw)", "time", time.Since(now).Seconds())
-			if err != nil {
-				r.logger.Warn("raw stage failed: " + err.Error())
-				goto afterDNG
+		useDNG := r.cfg.EnableAdobeDNGConverter
+		if useDNG {
+			if err := r.convertTiffWithDNG(ctx, env); err != nil {
+				r.logger.Warn("DNG converter path failed, falling back to direct: " + err.Error())
+				useDNG = false
 			}
+		}
 
-			now = time.Now()
-			dngConv2, err = dngconverter.New(
-				dngconverter.WithUncompressed(true),
-				dngconverter.WithLinear(true),
-				dngconverter.WithPreviewSize(dngconverter.PreviewNone),
-				dngconverter.WithDNGVersion(dngconverter.DNG11),
-				dngconverter.WithOutputDir(dstDir),
-				dngconverter.WithOutputFilename(filepath.Base(dngLinearPath)),
-				dngconverter.WithLogger(r.logger),
-			)
-			if err != nil {
-				r.logger.Warn("create linear converter failed: " + err.Error())
-				_ = os.Remove(dngIntPath)
-				goto afterDNG
-			}
-
-			err = dngConv2.Convert(ctx, dngIntPath)
-			r.logger.Info("dng converter (linear)", "time", time.Since(now).Seconds())
-			if err != nil {
-				r.logger.Warn("linear stage failed: " + err.Error())
-				_ = os.Remove(dngIntPath)
-				goto afterDNG
-			}
-
-			_ = os.Remove(dngIntPath)
-			rawPath = dngLinearPath
-		afterDNG:
-		} else if hasNonASCII {
-			now := time.Now()
-			if err := r.copyFile(srcPath, dngIntPath); err != nil {
+		if !useDNG {
+			if err := r.convertTiffDirect(ctx, env); err != nil {
 				returnErr = err
 				return returnErr
 			}
-			r.logger.Info("copy raw file", "time", time.Since(now).Seconds())
-			rawPath = dngIntPath
-		}
-
-		dcrawExec, err := util.GetDcrawEmuExecutable()
-		if err != nil {
-			returnErr = err
-			return returnErr
 		}
 
 		now := time.Now()
-		var stderr bytes.Buffer
-		dcrawOpts := []dcrawemu.Option{
-			dcrawemu.WithExecutable(dcrawExec),
-			dcrawemu.WithTIFFOutput(),
-			dcrawemu.WithCustomWhiteBalance(1, 1, 1, 1),
-			dcrawemu.WithOutputColorSpace(dcrawemu.ColorSpaceRaw),
-			dcrawemu.WithFlip(dcrawemu.FlipNone),
-			dcrawemu.WithHighlightMode(dcrawemu.HighlightUnclip),
-			dcrawemu.WithLinear16Bit(),
-			dcrawemu.WithOutputFile(filepath.Base(tiffIntPath)),
-			dcrawemu.WithWorkingDir(dstDir),
-			dcrawemu.WithStderr(&stderr),
-			dcrawemu.WithCheckStderr(true),
-			dcrawemu.WithLogger(r.logger),
-		}
-
-		dcrawConv, err := dcrawemu.New(dcrawOpts...)
-		if err != nil {
-			returnErr = err
-			return returnErr
-		}
-
-		if err := dcrawConv.Convert(ctx, rawPath); err != nil {
-			returnErr = err
-			return returnErr
-		}
-		r.logger.Info("run dcraw_emu", "time", time.Since(now).Seconds())
-		if rawPath != srcPath {
-			_ = os.Remove(rawPath)
-		}
-
-		now = time.Now()
 		tiffConv, err := tiffcp.New(tiffcpOpts...)
 		if err != nil {
 			returnErr = err
@@ -299,6 +232,135 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		returnErr = err
 		return returnErr
 	}
+
+	return nil
+}
+
+func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv) error {
+	dngConv1, err := dngconverter.New(
+		dngconverter.WithUncompressed(true),
+		dngconverter.WithPreviewSize(dngconverter.PreviewNone),
+		dngconverter.WithCameraRawCompat(dngconverter.CameraRaw54),
+		dngconverter.WithOutputDir(env.DstDir),
+		dngconverter.WithOutputFilename(filepath.Base(env.DngIntPath)),
+		dngconverter.WithLogger(r.logger),
+	)
+	if err != nil {
+		return fmt.Errorf("dng converter (raw): %w", err)
+	}
+
+	now := time.Now()
+	if err := dngConv1.Convert(ctx, env.SrcPath); err != nil {
+		return fmt.Errorf("dng converter (raw) convert: %w", err)
+	}
+	r.logger.Info("dng converter (raw)", "time", time.Since(now).Seconds())
+
+	dngConv2, err := dngconverter.New(
+		dngconverter.WithUncompressed(true),
+		dngconverter.WithLinear(true),
+		dngconverter.WithPreviewSize(dngconverter.PreviewNone),
+		dngconverter.WithDNGVersion(dngconverter.DNG11),
+		dngconverter.WithOutputDir(env.DstDir),
+		dngconverter.WithOutputFilename(filepath.Base(env.DngLinearPath)),
+		dngconverter.WithLogger(r.logger),
+	)
+	if err != nil {
+		_ = os.Remove(env.DngIntPath)
+		return fmt.Errorf("dng converter (linear): %w", err)
+	}
+
+	now = time.Now()
+	if err := dngConv2.Convert(ctx, env.DngIntPath); err != nil {
+		_ = os.Remove(env.DngIntPath)
+		return fmt.Errorf("dng converter (linear) convert: %w", err)
+	}
+	r.logger.Info("dng converter (linear)", "time", time.Since(now).Seconds())
+	_ = os.Remove(env.DngIntPath)
+	r.logger.Info("rename linear dng to int", "from", env.DngLinearPath, "to", env.DngIntPath)
+	if err := os.Rename(env.DngLinearPath, env.DngIntPath); err != nil {
+		return fmt.Errorf("rename linear dng to int: %w", err)
+	}
+
+	dcrawExec, err := util.GetDcrawEmuExecutable()
+	if err != nil {
+		return err
+	}
+
+	now = time.Now()
+	var stderr bytes.Buffer
+	dcrawConv, err := dcrawemu.New(
+		dcrawemu.WithExecutable(dcrawExec),
+		dcrawemu.WithTIFFOutput(),
+		dcrawemu.WithCustomWhiteBalance(1, 1, 1, 1),
+		dcrawemu.WithOutputColorSpace(dcrawemu.ColorSpaceRaw),
+		dcrawemu.WithFlip(dcrawemu.FlipNone),
+		dcrawemu.WithHighlightMode(dcrawemu.HighlightUnclip),
+		dcrawemu.WithLinear16Bit(),
+		dcrawemu.WithAdjustMaxThreshold(0),
+		dcrawemu.WithEmbeddedColorMatrix(false),
+		dcrawemu.WithOutputFile(filepath.Base(env.TiffIntPath)),
+		dcrawemu.WithWorkingDir(env.DstDir),
+		dcrawemu.WithStderr(&stderr),
+		dcrawemu.WithCheckStderr(true),
+		dcrawemu.WithLogger(r.logger),
+	)
+	if err != nil {
+		return err
+	}
+
+	if err := dcrawConv.Convert(ctx, env.DngIntPath); err != nil {
+		return err
+	}
+	r.logger.Info("run dcraw_emu (with DNG)", "time", time.Since(now).Seconds())
+
+	return nil
+}
+
+func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv) error {
+	srcPath := env.SrcPath
+	if env.HasNonASCII {
+		now := time.Now()
+		if err := r.copyFile(srcPath, env.DngIntPath); err != nil {
+			return err
+		}
+		r.logger.Info("copy raw file (non-ascii)", "time", time.Since(now).Seconds())
+		srcPath = env.DngIntPath
+	}
+
+	dcrawExec, err := util.GetDcrawEmuExecutable()
+	if err != nil {
+		return err
+	}
+
+	now := time.Now()
+	var stderr bytes.Buffer
+	dcrawConv, err := dcrawemu.New(
+		dcrawemu.WithExecutable(dcrawExec),
+		dcrawemu.WithTIFFOutput(),
+		dcrawemu.WithCustomWhiteBalance(1, 1, 1, 1),
+		dcrawemu.WithOutputColorSpace(dcrawemu.ColorSpaceRaw),
+		dcrawemu.WithFlip(dcrawemu.FlipNone),
+		dcrawemu.WithHighlightMode(dcrawemu.HighlightUnclip),
+		dcrawemu.WithLinear16Bit(),
+		dcrawemu.WithAdjustMaxThreshold(0),
+		dcrawemu.WithEmbeddedColorMatrix(false),
+		dcrawemu.WithDNGSDK(true),
+		dcrawemu.WithARSBits(256),
+		dcrawemu.WithRawOptions(2560),
+		dcrawemu.WithOutputFile(filepath.Base(env.TiffIntPath)),
+		dcrawemu.WithWorkingDir(env.DstDir),
+		dcrawemu.WithStderr(&stderr),
+		dcrawemu.WithCheckStderr(true),
+		dcrawemu.WithLogger(r.logger),
+	)
+	if err != nil {
+		return err
+	}
+
+	if err := dcrawConv.Convert(ctx, srcPath); err != nil {
+		return err
+	}
+	r.logger.Info("run dcraw_emu (direct)", "time", time.Since(now).Seconds())
 
 	return nil
 }

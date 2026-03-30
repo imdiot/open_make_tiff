@@ -1,30 +1,10 @@
 package util
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 )
-
-func EnableAdobeDNGConverter() bool {
-	path := GetAdobeDNGConverterExecutable()
-	if path == "" {
-		return false
-	}
-	_, err := os.Stat(path)
-	return err == nil || !errors.Is(err, os.ErrNotExist)
-}
-
-func GetAdobeDNGConverterExecutable() string {
-	switch runtime.GOOS {
-	case "windows":
-		return "C:\\Program Files\\Adobe\\Adobe DNG Converter\\Adobe DNG Converter.exe"
-	case "darwin":
-		return "/Applications/Adobe DNG Converter.app/Contents/MacOS/Adobe DNG Converter"
-	}
-	return ""
-}
 
 func GetDcrawEmuExecutable() (string, error) {
 	self, err := os.Executable()

@@ -17,9 +17,9 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	wails_runtime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"open-make-tiff/pkg/dngconverter"
 	"open-make-tiff/pkg/icc"
 	"open-make-tiff/pkg/runner"
-	"open-make-tiff/pkg/util"
 )
 
 type WorkerNumOption struct {
@@ -66,7 +66,7 @@ func New() *Manager {
 	setting := &Setting{
 		WorkerNums:              make([]*WorkerNumOption, 0),
 		Profiles:                make([]*ProfileOption, 0),
-		EnableAdobeDNGConverter: util.EnableAdobeDNGConverter(),
+		EnableAdobeDNGConverter: func() bool { _, err := dngconverter.New(); return err == nil }(),
 	}
 	for i := 1; i <= runtime.NumCPU(); i++ {
 		setting.WorkerNums = append(setting.WorkerNums, &WorkerNumOption{Value: i, Label: fmt.Sprintf("%d", i)})

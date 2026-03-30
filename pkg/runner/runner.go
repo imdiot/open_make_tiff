@@ -275,7 +275,6 @@ func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv) error {
 	}
 
 	now = time.Now()
-	var stderr bytes.Buffer
 	dcrawConv, err := dcrawemu.New(
 		dcrawemu.WithExecutable(dcrawExec),
 		dcrawemu.WithTIFFOutput(),
@@ -288,8 +287,6 @@ func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv) error {
 		dcrawemu.WithEmbeddedColorMatrix(false),
 		dcrawemu.WithOutputFile(filepath.Base(env.TiffIntPath)),
 		dcrawemu.WithWorkingDir(env.DstDir),
-		dcrawemu.WithStderr(&stderr),
-		dcrawemu.WithCheckStderr(true),
 		dcrawemu.WithLogger(r.logger),
 	)
 	if err != nil {
@@ -321,7 +318,6 @@ func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv) error {
 	}
 
 	now := time.Now()
-	var stderr bytes.Buffer
 	dcrawConv, err := dcrawemu.New(
 		dcrawemu.WithExecutable(dcrawExec),
 		dcrawemu.WithTIFFOutput(),
@@ -337,8 +333,6 @@ func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv) error {
 		dcrawemu.WithRawOptions(2560),
 		dcrawemu.WithOutputFile(filepath.Base(env.TiffIntPath)),
 		dcrawemu.WithWorkingDir(env.DstDir),
-		dcrawemu.WithStderr(&stderr),
-		dcrawemu.WithCheckStderr(true),
 		dcrawemu.WithLogger(r.logger),
 	)
 	if err != nil {

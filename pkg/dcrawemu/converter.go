@@ -97,28 +97,19 @@ func (c *Converter) Convert(ctx context.Context, input string, opts ...Option) e
 	if cfg.stdout != nil {
 		cmd.Stdout = cfg.stdout
 	}
-	if cfg.stderr != nil {
-		cmd.Stderr = cfg.stderr
-	}
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
 	cfg.logger().Debug("executing dcraw_emu", "args", cmd.Args)
 
-	if cfg.stdout != nil || cfg.stderr != nil {
-		if err := cmd.Run(); err != nil {
-			return err
+	if err := cmd.Run(); err != nil {
+		stderrStr := stderr.String()
+		if stderrStr != "" {
+			cfg.logger().Error("dcraw_emu stderr", "output", stderrStr)
+			return fmt.Errorf("%w: %s", err, stderrStr)
 		}
-	} else {
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("%w: %s", ErrConversionFailed, string(output))
-		}
-		return nil
-	}
-
-	if cfg.checkStderr && cfg.stderr != nil {
-		if buf, ok := cfg.stderr.(*bytes.Buffer); ok && buf.Len() > 0 {
-			return fmt.Errorf("stderr: %s", buf.String())
-		}
+		return err
 	}
 
 	return nil
@@ -154,28 +145,19 @@ func (c *Converter) ConvertMany(ctx context.Context, inputs []string, opts ...Op
 	if cfg.stdout != nil {
 		cmd.Stdout = cfg.stdout
 	}
-	if cfg.stderr != nil {
-		cmd.Stderr = cfg.stderr
-	}
+
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
 
 	cfg.logger().Debug("executing dcraw_emu", "args", cmd.Args)
 
-	if cfg.stdout != nil || cfg.stderr != nil {
-		if err := cmd.Run(); err != nil {
-			return err
+	if err := cmd.Run(); err != nil {
+		stderrStr := stderr.String()
+		if stderrStr != "" {
+			cfg.logger().Error("dcraw_emu stderr", "output", stderrStr)
+			return fmt.Errorf("%w: %s", err, stderrStr)
 		}
-	} else {
-		output, err := cmd.CombinedOutput()
-		if err != nil {
-			return fmt.Errorf("%w: %s", ErrConversionFailed, string(output))
-		}
-		return nil
-	}
-
-	if cfg.checkStderr && cfg.stderr != nil {
-		if buf, ok := cfg.stderr.(*bytes.Buffer); ok && buf.Len() > 0 {
-			return fmt.Errorf("stderr: %s", buf.String())
-		}
+		return err
 	}
 
 	return nil

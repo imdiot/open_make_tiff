@@ -288,8 +288,6 @@ type Options struct {
 
 	workingDir  string
 	stdout      io.Writer
-	stderr      io.Writer
-	checkStderr bool
 }
 
 type Option func(*Options)
@@ -618,18 +616,6 @@ func WithWorkingDir(dir string) Option {
 func WithStdout(w io.Writer) Option {
 	return func(o *Options) {
 		o.stdout = w
-	}
-}
-
-func WithStderr(w io.Writer) Option {
-	return func(o *Options) {
-		o.stderr = w
-	}
-}
-
-func WithCheckStderr(check bool) Option {
-	return func(o *Options) {
-		o.checkStderr = check
 	}
 }
 

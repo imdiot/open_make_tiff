@@ -34,7 +34,7 @@ const (
 	writeSuccessToken = "image files updated"
 )
 
-var readyToken = []byte("{ready}\n")
+var readyToken = []byte("{ready}")
 
 // Exiftool manages a persistent exiftool process (-stay_open mode).
 type Exiftool struct {
@@ -46,8 +46,8 @@ type Exiftool struct {
 	stdin      io.WriteCloser
 	stdout     io.ReadCloser
 	scanner    *bufio.Scanner
-	started    bool
 	closed     bool
+	done       chan struct{} // nil=not started, open=running, closed=exited
 }
 
 // GetDefaultExecutablePath resolves the default exiftool path via exec.LookPath.
@@ -116,27 +116,68 @@ func (e *Exiftool) start() error {
 		return fmt.Errorf("error starting exiftool: %w", err)
 	}
 
-	ver, err := e.executeInner("-ver")
-	if err != nil {
-		e.forceCleanup()
-		return fmt.Errorf("error checking version: %w", err)
+	// Monitor goroutine: sole caller of cmd.Wait
+	e.done = make(chan struct{})
+	go func() {
+		e.cmd.Wait()
+		close(e.done)
+	}()
+
+	// First start: version check
+	if e.version == "" {
+		ver, err := e.executeInner("-ver")
+		if err != nil {
+			e.cmd.Process.Kill()
+			<-e.done
+			e.reset()
+			return fmt.Errorf("error checking version: %w", err)
+		}
+		ver = strings.TrimSpace(ver)
+		if err := checkVersion(ver); err != nil {
+			e.cmd.Process.Kill()
+			<-e.done
+			e.reset()
+			return fmt.Errorf("%w: %s", err, ver)
+		}
+		e.version = ver
 	}
-	ver = strings.TrimSpace(ver)
-	if err := checkVersion(ver); err != nil {
-		e.forceCleanup()
-		return fmt.Errorf("%w: %s", err, ver)
-	}
-	e.version = ver
-	e.started = true
 
 	return nil
 }
 
-// ensureStarted starts the persistent process on first use in lazy mode.
+// isRunning checks if the subprocess is alive.
+// Must be called with e.mu held.
+func (e *Exiftool) isRunning() bool {
+	if e.done == nil {
+		return false
+	}
+	select {
+	case <-e.done:
+		return false
+	default:
+		return true
+	}
+}
+
+// reset cleans up resources from a dead process.
+// Must be called with e.mu held, after done is closed.
+func (e *Exiftool) reset() {
+	e.cmd = nil
+	e.stdin = nil
+	e.stdout = nil
+	e.scanner = nil
+	e.done = nil
+}
+
+// ensureStarted starts the persistent process on first use in lazy mode,
+// or restarts it if the process has exited.
 // Must be called with e.mu held.
 func (e *Exiftool) ensureStarted() error {
-	if e.started {
+	if e.isRunning() {
 		return nil
+	}
+	if e.done != nil {
+		e.reset()
 	}
 	return e.start()
 }
@@ -151,7 +192,7 @@ func (e *Exiftool) Close() error {
 	}
 	e.closed = true
 
-	if !e.started {
+	if !e.isRunning() {
 		return nil
 	}
 
@@ -173,26 +214,22 @@ func (e *Exiftool) forceCleanup() error {
 		e.stdout.Close()
 	}
 
-	if e.cmd != nil && e.cmd.Process != nil {
-		ch := make(chan error, 1)
-		go func() {
-			ch <- e.cmd.Wait()
-		}()
-
+	if e.done != nil {
 		timeout := e.defaults.closeTimeout
 		select {
-		case err := <-ch:
-			if err != nil && !isNormalExit(err) {
-				errs = append(errs, err)
-			}
+		case <-e.done:
+			// Process exited normally
 		case <-time.After(timeout):
-			e.cmd.Process.Kill()
+			if e.cmd != nil && e.cmd.Process != nil {
+				e.cmd.Process.Kill()
+			}
+			<-e.done
 			errs = append(errs, ErrProcessKilled)
 		}
 	}
 
 	if len(errs) > 0 {
-		return fmt.Errorf("errors closing exiftool: %v", errs)
+		return fmt.Errorf("errors closing exiftool: %w", errors.Join(errs...))
 	}
 	return nil
 }
@@ -232,14 +269,15 @@ func (e *Exiftool) Execute(args ...string) (string, error) {
 
 // executeInner is the lock-free internal execute method.
 func (e *Exiftool) executeInner(args ...string) (string, error) {
+	var buf strings.Builder
 	for _, arg := range args {
-		if _, err := fmt.Fprintln(e.stdin, arg); err != nil {
-			return "", fmt.Errorf("error writing arg to stdin: %w", err)
-		}
+		buf.WriteString(arg)
+		buf.WriteByte('\n')
 	}
+	buf.WriteString("-execute\n")
 
-	if _, err := fmt.Fprintln(e.stdin, "-execute"); err != nil {
-		return "", fmt.Errorf("error writing execute command: %w", err)
+	if _, err := io.WriteString(e.stdin, buf.String()); err != nil {
+		return "", fmt.Errorf("error writing command to stdin: %w", err)
 	}
 
 	if !e.scanner.Scan() {
@@ -370,7 +408,16 @@ func splitReadyToken(data []byte, atEOF bool) (int, []byte, error) {
 		return 0, nil, nil
 	}
 
-	return idx + len(readyToken), data[:idx], nil
+	// Skip the ready token and any trailing line ending (\r\n or \n)
+	end := idx + len(readyToken)
+	if end < len(data) && data[end] == '\r' {
+		end++
+	}
+	if end < len(data) && data[end] == '\n' {
+		end++
+	}
+
+	return end, data[:idx], nil
 }
 
 func checkVersion(ver string) error {
@@ -425,12 +472,5 @@ func handleWriteResponse(resp string) error {
 		return nil
 	}
 	return errors.New(cleaned)
-}
-
-func isNormalExit(err error) bool {
-	if err == nil {
-		return true
-	}
-	return strings.Contains(err.Error(), "exit status")
 }
 

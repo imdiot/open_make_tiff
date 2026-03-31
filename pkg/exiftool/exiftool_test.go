@@ -543,12 +543,11 @@ func TestConcurrentExecute(t *testing.T) {
 
 	const n = 10
 	errCh := make(chan error, n)
-	for i := range n {
+	for range n {
 		go func() {
 			_, err := e.Execute("-ver")
 			errCh <- err
 		}()
-		_ = i
 	}
 
 	for range n {

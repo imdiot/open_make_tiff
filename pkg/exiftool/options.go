@@ -14,6 +14,7 @@ type Options struct {
 	Logger       *slog.Logger
 	closeTimeout time.Duration
 	stdout       io.Writer
+	lazyInit     bool
 }
 
 // Option is a functional option for Exiftool.
@@ -44,6 +45,15 @@ func WithCloseTimeout(d time.Duration) Option {
 func WithStdout(w io.Writer) Option {
 	return func(o *Options) {
 		o.stdout = w
+	}
+}
+
+// WithLazyInit defers process startup until first use.
+// When enabled, New() validates the executable but does not spawn a process.
+// The persistent process starts on the first call to Execute or Version.
+func WithLazyInit() Option {
+	return func(o *Options) {
+		o.lazyInit = true
 	}
 }
 

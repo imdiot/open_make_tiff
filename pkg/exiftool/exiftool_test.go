@@ -169,8 +169,8 @@ func TestNewAndClose(t *testing.T) {
 		t.Fatalf("New() error = %v", err)
 	}
 
-	if e.Version() == "" {
-		t.Error("Version() returned empty string")
+	if _, err := e.Version(); err != nil {
+		t.Errorf("Version() error = %v", err)
 	}
 
 	if err := e.Close(); err != nil {
@@ -591,8 +591,161 @@ func TestNewWithCustomExecutable(t *testing.T) {
 	}
 	defer e.Close()
 
-	if e.Version() == "" {
-		t.Error("Version() is empty")
+	if _, err := e.Version(); err != nil {
+		t.Errorf("Version() error = %v", err)
+	}
+}
+
+// --- Lazy init ---
+
+func TestLazyInitOption(t *testing.T) {
+	cfg := defaultOptions()
+	if cfg.lazyInit {
+		t.Error("default lazyInit should be false")
+	}
+
+	WithLazyInit()(&cfg)
+	if !cfg.lazyInit {
+		t.Error("WithLazyInit() did not set lazyInit to true")
+	}
+}
+
+func TestLazyInitCloseWithoutUse(t *testing.T) {
+	exiftoolAvailable(t)
+
+	e, err := New(WithLazyInit())
+	if err != nil {
+		t.Fatalf("New(WithLazyInit()) error = %v", err)
+	}
+	if err := e.Close(); err != nil {
+		t.Errorf("Close() without use error = %v", err)
+	}
+}
+
+func TestLazyInitExecuteTriggersStart(t *testing.T) {
+	exiftoolAvailable(t)
+
+	e, err := New(WithLazyInit())
+	if err != nil {
+		t.Fatalf("New(WithLazyInit()) error = %v", err)
+	}
+	defer e.Close()
+
+	resp, err := e.Execute("-ver")
+	if err != nil {
+		t.Fatalf("Execute(-ver) error = %v", err)
+	}
+	if strings.TrimSpace(resp) == "" {
+		t.Error("Execute(-ver) returned empty")
+	}
+}
+
+func TestLazyInitExecuteAfterClose(t *testing.T) {
+	exiftoolAvailable(t)
+
+	e, err := New(WithLazyInit())
+	if err != nil {
+		t.Fatalf("New(WithLazyInit()) error = %v", err)
+	}
+	e.Close()
+
+	_, err = e.Execute("-ver")
+	if !errors.Is(err, ErrProcessClosed) {
+		t.Errorf("Execute after close error = %v, want ErrProcessClosed", err)
+	}
+}
+
+func TestLazyInitVersionTriggersStart(t *testing.T) {
+	exiftoolAvailable(t)
+
+	e, err := New(WithLazyInit())
+	if err != nil {
+		t.Fatalf("New(WithLazyInit()) error = %v", err)
+	}
+	defer e.Close()
+
+	ver, err := e.Version()
+	if err != nil {
+		t.Fatalf("Version() error = %v", err)
+	}
+	if ver == "" {
+		t.Error("Version() returned empty, expected lazy start to populate it")
+	}
+}
+
+func TestLazyInitVersionAfterClose(t *testing.T) {
+	exiftoolAvailable(t)
+
+	e, err := New(WithLazyInit())
+	if err != nil {
+		t.Fatalf("New(WithLazyInit()) error = %v", err)
+	}
+	e.Close()
+
+	_, err = e.Version()
+	if !errors.Is(err, ErrProcessClosed) {
+		t.Errorf("Version after close error = %v, want ErrProcessClosed", err)
+	}
+}
+
+func TestLazyInitReadMetadata(t *testing.T) {
+	exiftoolAvailable(t)
+
+	e, err := New(WithLazyInit())
+	if err != nil {
+		t.Fatalf("New(WithLazyInit()) error = %v", err)
+	}
+	defer e.Close()
+
+	md, err := e.ReadMetadata(testFile("ExifTool.jpg"))
+	if err != nil {
+		t.Fatalf("ReadMetadata error = %v", err)
+	}
+	if len(md.Fields) == 0 {
+		t.Error("Metadata.Fields is empty")
+	}
+}
+
+func TestLazyInitWriteMetadata(t *testing.T) {
+	exiftoolAvailable(t)
+
+	e, err := New(WithLazyInit())
+	if err != nil {
+		t.Fatalf("New(WithLazyInit()) error = %v", err)
+	}
+	defer e.Close()
+
+	dst := copyToTmp(t, "ExifTool.jpg")
+	err = e.WriteMetadata(dst, map[string]interface{}{
+		"Comment": "lazy write test",
+	})
+	if err != nil {
+		t.Fatalf("WriteMetadata error = %v", err)
+	}
+}
+
+func TestLazyInitConcurrentStart(t *testing.T) {
+	exiftoolAvailable(t)
+
+	e, err := New(WithLazyInit())
+	if err != nil {
+		t.Fatalf("New(WithLazyInit()) error = %v", err)
+	}
+	defer e.Close()
+
+	const n = 10
+	errCh := make(chan error, n)
+	for range n {
+		go func() {
+			_, err := e.Execute("-ver")
+			errCh <- err
+		}()
+	}
+
+	for i := range n {
+		if err := <-errCh; err != nil {
+			t.Errorf("concurrent Execute %d error: %v", i, err)
+		}
 	}
 }
 

@@ -46,6 +46,7 @@ type Exiftool struct {
 	stdin      io.WriteCloser
 	stdout     io.ReadCloser
 	scanner    *bufio.Scanner
+	started    bool
 	closed     bool
 }
 
@@ -80,8 +81,10 @@ func New(opts ...Option) (*Exiftool, error) {
 		defaults:   cfg,
 	}
 
-	if err := e.start(); err != nil {
-		return nil, err
+	if !cfg.lazyInit {
+		if err := e.start(); err != nil {
+			return nil, err
+		}
 	}
 
 	return e, nil
@@ -124,8 +127,18 @@ func (e *Exiftool) start() error {
 		return fmt.Errorf("%w: %s", err, ver)
 	}
 	e.version = ver
+	e.started = true
 
 	return nil
+}
+
+// ensureStarted starts the persistent process on first use in lazy mode.
+// Must be called with e.mu held.
+func (e *Exiftool) ensureStarted() error {
+	if e.started {
+		return nil
+	}
+	return e.start()
 }
 
 // Close sends -stay_open False and waits for the process to exit.
@@ -137,6 +150,10 @@ func (e *Exiftool) Close() error {
 		return nil
 	}
 	e.closed = true
+
+	if !e.started {
+		return nil
+	}
 
 	return e.forceCleanup()
 }
@@ -180,9 +197,21 @@ func (e *Exiftool) forceCleanup() error {
 	return nil
 }
 
-// Version returns the cached exiftool version string.
-func (e *Exiftool) Version() string {
-	return e.version
+// Version returns the exiftool version string.
+// In lazy mode, this triggers process startup if not yet started.
+func (e *Exiftool) Version() (string, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+
+	if e.closed {
+		return "", ErrProcessClosed
+	}
+
+	if err := e.ensureStarted(); err != nil {
+		return "", err
+	}
+
+	return e.version, nil
 }
 
 // Execute runs arbitrary exiftool commands and returns raw response text.
@@ -192,6 +221,10 @@ func (e *Exiftool) Execute(args ...string) (string, error) {
 
 	if e.closed {
 		return "", ErrProcessClosed
+	}
+
+	if err := e.ensureStarted(); err != nil {
+		return "", err
 	}
 
 	return e.executeInner(args...)

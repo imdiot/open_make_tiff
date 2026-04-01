@@ -1,15 +1,34 @@
-.PHONY: build-mac build-windows dev clean \
+.PHONY: build-mac build-mac-arm64 build-mac-x64 build-windows dev clean \
         vcpkg-install vcpkg-install-macos-arm64 vcpkg-install-macos-x64 vcpkg-install-macos-universal \
         vcpkg-install-windows vcpkg-clean-windows vcpkg-rebuild-windows \
         vcpkg-clean-macos vcpkg-rebuild-macos \
         vcpkg-clean vcpkg-rebuild
 
+# Detect platform-specific vcpkg triplet and pkg-config path
+ifeq ($(OS),Windows_NT)
+TRIPLET := x64-windows-static-release
+else
+TRIPLET := $(shell uname -m | sed 's/arm64/arm64-osx-release/' | sed 's/x86_64/x64-osx-release/')
+endif
+PKG_CONFIG_PATH := $(VCPKG_ROOT)/installed/$(TRIPLET)/lib/pkgconfig
+
+build-mac: export PKG_CONFIG_PATH := $(PKG_CONFIG_PATH)
 build-mac:
 	wails build -platform darwin/universal
 
+build-mac-arm64: export PKG_CONFIG_PATH := $(VCPKG_ROOT)/installed/arm64-osx-release/lib/pkgconfig
+build-mac-arm64:
+	wails build -platform darwin/arm64
+
+build-mac-x64: export PKG_CONFIG_PATH := $(VCPKG_ROOT)/installed/x64-osx-release/lib/pkgconfig
+build-mac-x64:
+	wails build -platform darwin/amd64
+
+build-windows: export PKG_CONFIG_PATH := $(VCPKG_ROOT)/installed/x64-windows-static-release/lib/pkgconfig
 build-windows:
 	wails build -platform windows/amd64
 
+dev: export PKG_CONFIG_PATH := $(PKG_CONFIG_PATH)
 dev:
 	wails dev
 

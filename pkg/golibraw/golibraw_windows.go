@@ -12,8 +12,7 @@ import (
 	"unsafe"
 )
 
-// OpenFile 打开 RAW 图像文件。
-// Windows 上使用 libraw_open_wfile 支持非 ASCII 路径。
+// OpenFile uses libraw_open_wfile for non-ASCII path support on Windows.
 func (rp *RawProcessor) OpenFile(path string) error {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()

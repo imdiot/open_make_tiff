@@ -5,95 +5,102 @@ package golibraw
 */
 import "C"
 
-// Option 通过 functional option 模式设置处理参数。
 type Option func(*options)
 
 type options struct {
-	whiteBalanceMode     WhiteBalanceMode
-	whiteBalanceModeSet  bool
-	customWhiteBalance   [4]float32
-	customWhiteBalanceSet bool
+	useCameraWB   bool
+	useCameraWBSet bool
+	useAutoWB     bool
+	useAutoWBSet  bool
+	userMul       [4]float32
+	userMulSet    bool
 
-	useCameraMatrix     int // 0=off, 1=on, -1=unset
-	useAutoWB           bool
-	useAutoWBSet        bool
+	// use_camera_matrix: 0=off, 1=on, -1=unset
+	useCameraMatrix int
 
 	outputColorSpace    ColorSpace
 	outputColorSpaceSet bool
 	outputProfile       string
 	cameraProfile       string
 
-	highlightMode       HighlightMode
-	highlightModeSet    bool
+	highlightMode    HighlightMode
+	highlightModeSet bool
 
-	brightness          float32
-	brightnessSet       bool
-	noAutoBright        bool
-	noAutoBrightSet     bool
+	brightness    float32
+	brightnessSet bool
+	noAutoBright  bool
+	noAutoBrightSet bool
 
-	interpolationQuality InterpolationQuality
+	interpolationQuality    InterpolationQuality
 	interpolationQualitySet bool
-	halfSize            bool
-	halfSizeSet         bool
-	fourColorRGB        bool
-	fourColorRGBSet     bool
-	medianPasses        int
-	medianPassesSet     bool
-	greenMatching       bool
-	greenMatchingSet    bool
+	halfSize    bool
+	halfSizeSet bool
+	fourColorRGB    bool
+	fourColorRGBSet bool
+	medianPasses    int
+	medianPassesSet bool
+	greenMatching    bool
+	greenMatchingSet bool
 
-	outputBPS           int
-	outputBPSSet        bool
-	outputTIFF          bool
-	outputTIFFSet       bool
-	gammaPower          float64
-	gammaToeSlope       float64
-	gammaSet            bool
+	outputBPS    int
+	outputBPSSet bool
+	outputTIFF   bool
+	outputTIFFSet bool
+	gammaPower   float64
+	gammaToeSlope float64
+	gammaSet     bool
 
-	flip                FlipMode
-	flipSet             bool
-	noFujiRotate        bool
-	noFujiRotateSet     bool
-	cropBox             [4]uint
-	cropBoxSet          bool
+	flip    FlipMode
+	flipSet bool
+	noFujiRotate    bool
+	noFujiRotateSet bool
+	cropBox    [4]uint
+	cropBoxSet bool
 
-	noiseThreshold      float32
-	noiseThresholdSet   bool
-	fbddMode            FBDDMode
-	fbddModeSet         bool
-	dcbIterations       int
-	dcbIterationsSet    bool
-	dcbEnhance          bool
-	dcbEnhanceSet       bool
+	noiseThreshold    float32
+	noiseThresholdSet bool
+	fbddMode    FBDDMode
+	fbddModeSet bool
+	dcbIterations    int
+	dcbIterationsSet bool
+	dcbEnhance    bool
+	dcbEnhanceSet bool
 
-	shotSelect          uint
-	shotSelectSet       bool
+	shotSelect    uint
+	shotSelectSet bool
 	adjustMaxThreshold  float32
 	adjustMaxThresholdSet bool
 
-	userBlack           int
-	userBlackSet        bool
-	userSat             int
-	userSatSet          bool
+	userBlack    int
+	userBlackSet bool
+	userSat      int
+	userSatSet   bool
 
-	badPixels           string
-	darkFrame           string
+	badPixels string
+	darkFrame string
 
-	expShift            float32
-	expPreser           float32
-	expCorrecSet        bool
+	expShift    float32
+	expPreser   float32
+	expCorrecSet bool
 
-	noAutoScale         bool
-	noAutoScaleSet      bool
-	noInterpolation     bool
-	noInterpolationSet  bool
+	noAutoScale    bool
+	noAutoScaleSet bool
+	noInterpolation    bool
+	noInterpolationSet bool
 
-	chromaticAberration [2]float64
+	chromaticAberration    [2]float64
 	chromaticAberrationSet bool
+
+	dngSDK       int
+	dngSDKSet    bool
+	useRawSpeed  int
+	useRawSpeedSet bool
+	rawOptions   uint
+	rawOptionsSet bool
 }
 
-// ApplyOptions 将 functional options 应用到 processor 的输出参数上。
-// 必须在 Process 之前调用。
+// ApplyOptions applies functional options to the processor output params.
+// Must be called before Process.
 func (rp *RawProcessor) ApplyOptions(opts ...Option) error {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
@@ -116,44 +123,30 @@ func defaultOptions() options {
 	return options{}
 }
 
-// applyConfigToHandle 将 Go options 映射到 C 的 libraw_output_params_t。
-// alloc 参数用于分配 C 字符串并跟踪生命周期，避免 use-after-free。
 func applyConfigToHandle(handle *C.libraw_data_t, cfg *options, alloc func(string) *C.char) {
 	params := &handle.params
 
-	if cfg.whiteBalanceModeSet {
-		// 先清除所有 WB 标志
-		params.use_camera_wb = 0
-		params.use_auto_wb = 0
+	if cfg.useCameraWBSet {
+		params.use_camera_wb = boolToCInt(cfg.useCameraWB)
+	}
 
-		switch cfg.whiteBalanceMode {
-		case WBCamera:
-			params.use_camera_wb = 1
-		case WBAverage:
-			params.use_auto_wb = 1
-		case WBCustom:
-			if cfg.customWhiteBalanceSet {
-				for i := range 4 {
-					C.libraw_set_user_mul(handle, C.int(i), C.float(cfg.customWhiteBalance[i]))
-				}
-			}
-		}
+	if cfg.useAutoWBSet {
+		params.use_auto_wb = boolToCInt(cfg.useAutoWB)
+	}
+
+	if cfg.userMulSet {
+		params.user_mul[0] = C.float(cfg.userMul[0])
+		params.user_mul[1] = C.float(cfg.userMul[1])
+		params.user_mul[2] = C.float(cfg.userMul[2])
+		params.user_mul[3] = C.float(cfg.userMul[3])
 	}
 
 	if cfg.useCameraMatrix >= 0 {
 		params.use_camera_matrix = C.int(cfg.useCameraMatrix)
 	}
 
-	if cfg.useAutoWBSet {
-		if cfg.useAutoWB {
-			params.use_auto_wb = 1
-		} else {
-			params.use_auto_wb = 0
-		}
-	}
-
 	if cfg.outputColorSpaceSet {
-		C.libraw_set_output_color(handle, C.int(cfg.outputColorSpace))
+		params.output_color = C.int(cfg.outputColorSpace)
 	}
 
 	if cfg.outputProfile != "" {
@@ -165,23 +158,19 @@ func applyConfigToHandle(handle *C.libraw_data_t, cfg *options, alloc func(strin
 	}
 
 	if cfg.highlightModeSet {
-		C.libraw_set_highlight(handle, C.int(cfg.highlightMode))
+		params.highlight = C.int(cfg.highlightMode)
 	}
 
 	if cfg.brightnessSet {
-		C.libraw_set_bright(handle, C.float(cfg.brightness))
+		params.bright = C.float(cfg.brightness)
 	}
 
 	if cfg.noAutoBrightSet {
-		val := 0
-		if cfg.noAutoBright {
-			val = 1
-		}
-		C.libraw_set_no_auto_bright(handle, C.int(val))
+		params.no_auto_bright = boolToCInt(cfg.noAutoBright)
 	}
 
 	if cfg.interpolationQualitySet {
-		C.libraw_set_demosaic(handle, C.int(cfg.interpolationQuality))
+		params.user_qual = C.int(cfg.interpolationQuality)
 	}
 
 	if cfg.halfSizeSet {
@@ -201,20 +190,16 @@ func applyConfigToHandle(handle *C.libraw_data_t, cfg *options, alloc func(strin
 	}
 
 	if cfg.outputBPSSet {
-		C.libraw_set_output_bps(handle, C.int(cfg.outputBPS))
+		params.output_bps = C.int(cfg.outputBPS)
 	}
 
 	if cfg.outputTIFFSet {
-		val := 0
-		if cfg.outputTIFF {
-			val = 1
-		}
-		C.libraw_set_output_tif(handle, C.int(val))
+		params.output_tiff = boolToCInt(cfg.outputTIFF)
 	}
 
 	if cfg.gammaSet {
-		C.libraw_set_gamma(handle, 0, C.float(cfg.gammaPower))
-		C.libraw_set_gamma(handle, 1, C.float(cfg.gammaToeSlope))
+		params.gamm[0] = C.double(cfg.gammaPower)
+		params.gamm[1] = C.double(cfg.gammaToeSlope)
 	}
 
 	if cfg.flipSet {
@@ -237,7 +222,7 @@ func applyConfigToHandle(handle *C.libraw_data_t, cfg *options, alloc func(strin
 	}
 
 	if cfg.fbddModeSet {
-		C.libraw_set_fbdd_noiserd(handle, C.int(cfg.fbddMode))
+		params.fbdd_noiserd = C.int(cfg.fbddMode)
 	}
 
 	if cfg.dcbIterationsSet {
@@ -253,7 +238,7 @@ func applyConfigToHandle(handle *C.libraw_data_t, cfg *options, alloc func(strin
 	}
 
 	if cfg.adjustMaxThresholdSet {
-		C.libraw_set_adjust_maximum_thr(handle, C.float(cfg.adjustMaxThreshold))
+		params.adjust_maximum_thr = C.float(cfg.adjustMaxThreshold)
 	}
 
 	if cfg.userBlackSet {
@@ -290,6 +275,18 @@ func applyConfigToHandle(handle *C.libraw_data_t, cfg *options, alloc func(strin
 		params.aber[0] = C.double(cfg.chromaticAberration[0])
 		params.aber[1] = C.double(cfg.chromaticAberration[1])
 	}
+
+	if cfg.dngSDKSet {
+		handle.rawparams.use_dngsdk = C.int(cfg.dngSDK)
+	}
+
+	if cfg.useRawSpeedSet {
+		handle.rawparams.use_rawspeed = C.int(cfg.useRawSpeed)
+	}
+
+	if cfg.rawOptionsSet {
+		handle.rawparams.options = C.uint(cfg.rawOptions)
+	}
 }
 
 func boolToCInt(b bool) C.int {
@@ -299,35 +296,28 @@ func boolToCInt(b bool) C.int {
 	return 0
 }
 
-// --- Functional Option 函数 ---
-
-// WithCameraWhiteBalance 使用相机的白平衡设置。
-func WithCameraWhiteBalance() Option {
+func WithCameraWB() Option {
 	return func(o *options) {
-		o.whiteBalanceMode = WBCamera
-		o.whiteBalanceModeSet = true
+		o.useCameraWB = true
+		o.useCameraWBSet = true
 	}
 }
 
-// WithAutoWhiteBalance 使用自动白平衡。
-func WithAutoWhiteBalance() Option {
+func WithAutoWB() Option {
 	return func(o *options) {
 		o.useAutoWB = true
 		o.useAutoWBSet = true
 	}
 }
 
-// WithCustomWhiteBalance 使用自定义白平衡系数 (r, g, b, g2)。
-func WithCustomWhiteBalance(r, g, b, g2 float32) Option {
+// WithUserMul sets params.user_mul (r, g, b, g2).
+func WithUserMul(r, g, b, g2 float32) Option {
 	return func(o *options) {
-		o.customWhiteBalance = [4]float32{r, g, b, g2}
-		o.customWhiteBalanceSet = true
-		o.whiteBalanceMode = WBCustom
-		o.whiteBalanceModeSet = true
+		o.userMul = [4]float32{r, g, b, g2}
+		o.userMulSet = true
 	}
 }
 
-// WithEmbeddedColorMatrix 设置是否使用嵌入式色彩矩阵。
 func WithEmbeddedColorMatrix(use bool) Option {
 	return func(o *options) {
 		if use {
@@ -338,7 +328,6 @@ func WithEmbeddedColorMatrix(use bool) Option {
 	}
 }
 
-// WithOutputColorSpace 设置输出色彩空间。
 func WithOutputColorSpace(space ColorSpace) Option {
 	return func(o *options) {
 		o.outputColorSpace = space
@@ -346,21 +335,18 @@ func WithOutputColorSpace(space ColorSpace) Option {
 	}
 }
 
-// WithOutputProfile 设置输出 ICC Profile 路径。
 func WithOutputProfile(path string) Option {
 	return func(o *options) {
 		o.outputProfile = path
 	}
 }
 
-// WithCameraProfile 设置相机 ICC Profile 路径。
 func WithCameraProfile(path string) Option {
 	return func(o *options) {
 		o.cameraProfile = path
 	}
 }
 
-// WithHighlightMode 设置高光处理模式。
 func WithHighlightMode(mode HighlightMode) Option {
 	return func(o *options) {
 		o.highlightMode = mode
@@ -368,7 +354,6 @@ func WithHighlightMode(mode HighlightMode) Option {
 	}
 }
 
-// WithBrightness 设置亮度值。
 func WithBrightness(brightness float32) Option {
 	return func(o *options) {
 		o.brightness = brightness
@@ -376,7 +361,6 @@ func WithBrightness(brightness float32) Option {
 	}
 }
 
-// WithNoAutoBrightness 禁用自动亮度调整。
 func WithNoAutoBrightness() Option {
 	return func(o *options) {
 		o.noAutoBright = true
@@ -384,7 +368,6 @@ func WithNoAutoBrightness() Option {
 	}
 }
 
-// WithInterpolationQuality 设置插值质量。
 func WithInterpolationQuality(quality InterpolationQuality) Option {
 	return func(o *options) {
 		o.interpolationQuality = quality
@@ -392,7 +375,6 @@ func WithInterpolationQuality(quality InterpolationQuality) Option {
 	}
 }
 
-// WithHalfSize 输出半尺寸图像。
 func WithHalfSize() Option {
 	return func(o *options) {
 		o.halfSize = true
@@ -400,7 +382,6 @@ func WithHalfSize() Option {
 	}
 }
 
-// WithFourColorRGB 使用四通道 RGB 插值。
 func WithFourColorRGB() Option {
 	return func(o *options) {
 		o.fourColorRGB = true
@@ -408,7 +389,6 @@ func WithFourColorRGB() Option {
 	}
 }
 
-// WithMedianFilter 设置中值滤波次数。
 func WithMedianFilter(passes int) Option {
 	return func(o *options) {
 		o.medianPasses = passes
@@ -416,7 +396,6 @@ func WithMedianFilter(passes int) Option {
 	}
 }
 
-// WithGreenMatching 启用绿色通道匹配。
 func WithGreenMatching() Option {
 	return func(o *options) {
 		o.greenMatching = true
@@ -424,7 +403,6 @@ func WithGreenMatching() Option {
 	}
 }
 
-// With16BitOutput 设置 16 位输出。
 func With16BitOutput() Option {
 	return func(o *options) {
 		o.outputBPS = 16
@@ -432,7 +410,6 @@ func With16BitOutput() Option {
 	}
 }
 
-// WithTIFFOutput 设置 TIFF 格式输出。
 func WithTIFFOutput() Option {
 	return func(o *options) {
 		o.outputTIFF = true
@@ -440,7 +417,7 @@ func WithTIFFOutput() Option {
 	}
 }
 
-// WithGamma 设置 gamma 值 (power, toe_slope)。
+// WithGamma sets params.gamm (power, toe_slope).
 func WithGamma(power, toeSlope float64) Option {
 	return func(o *options) {
 		o.gammaPower = power
@@ -449,7 +426,6 @@ func WithGamma(power, toeSlope float64) Option {
 	}
 }
 
-// WithFlip 设置翻转模式。
 func WithFlip(mode FlipMode) Option {
 	return func(o *options) {
 		o.flip = mode
@@ -457,7 +433,6 @@ func WithFlip(mode FlipMode) Option {
 	}
 }
 
-// WithNoFujiRotate 禁用富士旋转。
 func WithNoFujiRotate() Option {
 	return func(o *options) {
 		o.noFujiRotate = true
@@ -465,7 +440,7 @@ func WithNoFujiRotate() Option {
 	}
 }
 
-// WithCropBox 设置裁切区域 (x, y, width, height)。
+// WithCropBox sets params.cropbox (x, y, width, height).
 func WithCropBox(x, y, w, h uint) Option {
 	return func(o *options) {
 		o.cropBox = [4]uint{x, y, w, h}
@@ -473,7 +448,6 @@ func WithCropBox(x, y, w, h uint) Option {
 	}
 }
 
-// WithWaveletDenoising 设置小波降噪阈值。
 func WithWaveletDenoising(threshold float32) Option {
 	return func(o *options) {
 		o.noiseThreshold = threshold
@@ -481,7 +455,6 @@ func WithWaveletDenoising(threshold float32) Option {
 	}
 }
 
-// WithFBDD 设置 FBDD 噪声 Reduction 模式。
 func WithFBDD(mode FBDDMode) Option {
 	return func(o *options) {
 		o.fbddMode = mode
@@ -489,7 +462,6 @@ func WithFBDD(mode FBDDMode) Option {
 	}
 }
 
-// WithDCBIterations 设置 DCB 插值迭代次数。
 func WithDCBIterations(iterations int) Option {
 	return func(o *options) {
 		o.dcbIterations = iterations
@@ -497,7 +469,6 @@ func WithDCBIterations(iterations int) Option {
 	}
 }
 
-// WithDCBEnhance 启用 DCB 增强。
 func WithDCBEnhance() Option {
 	return func(o *options) {
 		o.dcbEnhance = true
@@ -505,7 +476,6 @@ func WithDCBEnhance() Option {
 	}
 }
 
-// WithShotSelect 选择多帧 RAW 中的指定帧。
 func WithShotSelect(index uint) Option {
 	return func(o *options) {
 		o.shotSelect = index
@@ -513,7 +483,6 @@ func WithShotSelect(index uint) Option {
 	}
 }
 
-// WithAdjustMaxThreshold 设置最大值调整阈值。
 func WithAdjustMaxThreshold(threshold float32) Option {
 	return func(o *options) {
 		o.adjustMaxThreshold = threshold
@@ -521,7 +490,6 @@ func WithAdjustMaxThreshold(threshold float32) Option {
 	}
 }
 
-// WithDarkness 设置黑电平。
 func WithDarkness(level int) Option {
 	return func(o *options) {
 		o.userBlack = level
@@ -529,7 +497,6 @@ func WithDarkness(level int) Option {
 	}
 }
 
-// WithSaturation 设置饱和度。
 func WithSaturation(level int) Option {
 	return func(o *options) {
 		o.userSat = level
@@ -537,21 +504,19 @@ func WithSaturation(level int) Option {
 	}
 }
 
-// WithBadPixelsFile 设置坏点文件路径。
 func WithBadPixelsFile(path string) Option {
 	return func(o *options) {
 		o.badPixels = path
 	}
 }
 
-// WithDarkFrame 设置暗帧文件路径。
 func WithDarkFrame(path string) Option {
 	return func(o *options) {
 		o.darkFrame = path
 	}
 }
 
-// WithExposureCorrection 设置曝光修正 (shift, preserve)。
+// WithExposureCorrection sets params.exp_shift and exp_preser.
 func WithExposureCorrection(shift, preserve float32) Option {
 	return func(o *options) {
 		o.expShift = shift
@@ -560,7 +525,6 @@ func WithExposureCorrection(shift, preserve float32) Option {
 	}
 }
 
-// WithNoAutoScale 禁用自动缩放。
 func WithNoAutoScale() Option {
 	return func(o *options) {
 		o.noAutoScale = true
@@ -568,7 +532,6 @@ func WithNoAutoScale() Option {
 	}
 }
 
-// WithNoInterpolation 禁用插值。
 func WithNoInterpolation() Option {
 	return func(o *options) {
 		o.noInterpolation = true
@@ -576,10 +539,32 @@ func WithNoInterpolation() Option {
 	}
 }
 
-// WithChromaticAberration 设置色差校正 (red, blue)。
+// WithChromaticAberration sets params.aber (red, blue).
 func WithChromaticAberration(red, blue float64) Option {
 	return func(o *options) {
 		o.chromaticAberration = [2]float64{red, blue}
 		o.chromaticAberrationSet = true
+	}
+}
+
+// WithDNGSDK sets rawparams.use_dngsdk (LIBRAW_DNG_* bitmask).
+func WithDNGSDK(flags int) Option {
+	return func(o *options) {
+		o.dngSDK = flags
+		o.dngSDKSet = true
+	}
+}
+
+func WithUseRawSpeed(val int) Option {
+	return func(o *options) {
+		o.useRawSpeed = val
+		o.useRawSpeedSet = true
+	}
+}
+
+func WithRawOptions(opts uint) Option {
+	return func(o *options) {
+		o.rawOptions = opts
+		o.rawOptionsSet = true
 	}
 }

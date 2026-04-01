@@ -6,14 +6,12 @@ import (
 	"testing"
 )
 
-// testRAWPath 返回测试用 RAW 文件路径。
-// 优先从环境变量 GOLIBRAW_TEST_FILE 获取，否则使用 testdata 中的文件。
+// testRAWPath returns a test RAW file path from GOLIBRAW_TEST_FILE env or testdata/.
 func testRAWPath(t *testing.T) string {
 	t.Helper()
 	if p := os.Getenv("GOLIBRAW_TEST_FILE"); p != "" {
 		return p
 	}
-	// 尝试 testdata 目录下的文件
 	candidates := []string{"DNG.dng", "IMG_8000.CR2", "IMG_1104.CR3"}
 	for _, name := range candidates {
 		p := filepath.Join("testdata", name)
@@ -31,7 +29,6 @@ func TestNewClose(t *testing.T) {
 		t.Fatalf("New() error: %v", err)
 	}
 
-	// 二次 Close 应幂等
 	if err := rp.Close(); err != nil {
 		t.Fatalf("first Close() error: %v", err)
 	}
@@ -162,7 +159,6 @@ func TestMakeMemImage(t *testing.T) {
 	t.Logf("Mem image: %dx%d, %d colors, %d bits, %d bytes, format=%d",
 		img.Width, img.Height, img.Colors, img.Bits, len(img.Data), img.Type)
 
-	// 将数据写入临时文件验证
 	tmpDir := t.TempDir()
 	ext := ".ppm"
 	if img.Type == ImageBitmap {
@@ -262,7 +258,7 @@ func TestOptions(t *testing.T) {
 	if err := rp.ApplyOptions(
 		With16BitOutput(),
 		WithTIFFOutput(),
-		WithCameraWhiteBalance(),
+		WithCameraWB(),
 		WithOutputColorSpace(ColorSpaceRaw),
 		WithNoAutoBrightness(),
 		WithInterpolationQuality(QualityAHD),
@@ -297,16 +293,13 @@ func TestRecycle(t *testing.T) {
 	}
 	defer rp.Close()
 
-	// 第一次打开
 	if err := rp.OpenFile(path); err != nil {
 		t.Fatalf("first OpenFile() error: %v", err)
 	}
 	info1 := rp.GetCameraInfo()
 
-	// Recycle 后复用
 	rp.Recycle()
 
-	// 第二次打开同一文件
 	if err := rp.OpenFile(path); err != nil {
 		t.Fatalf("second OpenFile() error: %v", err)
 	}
@@ -357,4 +350,177 @@ func TestWritePPMTiff(t *testing.T) {
 		t.Fatal("output TIFF is empty")
 	}
 	t.Logf("Written TIFF: %d bytes", stat.Size())
+}
+
+func TestRawParamsOptions(t *testing.T) {
+	path := testRAWPath(t)
+
+	rp, err := New()
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer rp.Close()
+
+	if err := rp.ApplyOptions(
+		WithDNGSDK(0),
+		WithUseRawSpeed(0),
+		WithRawOptions(0),
+	); err != nil {
+		t.Fatalf("ApplyOptions(rawparams) error: %v", err)
+	}
+
+	if err := rp.OpenFile(path); err != nil {
+		t.Fatalf("OpenFile() error: %v", err)
+	}
+	if err := rp.Unpack(); err != nil {
+		t.Fatalf("Unpack() error: %v", err)
+	}
+	if err := rp.Process(); err != nil {
+		t.Fatalf("Process() error: %v", err)
+	}
+
+	img, err := rp.MakeMemImage()
+	if err != nil {
+		t.Fatalf("MakeMemImage() error: %v", err)
+	}
+	if img.Width == 0 || img.Height == 0 {
+		t.Fatalf("image dimensions zero: %dx%d", img.Width, img.Height)
+	}
+	t.Logf("RawParams: %dx%d, %d bytes", img.Width, img.Height, len(img.Data))
+}
+
+func TestWhiteBalanceFields(t *testing.T) {
+	path := testRAWPath(t)
+
+	t.Run("CameraWB", func(t *testing.T) {
+		rp, err := New()
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+		defer rp.Close()
+
+		if err := rp.ApplyOptions(WithCameraWB()); err != nil {
+			t.Fatalf("ApplyOptions(WithCameraWB) error: %v", err)
+		}
+		if err := rp.OpenFile(path); err != nil {
+			t.Fatalf("OpenFile() error: %v", err)
+		}
+		if err := rp.Unpack(); err != nil {
+			t.Fatalf("Unpack() error: %v", err)
+		}
+		if err := rp.Process(); err != nil {
+			t.Fatalf("Process() error: %v", err)
+		}
+	})
+
+	t.Run("AutoWB", func(t *testing.T) {
+		rp, err := New()
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+		defer rp.Close()
+
+		if err := rp.ApplyOptions(WithAutoWB()); err != nil {
+			t.Fatalf("ApplyOptions(WithAutoWB) error: %v", err)
+		}
+		if err := rp.OpenFile(path); err != nil {
+			t.Fatalf("OpenFile() error: %v", err)
+		}
+		if err := rp.Unpack(); err != nil {
+			t.Fatalf("Unpack() error: %v", err)
+		}
+		if err := rp.Process(); err != nil {
+			t.Fatalf("Process() error: %v", err)
+		}
+	})
+
+	t.Run("UserMul", func(t *testing.T) {
+		rp, err := New()
+		if err != nil {
+			t.Fatalf("New() error: %v", err)
+		}
+		defer rp.Close()
+
+		if err := rp.ApplyOptions(WithUserMul(1.0, 1.0, 1.0, 1.0)); err != nil {
+			t.Fatalf("ApplyOptions(WithUserMul) error: %v", err)
+		}
+		if err := rp.OpenFile(path); err != nil {
+			t.Fatalf("OpenFile() error: %v", err)
+		}
+		if err := rp.Unpack(); err != nil {
+			t.Fatalf("Unpack() error: %v", err)
+		}
+		if err := rp.Process(); err != nil {
+			t.Fatalf("Process() error: %v", err)
+		}
+	})
+}
+
+func TestEnableDNGSDK(t *testing.T) {
+	rp, err := New()
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer rp.Close()
+
+	if err := rp.EnableDNGSDK(); err != nil {
+		t.Fatalf("EnableDNGSDK() error: %v", err)
+	}
+
+	if rp.dngHost == nil {
+		t.Fatal("EnableDNGSDK(): dngHost is nil, USE_DNGSDK may not be enabled")
+	}
+	t.Log("DNG SDK host created successfully")
+}
+
+func TestDNGSDKProcess(t *testing.T) {
+	path := testRAWPath(t)
+
+	rp, err := New()
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer rp.Close()
+
+	if err := rp.EnableDNGSDK(); err != nil {
+		t.Fatalf("EnableDNGSDK() error: %v", err)
+	}
+
+	if err := rp.ApplyOptions(
+		WithDNGSDK(47), // LIBRAW_DNG_DEFAULT
+		WithCameraWB(),
+	); err != nil {
+		t.Fatalf("ApplyOptions() error: %v", err)
+	}
+
+	if err := rp.OpenFile(path); err != nil {
+		t.Fatalf("OpenFile() error: %v", err)
+	}
+	if err := rp.Unpack(); err != nil {
+		t.Fatalf("Unpack() error: %v", err)
+	}
+	if err := rp.Process(); err != nil {
+		t.Fatalf("Process() error: %v", err)
+	}
+
+	img, err := rp.MakeMemImage()
+	if err != nil {
+		t.Fatalf("MakeMemImage() error: %v", err)
+	}
+	if img.Width == 0 || img.Height == 0 {
+		t.Fatalf("image dimensions zero: %dx%d", img.Width, img.Height)
+	}
+	t.Logf("DNG SDK processed: %dx%d, %d bytes", img.Width, img.Height, len(img.Data))
+}
+
+func TestEnableDNGSDKAfterClose(t *testing.T) {
+	rp, err := New()
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	rp.Close()
+
+	if err := rp.EnableDNGSDK(); err != ErrAlreadyClosed {
+		t.Fatalf("EnableDNGSDK after Close() = %v, want ErrAlreadyClosed", err)
+	}
 }

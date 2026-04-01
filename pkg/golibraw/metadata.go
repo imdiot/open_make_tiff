@@ -7,7 +7,6 @@ import "C"
 
 import "time"
 
-// GetImageSizes 返回图像尺寸信息。
 func (rp *RawProcessor) GetImageSizes() ImageSizes {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
@@ -30,7 +29,6 @@ func (rp *RawProcessor) GetImageSizes() ImageSizes {
 	}
 }
 
-// GetCameraInfo 返回相机和图像基本参数。
 func (rp *RawProcessor) GetCameraInfo() CameraInfo {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
@@ -54,7 +52,6 @@ func (rp *RawProcessor) GetCameraInfo() CameraInfo {
 	}
 }
 
-// GetLensInfo 返回镜头信息。
 func (rp *RawProcessor) GetLensInfo() LensInfo {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
@@ -65,20 +62,19 @@ func (rp *RawProcessor) GetLensInfo() LensInfo {
 
 	li := C.libraw_get_lensinfo(rp.handle)
 	return LensInfo{
-		LensMake:              C.GoString(&li.LensMake[0]),
-		Lens:                  C.GoString(&li.Lens[0]),
-		LensSerial:            C.GoString(&li.LensSerial[0]),
-		MinFocal:              float32(li.MinFocal),
-		MaxFocal:              float32(li.MaxFocal),
-		MaxAp4MinFocal:        float32(li.MaxAp4MinFocal),
-		MaxAp4MaxFocal:        float32(li.MaxAp4MaxFocal),
-		CurFocal:              float32(li.makernotes.CurFocal),
-		CurAp:                 float32(li.makernotes.CurAp),
+		LensMake:                C.GoString(&li.LensMake[0]),
+		Lens:                    C.GoString(&li.Lens[0]),
+		LensSerial:              C.GoString(&li.LensSerial[0]),
+		MinFocal:                float32(li.MinFocal),
+		MaxFocal:                float32(li.MaxFocal),
+		MaxAp4MinFocal:          float32(li.MaxAp4MinFocal),
+		MaxAp4MaxFocal:          float32(li.MaxAp4MaxFocal),
+		CurFocal:                float32(li.makernotes.CurFocal),
+		CurAp:                   float32(li.makernotes.CurAp),
 		FocalLengthIn35mmFormat: uint16(li.FocalLengthIn35mmFormat),
 	}
 }
 
-// GetShootingParams 返回拍摄参数。
 func (rp *RawProcessor) GetShootingParams() ShootingParams {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()

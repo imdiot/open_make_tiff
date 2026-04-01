@@ -9,7 +9,6 @@ import "C"
 
 import "unsafe"
 
-// OpenFile 打开 RAW 图像文件。
 func (rp *RawProcessor) OpenFile(path string) error {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()

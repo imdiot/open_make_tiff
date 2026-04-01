@@ -6,7 +6,6 @@ package golibraw
 import "C"
 import "unsafe"
 
-// OpenBuffer 从内存缓冲区打开 RAW 图像数据。
 func (rp *RawProcessor) OpenBuffer(data []byte) error {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
@@ -19,7 +18,7 @@ func (rp *RawProcessor) OpenBuffer(data []byte) error {
 	return librawError(rc, ErrBufferOpen)
 }
 
-// Unpack 解包 RAW 数据。必须在 OpenFile/OpenBuffer 之后调用。
+// Unpack unpacks raw data. Must be called after OpenFile/OpenBuffer.
 func (rp *RawProcessor) Unpack() error {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
@@ -32,7 +31,6 @@ func (rp *RawProcessor) Unpack() error {
 	return librawError(rc, ErrUnpack)
 }
 
-// UnpackThumb 解包缩略图数据。
 func (rp *RawProcessor) UnpackThumb() error {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
@@ -45,8 +43,7 @@ func (rp *RawProcessor) UnpackThumb() error {
 	return librawError(rc, ErrUnpackThumb)
 }
 
-// Process 执行 dcraw 风格的图像处理。必须在 Unpack 之后调用。
-// 处理参数需在调用前通过 ApplyOptions 设置。
+// Process runs dcraw-style processing. Must be called after Unpack.
 func (rp *RawProcessor) Process() error {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
@@ -59,9 +56,7 @@ func (rp *RawProcessor) Process() error {
 	return librawError(rc, ErrProcess)
 }
 
-// MakeMemImage 将处理后的图像转为内存数据。
-// 返回的 ProcessedImage.Data 包含完整的 PPM 或 TIFF 文件数据。
-// 必须在 Process 之后调用。
+// MakeMemImage converts processed image to memory. Must be called after Process.
 func (rp *RawProcessor) MakeMemImage() (*ProcessedImage, error) {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
@@ -80,8 +75,7 @@ func (rp *RawProcessor) MakeMemImage() (*ProcessedImage, error) {
 	return copyProcessedImage(img)
 }
 
-// MakeMemThumb 将缩略图转为内存数据。
-// 必须在 UnpackThumb 之后调用。
+// MakeMemThumb converts thumbnail to memory. Must be called after UnpackThumb.
 func (rp *RawProcessor) MakeMemThumb() (*ProcessedImage, error) {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
@@ -100,8 +94,7 @@ func (rp *RawProcessor) MakeMemThumb() (*ProcessedImage, error) {
 	return copyProcessedImage(img)
 }
 
-// WritePPMTiff 将处理后的图像写为 PPM/TIFF 文件。
-// 必须在 Process 之后调用。
+// WritePPMTiff writes processed image as PPM/TIFF. Must be called after Process.
 func (rp *RawProcessor) WritePPMTiff(outputPath string) error {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
@@ -117,8 +110,7 @@ func (rp *RawProcessor) WritePPMTiff(outputPath string) error {
 	return librawError(rc, ErrWriteFailed)
 }
 
-// WriteThumb 将缩略图写入文件。
-// 必须在 UnpackThumb 之后调用。
+// WriteThumb writes thumbnail to file. Must be called after UnpackThumb.
 func (rp *RawProcessor) WriteThumb(outputPath string) error {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
@@ -134,8 +126,6 @@ func (rp *RawProcessor) WriteThumb(outputPath string) error {
 	return librawError(rc, ErrWriteFailed)
 }
 
-// copyProcessedImage 将 C 的 libraw_processed_image_t 数据拷贝到 Go 结构体。
-// 调用方负责在返回后释放 C 内存。
 func copyProcessedImage(img *C.libraw_processed_image_t) (*ProcessedImage, error) {
 	dataSize := C.uint(img.data_size)
 	if dataSize == 0 {

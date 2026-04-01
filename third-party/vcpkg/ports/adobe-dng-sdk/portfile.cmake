@@ -37,6 +37,47 @@ endif()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 
+# Generate pkg-config files (upstream CMake does not produce .pc)
+set(PKGCONFIG_DIR "${CURRENT_PACKAGES_DIR}/lib/pkgconfig")
+file(MAKE_DIRECTORY "${PKGCONFIG_DIR}")
+
+# Platform-specific system libraries
+set(_DNG_SYSLIBS "")
+set(_XMP_SYSLIBS "")
+if(APPLE)
+    string(APPEND _DNG_SYSLIBS " -framework CoreFoundation -framework CoreServices")
+    string(APPEND _XMP_SYSLIBS " -framework CoreFoundation -framework CoreServices")
+elseif(UNIX)
+    string(APPEND _DNG_SYSLIBS " -lm -lc++")
+    string(APPEND _XMP_SYSLIBS " -lc++")
+endif()
+
+file(WRITE "${PKGCONFIG_DIR}/dng.pc" "prefix=\${pcfiledir}/../..
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib
+includedir=\${prefix}/include
+
+Name: dng
+Description: Adobe DNG SDK
+Version: 1.7.1
+Libs: \"-L\${libdir}\" -ldng${_DNG_SYSLIBS}
+Requires: xmp libjxl libjxl_threads libjxl_cms libjpeg zlib
+Cflags: \"-I\${includedir}\"
+")
+
+file(WRITE "${PKGCONFIG_DIR}/xmp.pc" "prefix=\${pcfiledir}/../..
+exec_prefix=\${prefix}
+libdir=\${exec_prefix}/lib
+includedir=\${prefix}/include
+
+Name: xmp
+Description: Adobe XMP SDK (part of DNG SDK)
+Version: 1.7.1
+Libs: \"-L\${libdir}\" -lxmp${_XMP_SYSLIBS}
+Requires: expat zlib
+Cflags: \"-I\${includedir}\"
+")
+
 vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE.txt")
 
 file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/usage"

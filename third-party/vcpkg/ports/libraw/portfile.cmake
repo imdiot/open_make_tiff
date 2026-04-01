@@ -73,6 +73,20 @@ file(REMOVE_RECURSE
     "${CURRENT_PACKAGES_DIR}/share/doc"
 )
 
+# Add direct dependency to .pc when dngsdk feature is enabled
+# Transitive deps resolved via dng.pc -> xmp.pc -> libjxl.pc chain
+if("dngsdk" IN_LIST FEATURES)
+    set(_RAW_DNG_REQUIRE "dng")
+else()
+    set(_RAW_DNG_REQUIRE "")
+endif()
+foreach(_pc IN ITEMS libraw libraw_r)
+    set(_pc_file "${CURRENT_PACKAGES_DIR}/lib/pkgconfig/${_pc}.pc")
+    if(EXISTS "${_pc_file}" AND _RAW_DNG_REQUIRE)
+        vcpkg_replace_string("${_pc_file}" "Requires:  lcms2 zlib libjpeg" "Requires: ${_RAW_DNG_REQUIRE} lcms2 zlib libjpeg")
+    endif()
+endforeach()
+
 configure_file("${CMAKE_CURRENT_LIST_DIR}/vcpkg-cmake-wrapper.cmake" "${CURRENT_PACKAGES_DIR}/share/${PORT}/vcpkg-cmake-wrapper.cmake" @ONLY)
 file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/usage" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")
 vcpkg_install_copyright(FILE_LIST

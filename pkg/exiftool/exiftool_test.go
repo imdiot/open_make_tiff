@@ -17,7 +17,7 @@ func testFile(name string) string {
 	return filepath.Join(testdataDir, name)
 }
 
-func exiftoolAvailable(t *testing.T) {
+func exiftoolAvailable(t testing.TB) {
 	t.Helper()
 	if _, err := exec.LookPath("exiftool"); err != nil {
 		path := GetDefaultExecutablePath()
@@ -745,6 +745,41 @@ func TestLazyInitConcurrentStart(t *testing.T) {
 		if err := <-errCh; err != nil {
 			t.Errorf("concurrent Execute %d error: %v", i, err)
 		}
+	}
+}
+
+// --- Benchmarks: persistent vs one-shot ---
+
+func BenchmarkBitsPerSample_Persistent(b *testing.B) {
+	exiftoolAvailable(b)
+
+	e, err := New()
+	if err != nil {
+		b.Fatalf("New() error = %v", err)
+	}
+	defer e.Close()
+
+	file := testFile("Canon.jpg")
+	b.ResetTimer()
+	for range b.N {
+		_, err := e.ReadProperty(file, "BitsPerSample")
+		if err != nil {
+			b.Fatalf("ReadProperty error = %v", err)
+		}
+	}
+}
+
+func BenchmarkBitsPerSample_OneShot(b *testing.B) {
+	exiftoolAvailable(b)
+
+	file := testFile("Canon.jpg")
+	b.ResetTimer()
+	for range b.N {
+		out, err := exec.Command("exiftool", "-s3", "-BitsPerSample", file).Output()
+		if err != nil {
+			b.Fatalf("exec error = %v", err)
+		}
+		_ = strings.TrimSpace(string(out))
 	}
 }
 

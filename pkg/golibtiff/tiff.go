@@ -44,6 +44,13 @@ static int tiffSetFieldU32Array(TIFF *t, uint32_t tag, uint32_t c, uint32_t *v) 
 static int tiffReadRGBAImage(TIFF *t, uint32_t w, uint32_t h, uint32_t *buf) {
 	return TIFFReadRGBAImage(t, w, h, buf, 0);
 }
+
+static tmsize_t tiffReadEncodedTile(TIFF *t, uint32_t tile, void *buf, tmsize_t size) {
+	return TIFFReadEncodedTile(t, tile, buf, size);
+}
+static tmsize_t tiffWriteEncodedTile(TIFF *t, uint32_t tile, void *buf, tmsize_t size) {
+	return TIFFWriteEncodedTile(t, tile, buf, size);
+}
 */
 import "C"
 
@@ -492,6 +499,51 @@ func (t *TIFF) WriteRawStrip(strip uint32, data []byte) (int, error) {
 			return 0, &WriteError{Op: "raw_strip", Msg: err.Error()}
 		}
 		return 0, &WriteError{Op: "raw_strip", Msg: fmt.Sprintf("strip %d", strip)}
+	}
+	return int(n), nil
+}
+
+// --- Tile Operations ---
+
+// ReadEncodedTile reads decoded tile data into buf. Returns bytes read.
+// If size <= 0, reads TileSize() bytes.
+func (t *TIFF) ReadEncodedTile(tile uint32, buf []byte, size int64) (int, error) {
+	if err := t.checkOpen(); err != nil {
+		return 0, err
+	}
+	if len(buf) == 0 {
+		return 0, errors.New("libtiff: empty buffer for ReadEncodedTile")
+	}
+	C.clearLastTIFFError()
+	cSize := C.tmsize_t(size)
+	if cSize <= 0 {
+		cSize = C.tmsize_t(len(buf))
+	}
+	n := C.tiffReadEncodedTile(t.tif, C.uint32_t(tile), unsafe.Pointer(&buf[0]), cSize)
+	if n < 0 {
+		if err := lastError(); err != nil {
+			return 0, &ReadError{Op: "encoded_tile", Msg: err.Error()}
+		}
+		return 0, &ReadError{Op: "encoded_tile", Msg: fmt.Sprintf("tile %d", tile)}
+	}
+	return int(n), nil
+}
+
+// WriteEncodedTile writes decoded data to a tile. Returns bytes written.
+func (t *TIFF) WriteEncodedTile(tile uint32, data []byte) (int, error) {
+	if err := t.checkOpen(); err != nil {
+		return 0, err
+	}
+	if len(data) == 0 {
+		return 0, errors.New("libtiff: empty data for WriteEncodedTile")
+	}
+	C.clearLastTIFFError()
+	n := C.tiffWriteEncodedTile(t.tif, C.uint32_t(tile), unsafe.Pointer(&data[0]), C.tmsize_t(len(data)))
+	if n < 0 {
+		if err := lastError(); err != nil {
+			return 0, &WriteError{Op: "encoded_tile", Msg: err.Error()}
+		}
+		return 0, &WriteError{Op: "encoded_tile", Msg: fmt.Sprintf("tile %d", tile)}
 	}
 	return int(n), nil
 }

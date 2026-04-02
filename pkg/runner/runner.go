@@ -21,8 +21,8 @@ import (
 
 	"open-make-tiff/pkg/dngconverter"
 	"open-make-tiff/pkg/golibraw"
+	"open-make-tiff/pkg/golibtiff/tiffcopy"
 	"open-make-tiff/pkg/icc"
-	"open-make-tiff/pkg/tiffcp"
 	"open-make-tiff/pkg/util"
 )
 
@@ -154,19 +154,9 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	r.logger.Info("tiff int", "path", tiffIntPath)
 	r.logger.Info("tiff final", "path", tiffFinalPath)
 
-	tiffcpExec, err := util.GetTiffcpExecutable()
-	if err != nil {
-		returnErr = err
-		return returnErr
-	}
-	tiffcpOpts := []tiffcp.Option{
-		tiffcp.WithExecutable(tiffcpExec),
-		tiffcp.WithCommaSeparator("%"),
-		tiffcp.WithFormatSpecifier("%0"),
-		tiffcp.WithLogger(r.logger),
-	}
+	var copyOpts []tiffcopy.Option
 	if r.cfg.EnableCompression {
-		tiffcpOpts = append(tiffcpOpts, tiffcp.WithLZWCompression(2))
+		copyOpts = append(copyOpts, tiffcopy.WithLZWCompression(2))
 	}
 
 	env := ConvertEnv{
@@ -218,16 +208,11 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	}
 
 	now := time.Now()
-	tiffConv, err := tiffcp.New(tiffcpOpts...)
-	if err != nil {
+	if err := tiffcopy.Copy(tiffIntPath, tiffFinalPath, copyOpts...); err != nil {
 		returnErr = err
 		return returnErr
 	}
-	if err := tiffConv.Convert(ctx, tiffIntPath, tiffFinalPath); err != nil {
-		returnErr = err
-		return returnErr
-	}
-	r.logger.Info("run tiffcp", "time", time.Since(now).Seconds())
+	r.logger.Info("run tiffcopy", "time", time.Since(now).Seconds())
 	_ = os.Remove(tiffIntPath)
 
 	now = time.Now()
@@ -347,9 +332,9 @@ func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv) error {
 		golibraw.WithGamma(1.0, 1.0),
 		golibraw.WithAdjustMaxThreshold(0),
 		golibraw.WithEmbeddedColorMatrix(false),
-		golibraw.WithDNGSDK(golibraw.DNGSDKDefault | golibraw.DNGSDKXTrans),
+		golibraw.WithDNGSDK(golibraw.DNGSDKDefault|golibraw.DNGSDKXTrans),
 		golibraw.WithUseRawSpeed(golibraw.RawSpeedV3Use),
-		golibraw.WithRawOptions(golibraw.RawOptDNGAddPreviews | golibraw.RawOptDNGPreferLargestImage),
+		golibraw.WithRawOptions(golibraw.RawOptDNGAddPreviews|golibraw.RawOptDNGPreferLargestImage),
 	)
 	if err != nil {
 		return err
@@ -378,7 +363,7 @@ func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv) error {
 	return nil
 }
 
-func (r *Runner) convertNonRawFFF(ctx context.Context, env ConvertEnv) error {
+func (r *Runner) convertNonRawFFF(_ context.Context, env ConvertEnv) error {
 	inputPath := env.SrcPath
 	if env.HasNonASCII {
 		now := time.Now()
@@ -390,23 +375,10 @@ func (r *Runner) convertNonRawFFF(ctx context.Context, env ConvertEnv) error {
 	}
 
 	now := time.Now()
-	tiffcpExec, err := util.GetTiffcpExecutable()
-	if err != nil {
+	if err := tiffcopy.Copy(inputPath, env.TiffIntPath); err != nil {
 		return err
 	}
-	tiffConv, err := tiffcp.New(
-		tiffcp.WithExecutable(tiffcpExec),
-		tiffcp.WithCommaSeparator("%"),
-		tiffcp.WithFormatSpecifier("%0"),
-		tiffcp.WithLogger(r.logger),
-	)
-	if err != nil {
-		return err
-	}
-	if err := tiffConv.Convert(ctx, inputPath, env.TiffIntPath); err != nil {
-		return err
-	}
-	r.logger.Info("run tiffcp (TIFF-based fff to tiffIntPath)", "time", time.Since(now).Seconds())
+	r.logger.Info("run tiffcopy (TIFF-based fff to tiffIntPath)", "time", time.Since(now).Seconds())
 
 	return nil
 }

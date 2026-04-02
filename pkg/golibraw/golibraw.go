@@ -41,7 +41,7 @@ type RawProcessor struct {
 	cstrings []unsafe.Pointer
 }
 
-func New() (*RawProcessor, error) {
+func New(opts ...Option) (*RawProcessor, error) {
 	handle := C.libraw_init(0)
 	if handle == nil {
 		return nil, ErrInitFailed
@@ -49,6 +49,13 @@ func New() (*RawProcessor, error) {
 
 	rp := &RawProcessor{handle: handle}
 	runtime.SetFinalizer(rp, (*RawProcessor).Close)
+
+	cfg := defaultOptions()
+	for _, o := range opts {
+		o(&cfg)
+	}
+	rp.freeCStrings()
+	applyConfigToHandle(rp.handle, &cfg, rp.trackCString)
 
 	return rp, nil
 }

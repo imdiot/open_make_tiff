@@ -245,7 +245,14 @@ func TestMetadata(t *testing.T) {
 func TestOptions(t *testing.T) {
 	path := testRAWPath(t)
 
-	rp, err := New()
+	rp, err := New(
+		With16BitOutput(),
+		WithTIFFOutput(),
+		WithCameraWB(),
+		WithOutputColorSpace(ColorSpaceRaw),
+		WithNoAutoBrightness(),
+		WithInterpolationQuality(QualityAHD),
+	)
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
@@ -254,18 +261,6 @@ func TestOptions(t *testing.T) {
 	if err := rp.OpenFile(path); err != nil {
 		t.Fatalf("OpenFile() error: %v", err)
 	}
-
-	if err := rp.ApplyOptions(
-		With16BitOutput(),
-		WithTIFFOutput(),
-		WithCameraWB(),
-		WithOutputColorSpace(ColorSpaceRaw),
-		WithNoAutoBrightness(),
-		WithInterpolationQuality(QualityAHD),
-	); err != nil {
-		t.Fatalf("ApplyOptions() error: %v", err)
-	}
-
 	if err := rp.Unpack(); err != nil {
 		t.Fatalf("Unpack() error: %v", err)
 	}
@@ -316,15 +311,11 @@ func TestRecycle(t *testing.T) {
 func TestWritePPMTiff(t *testing.T) {
 	path := testRAWPath(t)
 
-	rp, err := New()
+	rp, err := New(WithTIFFOutput())
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
 	defer rp.Close()
-
-	if err := rp.ApplyOptions(WithTIFFOutput()); err != nil {
-		t.Fatalf("ApplyOptions() error: %v", err)
-	}
 
 	if err := rp.OpenFile(path); err != nil {
 		t.Fatalf("OpenFile() error: %v", err)
@@ -355,19 +346,15 @@ func TestWritePPMTiff(t *testing.T) {
 func TestRawParamsOptions(t *testing.T) {
 	path := testRAWPath(t)
 
-	rp, err := New()
+	rp, err := New(
+		WithDNGSDK(0),
+		WithUseRawSpeed(0),
+		WithRawOptions(0),
+	)
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
 	defer rp.Close()
-
-	if err := rp.ApplyOptions(
-		WithDNGSDK(0),
-		WithUseRawSpeed(0),
-		WithRawOptions(0),
-	); err != nil {
-		t.Fatalf("ApplyOptions(rawparams) error: %v", err)
-	}
 
 	if err := rp.OpenFile(path); err != nil {
 		t.Fatalf("OpenFile() error: %v", err)
@@ -393,15 +380,12 @@ func TestWhiteBalanceFields(t *testing.T) {
 	path := testRAWPath(t)
 
 	t.Run("CameraWB", func(t *testing.T) {
-		rp, err := New()
+		rp, err := New(WithCameraWB())
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
 		defer rp.Close()
 
-		if err := rp.ApplyOptions(WithCameraWB()); err != nil {
-			t.Fatalf("ApplyOptions(WithCameraWB) error: %v", err)
-		}
 		if err := rp.OpenFile(path); err != nil {
 			t.Fatalf("OpenFile() error: %v", err)
 		}
@@ -414,15 +398,12 @@ func TestWhiteBalanceFields(t *testing.T) {
 	})
 
 	t.Run("AutoWB", func(t *testing.T) {
-		rp, err := New()
+		rp, err := New(WithAutoWB())
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
 		defer rp.Close()
 
-		if err := rp.ApplyOptions(WithAutoWB()); err != nil {
-			t.Fatalf("ApplyOptions(WithAutoWB) error: %v", err)
-		}
 		if err := rp.OpenFile(path); err != nil {
 			t.Fatalf("OpenFile() error: %v", err)
 		}
@@ -435,15 +416,12 @@ func TestWhiteBalanceFields(t *testing.T) {
 	})
 
 	t.Run("UserMul", func(t *testing.T) {
-		rp, err := New()
+		rp, err := New(WithUserMul(1.0, 1.0, 1.0, 1.0))
 		if err != nil {
 			t.Fatalf("New() error: %v", err)
 		}
 		defer rp.Close()
 
-		if err := rp.ApplyOptions(WithUserMul(1.0, 1.0, 1.0, 1.0)); err != nil {
-			t.Fatalf("ApplyOptions(WithUserMul) error: %v", err)
-		}
 		if err := rp.OpenFile(path); err != nil {
 			t.Fatalf("OpenFile() error: %v", err)
 		}
@@ -476,7 +454,10 @@ func TestEnableDNGSDK(t *testing.T) {
 func TestDNGSDKProcess(t *testing.T) {
 	path := testRAWPath(t)
 
-	rp, err := New()
+	rp, err := New(
+		WithDNGSDK(47), // LIBRAW_DNG_DEFAULT
+		WithCameraWB(),
+	)
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
 	}
@@ -484,13 +465,6 @@ func TestDNGSDKProcess(t *testing.T) {
 
 	if err := rp.EnableDNGSDK(); err != nil {
 		t.Fatalf("EnableDNGSDK() error: %v", err)
-	}
-
-	if err := rp.ApplyOptions(
-		WithDNGSDK(47), // LIBRAW_DNG_DEFAULT
-		WithCameraWB(),
-	); err != nil {
-		t.Fatalf("ApplyOptions() error: %v", err)
 	}
 
 	if err := rp.OpenFile(path); err != nil {

@@ -22,7 +22,6 @@ Open Make TIFF 是 [MakeTiff](https://www.colorperfect.com/MakeTiff/) 的免费�
 - **拖拽操作** - 直接将 RAW 文件拖放到窗口
 - **多线程处理** - 可配置线程数的并行转换
 - **内置 ICC Profile** - 包含 6 种 RGB 工作空间
-- **LZW 压缩** - 可选无损压缩
 - **子文件夹输出** - 输出到 `make_tiff` 子文件夹
 - **窗口置顶** - 保持窗口在其他应用程序之上
 - **跨平台** - 支持 macOS 和 Windows
@@ -51,7 +50,6 @@ Open Make TIFF 使用三个工具的组合：
 3. 根据需要配置选项：
    - **线程数**：并行转换的线程数量
    - **ICC Profile**：要嵌入的 RGB 工作空间
-   - **压缩**：启用 LZW 压缩
    - **子文件夹**：输出到 `make_tiff` 子文件夹
    - **窗口置顶**：保持窗口在其他应用之上
    - **禁用 DNG Converter**：直接使用 Libraw（适用于 Adobe 不支持的相机）

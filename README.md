@@ -22,7 +22,6 @@ This gives you complete freedom to apply your own color workflow from scratch.
 - **Drag & Drop** - Drop RAW files directly onto the window
 - **Multi-threaded Processing** - Parallel conversion with configurable worker count
 - **Built-in ICC Profiles** - 6 RGB working spaces included
-- **LZW Compression** - Optional lossless compression
 - **Subfolder Output** - Output to `make_tiff` subfolder for organization
 - **Window Always on Top** - Keep the window above other applications
 - **Cross-platform** - macOS and Windows support
@@ -51,7 +50,6 @@ Download the latest release from the [Releases](../../releases) page.
 3. Configure options as needed:
    - **Workers**: Number of parallel conversion threads
    - **ICC Profile**: RGB working space to embed
-   - **Compression**: Enable LZW compression
    - **Subfolder**: Output to `make_tiff` subfolder
    - **Always on Top**: Keep window above other apps
    - **Disable DNG Converter**: Use Libraw directly (for cameras not supported by Adobe)

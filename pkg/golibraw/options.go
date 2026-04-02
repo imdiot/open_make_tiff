@@ -91,11 +91,11 @@ type options struct {
 	chromaticAberration    [2]float64
 	chromaticAberrationSet bool
 
-	dngSDK       int
+	dngSDK       DNGSDKFlags
 	dngSDKSet    bool
-	useRawSpeed  int
+	useRawSpeed  RawSpeedFlags
 	useRawSpeedSet bool
-	rawOptions   uint
+	rawOptions   RawOptions
 	rawOptionsSet bool
 }
 
@@ -548,21 +548,21 @@ func WithChromaticAberration(red, blue float64) Option {
 }
 
 // WithDNGSDK sets rawparams.use_dngsdk (LIBRAW_DNG_* bitmask).
-func WithDNGSDK(flags int) Option {
+func WithDNGSDK(flags DNGSDKFlags) Option {
 	return func(o *options) {
 		o.dngSDK = flags
 		o.dngSDKSet = true
 	}
 }
 
-func WithUseRawSpeed(val int) Option {
+func WithUseRawSpeed(flags RawSpeedFlags) Option {
 	return func(o *options) {
-		o.useRawSpeed = val
+		o.useRawSpeed = flags
 		o.useRawSpeedSet = true
 	}
 }
 
-func WithRawOptions(opts uint) Option {
+func WithRawOptions(opts RawOptions) Option {
 	return func(o *options) {
 		o.rawOptions = opts
 		o.rawOptionsSet = true

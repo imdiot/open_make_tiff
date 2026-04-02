@@ -347,7 +347,7 @@ func TestRawParamsOptions(t *testing.T) {
 	path := testRAWPath(t)
 
 	rp, err := New(
-		WithDNGSDK(0),
+		WithDNGSDK(DNGSDKNone),
 		WithUseRawSpeed(0),
 		WithRawOptions(0),
 	)
@@ -455,7 +455,7 @@ func TestDNGSDKProcess(t *testing.T) {
 	path := testRAWPath(t)
 
 	rp, err := New(
-		WithDNGSDK(47), // LIBRAW_DNG_DEFAULT
+		WithDNGSDK(DNGSDKDefault | DNGSDKXTrans),
 		WithCameraWB(),
 	)
 	if err != nil {

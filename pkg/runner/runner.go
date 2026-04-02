@@ -347,9 +347,9 @@ func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv) error {
 		golibraw.WithGamma(1.0, 1.0),
 		golibraw.WithAdjustMaxThreshold(0),
 		golibraw.WithEmbeddedColorMatrix(false),
-		golibraw.WithDNGSDK(47),
-		golibraw.WithUseRawSpeed(256),
-		golibraw.WithRawOptions(2560),
+		golibraw.WithDNGSDK(golibraw.DNGSDKDefault | golibraw.DNGSDKXTrans),
+		golibraw.WithUseRawSpeed(golibraw.RawSpeedV3Use),
+		golibraw.WithRawOptions(golibraw.RawOptDNGAddPreviews | golibraw.RawOptDNGPreferLargestImage),
 	)
 	if err != nil {
 		return err

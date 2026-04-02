@@ -128,3 +128,65 @@ const (
 	FBDDLight
 	FBDDFull
 )
+
+// DNGSDKFlags controls which DNG features the DNG SDK decodes.
+// Maps to LibRaw LIBRAW_DNG_* bitmask (rawparams.use_dngsdk).
+type DNGSDKFlags int
+
+const (
+	DNGSDKNone    DNGSDKFlags = 0
+	DNGSDKFloat   DNGSDKFlags = 1  // LIBRAW_DNG_FLOAT
+	DNGSDKLinear  DNGSDKFlags = 2  // LIBRAW_DNG_LINEAR
+	DNGSDKDeflate DNGSDKFlags = 4  // LIBRAW_DNG_DEFLATE
+	DNGSDKXTrans  DNGSDKFlags = 8  // LIBRAW_DNG_XTRANS
+	DNGSDKOther   DNGSDKFlags = 16 // LIBRAW_DNG_OTHER
+	DNGSDK8Bit    DNGSDKFlags = 32 // LIBRAW_DNG_8BIT
+
+	DNGSDKDefault = DNGSDKFloat | DNGSDKLinear | DNGSDKDeflate | DNGSDK8Bit // LibRaw LIBRAW_DNG_DEFAULT
+	DNGSDKAll     = DNGSDKFloat | DNGSDKLinear | DNGSDKDeflate | DNGSDKXTrans | DNGSDKOther | DNGSDK8Bit
+)
+
+// RawSpeedFlags controls RawSpeed decoder usage.
+// Maps to LibRaw rawparams.use_rawspeed bitmask.
+type RawSpeedFlags int
+
+const (
+	RawSpeedV1Use           RawSpeedFlags = 1      // LIBRAW_RAWSPEEDV1_USE
+	RawSpeedV1FailOnUnknown RawSpeedFlags = 1 << 1 // LIBRAW_RAWSPEEDV1_FAILONUNKNOWN
+	RawSpeedV1IgnoreErrors  RawSpeedFlags = 1 << 2 // LIBRAW_RAWSPEEDV1_IGNOREERRORS
+	RawSpeedV3Use           RawSpeedFlags = 1 << 8 // LIBRAW_RAWSPEEDV3_USE
+	RawSpeedV3FailOnUnknown RawSpeedFlags = 1 << 9 // LIBRAW_RAWSPEEDV3_FAILONUNKNOWN
+	RawSpeedV3IgnoreErrors  RawSpeedFlags = 1 << 10
+)
+
+// RawOptions controls LibRaw rawparams.options bitmask.
+type RawOptions uint
+
+const (
+	RawOptPentaxPSAllFrames             RawOptions = 1
+	RawOptConvertFloatToInt             RawOptions = 1 << 1
+	RawOptARQSkipChannelSwap            RawOptions = 1 << 2
+	RawOptNoRotateKodakThumbs           RawOptions = 1 << 3
+	RawOptUsePPM16Thumbs                RawOptions = 1 << 5
+	RawOptDontCheckDNGIlluminant        RawOptions = 1 << 6
+	RawOptDNGSDKZeroCopy                RawOptions = 1 << 7
+	RawOptZeroFiltersMonochromeTiffs    RawOptions = 1 << 8
+	RawOptDNGAddEnhanced                RawOptions = 1 << 9
+	RawOptDNGAddPreviews                RawOptions = 1 << 10
+	RawOptDNGPreferLargestImage         RawOptions = 1 << 11
+	RawOptDNGStage2                     RawOptions = 1 << 12
+	RawOptDNGStage3                     RawOptions = 1 << 13
+	RawOptDNGAllowSizeChange            RawOptions = 1 << 14
+	RawOptDNGDisableWBAdjust            RawOptions = 1 << 15
+	RawOptProvideNonStandardWB          RawOptions = 1 << 16
+	RawOptCameraWBFallbackDaylight      RawOptions = 1 << 17
+	RawOptCheckThumbnailsKnownVendors   RawOptions = 1 << 18
+	RawOptCheckThumbnailsAllVendors     RawOptions = 1 << 19
+	RawOptDNGStage2IfPresent            RawOptions = 1 << 20
+	RawOptDNGStage3IfPresent            RawOptions = 1 << 21
+	RawOptDNGAddMasks                   RawOptions = 1 << 22
+	RawOptCanonIgnoreMakernotesRotation RawOptions = 1 << 23
+	RawOptAllowJPEGXLPreviews           RawOptions = 1 << 24
+	RawOptCanonCheckCameraAutoRotation  RawOptions = 1 << 26
+	RawOptDNGStage23IfPresentJPGJXL     RawOptions = 1 << 27
+)

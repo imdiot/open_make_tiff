@@ -3,7 +3,10 @@ package golibraw
 /*
 #cgo pkg-config: libraw_r
 #cgo CXXFLAGS: -std=c++17 -DUSE_DNGSDK
-#cgo LDFLAGS: -lstdc++
+#cgo darwin CFLAGS: -mmacosx-version-min=10.13
+#cgo darwin CXXFLAGS: -mmacosx-version-min=10.13
+#cgo darwin LDFLAGS: -framework CoreServices
+#cgo !darwin LDFLAGS: -lstdc++
 #include <libraw/libraw.h>
 
 extern void* golibraw_create_dng_host();

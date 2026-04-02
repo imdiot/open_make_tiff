@@ -6,20 +6,6 @@ import (
 	"runtime"
 )
 
-func GetDcrawEmuExecutable() (string, error) {
-	self, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	switch runtime.GOOS {
-	case "windows":
-		return filepath.Join(filepath.Dir(self), "third-party", "dcraw_emu.exe"), nil
-	case "darwin":
-		return filepath.Join(filepath.Dir(self), "third-party", "dcraw_emu"), nil
-	}
-	return "", nil
-}
-
 func GetTiffcpExecutable() (string, error) {
 	self, err := os.Executable()
 	if err != nil {
@@ -48,16 +34,4 @@ func GetExiftoolExecutable() (string, error) {
 	return "", nil
 }
 
-func GetRawIdentifyExecutable() (string, error) {
-	self, err := os.Executable()
-	if err != nil {
-		return "", err
-	}
-	switch runtime.GOOS {
-	case "windows":
-		return filepath.Join(filepath.Dir(self), "third-party", "raw-identify.exe"), nil
-	case "darwin":
-		return filepath.Join(filepath.Dir(self), "third-party", "raw-identify"), nil
-	}
-	return "", nil
-}
+

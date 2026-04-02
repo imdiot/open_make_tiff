@@ -19,10 +19,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"open-make-tiff/pkg/dcrawemu"
 	"open-make-tiff/pkg/dngconverter"
+	"open-make-tiff/pkg/golibraw"
 	"open-make-tiff/pkg/icc"
-	"open-make-tiff/pkg/rawidentify"
 	"open-make-tiff/pkg/tiffcp"
 	"open-make-tiff/pkg/util"
 )
@@ -183,21 +182,14 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	var isNonRawFFF bool
 
 	if strings.ToLower(ext) == ".fff" {
-		rawIdentifyExec, err := util.GetRawIdentifyExecutable()
+		rp, err := golibraw.New()
 		if err != nil {
-			returnErr = fmt.Errorf("raw-identify executable not found: %w", err)
+			returnErr = fmt.Errorf("golibraw init failed: %w", err)
 			return returnErr
 		}
-		identifier, err := rawidentify.New(
-			rawidentify.WithExecutable(rawIdentifyExec),
-			rawidentify.WithLogger(r.logger),
-		)
-		if err != nil {
-			returnErr = fmt.Errorf("raw-identify init failed: %w", err)
-			return returnErr
-		}
-		_, err = identifier.IdentifyAndParse(ctx, srcPath)
-		if err != nil {
+
+		if err := rp.OpenFile(srcPath); err != nil {
+			rp.Close()
 			r.logger.Info("fff file is TIFF-based, using tiffcp directly", "path", srcPath)
 			if err := r.convertNonRawFFF(ctx, env); err != nil {
 				returnErr = err
@@ -205,7 +197,8 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 			}
 			isNonRawFFF = true
 		} else {
-			r.logger.Info("fff file is RAW, using dcraw_emu", "path", srcPath)
+			rp.Close()
+			r.logger.Info("fff file is RAW, using golibraw", "path", srcPath)
 			useDNG = false
 		}
 	}
@@ -297,34 +290,37 @@ func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv) error {
 		return fmt.Errorf("rename linear dng to int: %w", err)
 	}
 
-	dcrawExec, err := util.GetDcrawEmuExecutable()
-	if err != nil {
-		return err
-	}
-
-	now = time.Now()
-	dcrawConv, err := dcrawemu.New(
-		dcrawemu.WithExecutable(dcrawExec),
-		dcrawemu.WithTIFFOutput(),
-		dcrawemu.WithCustomWhiteBalance(1, 1, 1, 1),
-		dcrawemu.WithOutputColorSpace(dcrawemu.ColorSpaceRaw),
-		dcrawemu.WithFlip(dcrawemu.FlipNone),
-		dcrawemu.WithHighlightMode(dcrawemu.HighlightUnclip),
-		dcrawemu.WithLinear16Bit(),
-		dcrawemu.WithAdjustMaxThreshold(0),
-		dcrawemu.WithEmbeddedColorMatrix(false),
-		dcrawemu.WithOutputFile(filepath.Base(env.TiffIntPath)),
-		dcrawemu.WithWorkingDir(env.DstDir),
-		dcrawemu.WithLogger(r.logger),
+	rp, err := golibraw.New(
+		golibraw.WithTIFFOutput(),
+		golibraw.WithUserMul(1, 1, 1, 1),
+		golibraw.WithOutputColorSpace(golibraw.ColorSpaceRaw),
+		golibraw.WithFlip(golibraw.FlipNone),
+		golibraw.WithHighlightMode(golibraw.HighlightUnclip),
+		golibraw.With16BitOutput(),
+		golibraw.WithNoAutoBrightness(),
+		golibraw.WithGamma(1.0, 1.0),
+		golibraw.WithAdjustMaxThreshold(0),
+		golibraw.WithEmbeddedColorMatrix(false),
 	)
 	if err != nil {
 		return err
 	}
+	defer rp.Close()
 
-	if err := dcrawConv.Convert(ctx, env.DngIntPath); err != nil {
+	now = time.Now()
+	if err := rp.OpenFile(env.DngIntPath); err != nil {
 		return err
 	}
-	r.logger.Info("run dcraw_emu (with DNG)", "time", time.Since(now).Seconds())
+	if err := rp.Unpack(); err != nil {
+		return err
+	}
+	if err := rp.Process(); err != nil {
+		return err
+	}
+	if err := rp.WritePPMTiff(filepath.Join(env.DstDir, filepath.Base(env.TiffIntPath))); err != nil {
+		return err
+	}
+	r.logger.Info("run golibraw (with DNG)", "time", time.Since(now).Seconds())
 
 	return nil
 }
@@ -340,37 +336,44 @@ func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv) error {
 		srcPath = env.DngIntPath
 	}
 
-	dcrawExec, err := util.GetDcrawEmuExecutable()
-	if err != nil {
-		return err
-	}
-
-	now := time.Now()
-	dcrawConv, err := dcrawemu.New(
-		dcrawemu.WithExecutable(dcrawExec),
-		dcrawemu.WithTIFFOutput(),
-		dcrawemu.WithCustomWhiteBalance(1, 1, 1, 1),
-		dcrawemu.WithOutputColorSpace(dcrawemu.ColorSpaceRaw),
-		dcrawemu.WithFlip(dcrawemu.FlipNone),
-		dcrawemu.WithHighlightMode(dcrawemu.HighlightUnclip),
-		dcrawemu.WithLinear16Bit(),
-		dcrawemu.WithAdjustMaxThreshold(0),
-		dcrawemu.WithEmbeddedColorMatrix(false),
-		dcrawemu.WithDNGSDK(true),
-		dcrawemu.WithARSBits(256),
-		dcrawemu.WithRawOptions(2560),
-		dcrawemu.WithOutputFile(filepath.Base(env.TiffIntPath)),
-		dcrawemu.WithWorkingDir(env.DstDir),
-		dcrawemu.WithLogger(r.logger),
+	rp, err := golibraw.New(
+		golibraw.WithTIFFOutput(),
+		golibraw.WithUserMul(1, 1, 1, 1),
+		golibraw.WithOutputColorSpace(golibraw.ColorSpaceRaw),
+		golibraw.WithFlip(golibraw.FlipNone),
+		golibraw.WithHighlightMode(golibraw.HighlightUnclip),
+		golibraw.With16BitOutput(),
+		golibraw.WithNoAutoBrightness(),
+		golibraw.WithGamma(1.0, 1.0),
+		golibraw.WithAdjustMaxThreshold(0),
+		golibraw.WithEmbeddedColorMatrix(false),
+		golibraw.WithDNGSDK(47),
+		golibraw.WithUseRawSpeed(256),
+		golibraw.WithRawOptions(2560),
 	)
 	if err != nil {
 		return err
 	}
+	defer rp.Close()
 
-	if err := dcrawConv.Convert(ctx, srcPath); err != nil {
+	if err := rp.EnableDNGSDK(); err != nil {
 		return err
 	}
-	r.logger.Info("run dcraw_emu (direct)", "time", time.Since(now).Seconds())
+
+	now := time.Now()
+	if err := rp.OpenFile(srcPath); err != nil {
+		return err
+	}
+	if err := rp.Unpack(); err != nil {
+		return err
+	}
+	if err := rp.Process(); err != nil {
+		return err
+	}
+	if err := rp.WritePPMTiff(filepath.Join(env.DstDir, filepath.Base(env.TiffIntPath))); err != nil {
+		return err
+	}
+	r.logger.Info("run golibraw (direct)", "time", time.Since(now).Seconds())
 
 	return nil
 }

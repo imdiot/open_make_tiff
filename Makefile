@@ -58,7 +58,7 @@ endif
 vcpkg-install-macos-arm64:
 	$(VCPKG) install \
 		libraw[6by9rpi,dng-lossy,dngsdk,rawspeed,x3ftools] \
-		tiff[cxx,jpeg,lerc,libdeflate,lzma,tools,webp,zip,zstd] \
+		tiff[cxx,jpeg,lerc,libdeflate,lzma,webp,zip,zstd] \
 		--overlay-ports=$(OVERLAY_PORTS) \
 		--overlay-triplets=$(OVERLAY_TRIPLETS) \
 		--triplet=arm64-osx-release
@@ -67,7 +67,7 @@ vcpkg-install-macos-arm64:
 vcpkg-install-macos-x64:
 	$(VCPKG) install \
 		libraw[6by9rpi,dng-lossy,dngsdk,rawspeed,x3ftools] \
-		tiff[cxx,jpeg,lerc,libdeflate,lzma,tools,webp,zip,zstd] \
+		tiff[cxx,jpeg,lerc,libdeflate,lzma,webp,zip,zstd] \
 		--overlay-ports=$(OVERLAY_PORTS) \
 		--overlay-triplets=$(OVERLAY_TRIPLETS) \
 		--triplet=x64-osx-release
@@ -89,16 +89,6 @@ vcpkg-install-macos-universal: vcpkg-install-macos-arm64 vcpkg-install-macos-x64
 	done
 	@cp $(VCPKG_INSTALLED)/arm64-osx-release/lib/pkgconfig/*.pc \
 		$(VCPKG_INSTALLED)/universal-osx-release/lib/pkgconfig/
-	@if [ -f "$(VCPKG_INSTALLED)/arm64-osx-release/tools/tiff/tiffcp" ] && \
-	    [ -f "$(VCPKG_INSTALLED)/x64-osx-release/tools/tiff/tiffcp" ]; then \
-		mkdir -p $(OUTPUT_DIR); \
-		lipo -create \
-			$(VCPKG_INSTALLED)/arm64-osx-release/tools/tiff/tiffcp \
-			$(VCPKG_INSTALLED)/x64-osx-release/tools/tiff/tiffcp \
-			-output $(OUTPUT_DIR)/tiffcp; \
-		chmod +x $(OUTPUT_DIR)/tiffcp; \
-		echo "Universal tiffcp created at: $(OUTPUT_DIR)/tiffcp"; \
-	fi
 
 # Clean vcpkg build artifacts (platform auto-detect)
 vcpkg-clean:
@@ -113,7 +103,6 @@ vcpkg-clean-macos:
 	$(VCPKG) remove libraw tiff --triplet=arm64-osx-release
 	$(VCPKG) remove libraw tiff --triplet=x64-osx-release
 	rm -rf $(VCPKG_INSTALLED)/universal-osx-release
-	rm -f $(OUTPUT_DIR)/tiffcp
 
 # Rebuild (platform auto-detect)
 vcpkg-rebuild:
@@ -130,16 +119,12 @@ vcpkg-rebuild-macos: vcpkg-clean-macos vcpkg-install
 vcpkg-install-windows:
 	$(VCPKG) install \
 		libraw[6by9rpi,dng-lossy,dngsdk,rawspeed,x3ftools] \
-		tiff[cxx,jpeg,lerc,libdeflate,lzma,tools,webp,zip,zstd] \
+		tiff[cxx,jpeg,lerc,libdeflate,lzma,webp,zip,zstd] \
 		--overlay-ports=$(OVERLAY_PORTS) \
 		--triplet=x64-windows-static-release \
 		--recurse
-	@echo "Copying Windows static binaries..."
-	@powershell -Command "Copy-Item '$(VCPKG_INSTALLED)/x64-windows-static-release/tools/tiff/tiffcp.exe' -Destination 'third-party/windows-x64/' -ErrorAction SilentlyContinue"
-	@echo "Static binaries copied (no DLL dependencies)"
 
 vcpkg-clean-windows:
 	$(VCPKG) remove libraw tiff --triplet=x64-windows-static-release --recurse
-	@powershell -Command "Remove-Item 'third-party/windows-x64/tiffcp.exe' -ErrorAction SilentlyContinue"
 
 vcpkg-rebuild-windows: vcpkg-clean-windows vcpkg-install-windows

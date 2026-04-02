@@ -13,7 +13,7 @@ endif
 
 # Detect platform-specific triplet
 ifeq ($(OS),Windows_NT)
-TRIPLET := x64-windows-static-release
+TRIPLET := x64-mingw-static-release
 else
 TRIPLET := universal-osx-release
 endif
@@ -23,7 +23,7 @@ build-mac: export PKG_CONFIG_PATH := $(VCPKG_ROOT)/installed/universal-osx-relea
 build-mac:
 	wails build -platform darwin/universal
 
-build-windows: export PKG_CONFIG_PATH := $(VCPKG_ROOT)/installed/x64-windows-static-release/lib/pkgconfig
+build-windows: export PKG_CONFIG_PATH := $(VCPKG_ROOT)/installed/x64-mingw-static-release/lib/pkgconfig
 build-windows:
 	wails build -platform windows/amd64
 
@@ -121,10 +121,10 @@ vcpkg-install-windows:
 		libraw[6by9rpi,dng-lossy,dngsdk,rawspeed,x3ftools] \
 		tiff[cxx,jpeg,lerc,libdeflate,lzma,webp,zip,zstd] \
 		--overlay-ports=$(OVERLAY_PORTS) \
-		--triplet=x64-windows-static-release \
+		--triplet=x64-mingw-static-release \
 		--recurse
 
 vcpkg-clean-windows:
-	$(VCPKG) remove libraw tiff --triplet=x64-windows-static-release --recurse
+	$(VCPKG) remove libraw tiff adobe-dng-sdk --triplet=x64-mingw-static-release --recurse
 
 vcpkg-rebuild-windows: vcpkg-clean-windows vcpkg-install-windows

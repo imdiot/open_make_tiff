@@ -8,10 +8,6 @@ include(CMakePackageConfigHelpers)
 option(BUILD_SHARED_LIBS "Build shared library" ON)
 option(DNG_BUILD_TOOLS "Build command-line tools" OFF)
 
-# C++ standard
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-
 # Find dependencies from vcpkg
 find_package(JPEG REQUIRED)
 find_package(ZLIB REQUIRED)
@@ -23,11 +19,15 @@ if(WIN32)
     # Use vcpkg's installed directory from _VCPKG_INSTALLED_DIR
     if(DEFINED _VCPKG_INSTALLED_DIR)
         set(VCPKG_INSTALLED "${_VCPKG_INSTALLED_DIR}")
-        set(VCPKG_TRIPLET "x64-windows-static-release")
     else()
         # Fallback to default vcpkg location
         set(VCPKG_INSTALLED "$ENV{USERPROFILE}/vcpkg/installed")
-        set(VCPKG_TRIPLET "x64-windows-static-release")
+    endif()
+    # Use vcpkg-provided triplet variable
+    if(DEFINED VCPKG_TARGET_TRIPLET)
+        set(VCPKG_TRIPLET "${VCPKG_TARGET_TRIPLET}")
+    else()
+        set(VCPKG_TRIPLET "$ENV{VCPKG_TARGET_TRIPLET}")
     endif()
 
     set(VCPKG_INCLUDE "${VCPKG_INSTALLED}/${VCPKG_TRIPLET}/include")
@@ -266,6 +266,25 @@ set(DNG_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/dng_sdk/source")
 file(GLOB DNG_SOURCES "${DNG_SOURCE_DIR}/*.cpp")
 list(REMOVE_ITEM DNG_SOURCES "${DNG_SOURCE_DIR}/dng_validate.cpp")
 
+# MinGW has native pthreads; exclude dng_pthread.cpp (MSVC fake pthreads)
+# and provide a minimal dng_pthread_now() implementation instead.
+if(MINGW)
+    list(REMOVE_ITEM DNG_SOURCES "${DNG_SOURCE_DIR}/dng_pthread.cpp")
+    file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/dng_pthread_mingw.cpp"
+"#include \"dng_pthread.h\"
+#include <sys/time.h>
+int dng_pthread_now (struct timespec *now) {
+    if (now == NULL) return -1;
+    struct timeval tv;
+    if (gettimeofday (&tv, NULL) != 0) return errno;
+    now->tv_sec  = tv.tv_sec;
+    now->tv_nsec = tv.tv_usec * 1000;
+    return 0;
+}
+")
+    list(APPEND DNG_SOURCES "${CMAKE_CURRENT_BINARY_DIR}/dng_pthread_mingw.cpp")
+endif()
+
 # DNG library
 add_library(dng ${DNG_SOURCES})
 
@@ -311,6 +330,11 @@ target_link_libraries(dng
 # Unix-specific libraries
 if(UNIX)
     target_link_libraries(dng PUBLIC m c++)
+endif()
+
+# MinGW uses POSIX pthreads and needs ws2_32 for byte-order functions
+if(MINGW)
+    target_link_libraries(dng PUBLIC pthread ws2_32)
 endif()
 
 target_include_directories(dng PRIVATE ${LIBJXL_INCLUDE_DIRS})

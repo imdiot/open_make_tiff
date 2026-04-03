@@ -85,15 +85,13 @@ const (
 
 // Open opens a TIFF file at the given path with the specified mode.
 func Open(path string, mode OpenMode) (*TIFF, error) {
-	cPath := C.CString(path)
-	defer C.free(unsafe.Pointer(cPath))
-	cMode := C.CString(string(mode))
-	defer C.free(unsafe.Pointer(cMode))
-
 	initOnce.Do(func() { C.initErrorCapture() })
 	C.clearLastTIFFError()
 
-	tif := C.TIFFOpen(cPath, cMode)
+	tif, err := openTiffHandle(path, mode)
+	if err != nil {
+		return nil, &OpenError{Path: path, Mode: mode, Msg: err.Error()}
+	}
 	if tif == nil {
 		if C.hasLastTIFFError() != 0 {
 			return nil, &OpenError{Path: path, Mode: mode, Msg: C.GoString(C.getLastTIFFError())}

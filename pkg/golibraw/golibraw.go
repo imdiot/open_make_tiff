@@ -2,7 +2,7 @@ package golibraw
 
 /*
 #cgo pkg-config: libraw_r
-#cgo CXXFLAGS: -DUSE_DNGSDK
+#cgo CXXFLAGS: -std=c++14 -DUSE_DNGSDK
 #cgo darwin CFLAGS: -mmacosx-version-min=10.13
 #cgo darwin CXXFLAGS: -mmacosx-version-min=10.13
 #cgo darwin LDFLAGS: -framework CoreServices

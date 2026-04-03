@@ -6,21 +6,19 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/google/uuid"
 
 	"open-make-tiff/pkg/dngconverter"
 	"open-make-tiff/pkg/golibraw"
+	"open-make-tiff/pkg/golibtiff"
 	"open-make-tiff/pkg/golibtiff/tiffcopy"
 	"open-make-tiff/pkg/icc"
 	"open-make-tiff/pkg/util"
@@ -48,7 +46,6 @@ type ConvertEnv struct {
 	DngIntPath    string
 	DngLinearPath string
 	TiffIntPath   string
-	HasNonASCII   bool
 }
 
 func New(cfg Config) *Runner {
@@ -89,11 +86,10 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		dngIntPath    string
 		dngLinearPath string
 		tiffIntPath   string
-		tiffFinalPath string
 	)
 
 	defer func() {
-		for _, f := range []string{dngIntPath, dngLinearPath, tiffIntPath, tiffFinalPath} {
+		for _, f := range []string{dngIntPath, dngLinearPath, tiffIntPath} {
 			if f != "" {
 				_ = os.Remove(f)
 			}
@@ -103,24 +99,17 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		}
 	}()
 
-	hasNonASCII := runtime.GOOS == "windows" && !isASCII(name)
-
 	for {
 		u := uuid.New()
 		token = hex.EncodeToString(u[:])
 
-		prefix := base
-		if hasNonASCII {
-			prefix = "omt"
-		}
-		logPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.log", prefix, token))
-		dngIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.dng", prefix, token))
-		dngLinearPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.linear.dng", prefix, token))
-		tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.tiff", prefix, token))
-		tiffFinalPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.tiff", prefix, token))
+		logPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.log", base, token))
+		dngIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.dng", base, token))
+		dngLinearPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.linear.dng", base, token))
+		tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.tiff", base, token))
 
 		conflict := slices.ContainsFunc(
-			[]string{logPath, dngIntPath, dngLinearPath, tiffIntPath, tiffFinalPath},
+			[]string{logPath, dngIntPath, dngLinearPath, tiffIntPath},
 			func(f string) bool {
 				_, err := os.Stat(f)
 				return err == nil || !errors.Is(err, os.ErrNotExist)
@@ -147,25 +136,12 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	}()
 	r.logger = slog.New(slog.NewTextHandler(f, &slog.HandlerOptions{Level: slog.LevelDebug}))
 
-	r.logger.Info("src", "path", srcPath)
-	r.logger.Info("dst tiff", "path", dstPath)
-	r.logger.Info("dng int", "path", dngIntPath)
-	r.logger.Info("dng linear", "path", dngLinearPath)
-	r.logger.Info("tiff int", "path", tiffIntPath)
-	r.logger.Info("tiff final", "path", tiffFinalPath)
-
-	var copyOpts []tiffcopy.Option
-	if r.cfg.EnableCompression {
-		copyOpts = append(copyOpts, tiffcopy.WithLZWCompression(2))
-	}
-
 	env := ConvertEnv{
 		SrcPath:       srcPath,
 		DstDir:        dstDir,
 		DngIntPath:    dngIntPath,
 		DngLinearPath: dngLinearPath,
 		TiffIntPath:   tiffIntPath,
-		HasNonASCII:   hasNonASCII,
 	}
 
 	useDNG := r.cfg.EnableAdobeDNGConverter
@@ -208,21 +184,13 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	}
 
 	now := time.Now()
-	if err := tiffcopy.Copy(tiffIntPath, tiffFinalPath, copyOpts...); err != nil {
-		returnErr = err
-		return returnErr
-	}
-	r.logger.Info("run tiffcopy", "time", time.Since(now).Seconds())
-	_ = os.Remove(tiffIntPath)
-
-	now = time.Now()
-	if err := r.runCopyExifAndInsertIccProfile(ctx, srcPath, tiffFinalPath, r.cfg.Profile); err != nil {
+	if err := r.runCopyExifAndInsertIccProfile(ctx, srcPath, tiffIntPath, r.cfg.Profile); err != nil {
 		returnErr = err
 		return returnErr
 	}
 	r.logger.Info("copy exif and insert icc profile", "time", time.Since(now).Seconds())
 
-	if err := os.Rename(tiffFinalPath, dstPath); err != nil {
+	if err := os.Rename(tiffIntPath, dstPath); err != nil {
 		returnErr = err
 		return returnErr
 	}
@@ -276,7 +244,6 @@ func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv) error {
 	}
 
 	rp, err := golibraw.New(
-		golibraw.WithTIFFOutput(),
 		golibraw.WithUserMul(1, 1, 1, 1),
 		golibraw.WithOutputColorSpace(golibraw.ColorSpaceRaw),
 		golibraw.WithFlip(golibraw.FlipNone),
@@ -302,7 +269,11 @@ func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv) error {
 	if err := rp.Process(); err != nil {
 		return err
 	}
-	if err := rp.WritePPMTiff(filepath.Join(env.DstDir, filepath.Base(env.TiffIntPath))); err != nil {
+	img, err := rp.MakeMemImage()
+	if err != nil {
+		return err
+	}
+	if err := r.writeMemImageToTIFF(env.TiffIntPath, img); err != nil {
 		return err
 	}
 	r.logger.Info("run golibraw (with DNG)", "time", time.Since(now).Seconds())
@@ -311,18 +282,7 @@ func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv) error {
 }
 
 func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv) error {
-	srcPath := env.SrcPath
-	if env.HasNonASCII {
-		now := time.Now()
-		if err := r.copyFile(srcPath, env.DngIntPath); err != nil {
-			return err
-		}
-		r.logger.Info("copy raw file (non-ascii)", "time", time.Since(now).Seconds())
-		srcPath = env.DngIntPath
-	}
-
 	rp, err := golibraw.New(
-		golibraw.WithTIFFOutput(),
 		golibraw.WithUserMul(1, 1, 1, 1),
 		golibraw.WithOutputColorSpace(golibraw.ColorSpaceRaw),
 		golibraw.WithFlip(golibraw.FlipNone),
@@ -346,7 +306,7 @@ func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv) error {
 	}
 
 	now := time.Now()
-	if err := rp.OpenFile(srcPath); err != nil {
+	if err := rp.OpenFile(env.SrcPath); err != nil {
 		return err
 	}
 	if err := rp.Unpack(); err != nil {
@@ -355,7 +315,11 @@ func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv) error {
 	if err := rp.Process(); err != nil {
 		return err
 	}
-	if err := rp.WritePPMTiff(filepath.Join(env.DstDir, filepath.Base(env.TiffIntPath))); err != nil {
+	img, err := rp.MakeMemImage()
+	if err != nil {
+		return err
+	}
+	if err := r.writeMemImageToTIFF(env.TiffIntPath, img); err != nil {
 		return err
 	}
 	r.logger.Info("run golibraw (direct)", "time", time.Since(now).Seconds())
@@ -364,21 +328,11 @@ func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv) error {
 }
 
 func (r *Runner) convertNonRawFFF(_ context.Context, env ConvertEnv) error {
-	inputPath := env.SrcPath
-	if env.HasNonASCII {
-		now := time.Now()
-		if err := r.copyFile(env.SrcPath, env.DngIntPath); err != nil {
-			return err
-		}
-		r.logger.Info("copy fff file (non-ascii)", "time", time.Since(now).Seconds())
-		inputPath = env.DngIntPath
-	}
-
 	now := time.Now()
-	if err := tiffcopy.Copy(inputPath, env.TiffIntPath); err != nil {
+	if err := tiffcopy.Copy(env.SrcPath, env.TiffIntPath); err != nil {
 		return err
 	}
-	r.logger.Info("run tiffcopy (TIFF-based fff to tiffIntPath)", "time", time.Since(now).Seconds())
+	r.logger.Info("run tiffcopy (TIFF-based fff)", "time", time.Since(now).Seconds())
 
 	return nil
 }
@@ -405,28 +359,33 @@ func (r *Runner) runCopyExifAndInsertIccProfile(ctx context.Context, src string,
 	return cmd.Run()
 }
 
-func isASCII(s string) bool {
-	for _, r := range s {
-		if r > unicode.MaxASCII {
-			return false
+func (r *Runner) writeMemImageToTIFF(path string, img *golibraw.ProcessedImage) error {
+	tf, err := golibtiff.Open(path, golibtiff.OpenWrite)
+	if err != nil {
+		return err
+	}
+	defer tf.Close()
+
+	w := uint32(img.Width)
+	h := uint32(img.Height)
+	colors := uint16(img.Colors)
+	bits := uint16(img.Bits)
+	scanline := int64(w) * int64(colors) * int64(bits/8)
+
+	tf.SetFieldUint32(golibtiff.TagImageWidth, w)
+	tf.SetFieldUint32(golibtiff.TagImageLength, h)
+	tf.SetFieldUint16(golibtiff.TagBitsPerSample, bits)
+	tf.SetFieldUint16(golibtiff.TagSamplesPerPixel, colors)
+	tf.SetFieldUint16(golibtiff.TagPhotometric, golibtiff.PhotometricRGB)
+	tf.SetFieldUint16(golibtiff.TagCompression, golibtiff.CompressionNone)
+	tf.SetFieldUint16(golibtiff.TagPlanarConfig, golibtiff.PlanarConfigContig)
+	tf.SetFieldUint32(golibtiff.TagRowsPerStrip, 1)
+
+	for row := uint32(0); row < h; row++ {
+		off := int64(row) * scanline
+		if err := tf.WriteScanline(img.Data[off:off+scanline], row); err != nil {
+			return fmt.Errorf("write scanline %d: %w", row, err)
 		}
 	}
-	return true
-}
-
-func (r *Runner) copyFile(src string, dst string) error {
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	dstFile, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
+	return tf.WriteDirectory()
 }

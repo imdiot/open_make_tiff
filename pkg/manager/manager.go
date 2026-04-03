@@ -50,7 +50,7 @@ type Config struct {
 func newConfig() *Config {
 	return &Config{
 		ICCProfile: "",
-		Workers:    runtime.NumCPU(),
+		Workers:    max(runtime.NumCPU()/2, 1),
 	}
 }
 

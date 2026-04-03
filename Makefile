@@ -84,13 +84,15 @@ vcpkg-install-macos-arm64:
 	$(VCPKG) install $(VCPKG_PACKAGES) \
 		--overlay-ports=$(OVERLAY_PORTS) \
 		--overlay-triplets=$(OVERLAY_TRIPLETS) \
-		--triplet=$(TRIPLET_ARM64)
+		--triplet=$(TRIPLET_ARM64) \
+		--recurse
 
 vcpkg-install-macos-x64:
 	$(VCPKG) install $(VCPKG_PACKAGES) \
 		--overlay-ports=$(OVERLAY_PORTS) \
 		--overlay-triplets=$(OVERLAY_TRIPLETS) \
-		--triplet=$(TRIPLET_X64_MAC)
+		--triplet=$(TRIPLET_X64_MAC) \
+		--recurse
 
 # Merge arm64 + x64 into universal fat libraries
 vcpkg-install-macos-universal: vcpkg-install-macos-arm64 vcpkg-install-macos-x64
@@ -111,8 +113,8 @@ vcpkg-install-macos-universal: vcpkg-install-macos-arm64 vcpkg-install-macos-x64
 		$(INSTALLED_UNIVERSAL)/lib/pkgconfig/
 
 vcpkg-clean-macos:
-	$(VCPKG) remove libraw tiff --triplet=$(TRIPLET_ARM64)
-	$(VCPKG) remove libraw tiff --triplet=$(TRIPLET_X64_MAC)
+	$(VCPKG) remove libraw tiff adobe-dng-sdk --triplet=$(TRIPLET_ARM64) --recurse
+	$(VCPKG) remove libraw tiff adobe-dng-sdk --triplet=$(TRIPLET_X64_MAC) --recurse
 	rm -rf $(INSTALLED_UNIVERSAL)
 
 vcpkg-rebuild-macos: vcpkg-clean-macos vcpkg-install-macos-universal

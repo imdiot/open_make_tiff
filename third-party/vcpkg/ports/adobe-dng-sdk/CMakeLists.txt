@@ -1,11 +1,13 @@
 cmake_minimum_required(VERSION 3.15)
 project(adobe-dng-sdk VERSION 1.7.1 LANGUAGES CXX)
 
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
 # Options
-option(BUILD_SHARED_LIBS "Build shared library" ON)
 option(DNG_BUILD_TOOLS "Build command-line tools" OFF)
 
 # Find dependencies from vcpkg
@@ -13,92 +15,9 @@ find_package(JPEG REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(expat CONFIG REQUIRED)
 
-# libjxl - use CONFIG on Windows, PkgConfig on Unix
-if(WIN32)
-    # Manual find for vcpkg on Windows (libjxl doesn't provide CMake config)
-    # Use vcpkg's installed directory from _VCPKG_INSTALLED_DIR
-    if(DEFINED _VCPKG_INSTALLED_DIR)
-        set(VCPKG_INSTALLED "${_VCPKG_INSTALLED_DIR}")
-    else()
-        # Fallback to default vcpkg location
-        set(VCPKG_INSTALLED "$ENV{USERPROFILE}/vcpkg/installed")
-    endif()
-    # Use vcpkg-provided triplet variable
-    if(DEFINED VCPKG_TARGET_TRIPLET)
-        set(VCPKG_TRIPLET "${VCPKG_TARGET_TRIPLET}")
-    else()
-        set(VCPKG_TRIPLET "$ENV{VCPKG_TARGET_TRIPLET}")
-    endif()
-
-    set(VCPKG_INCLUDE "${VCPKG_INSTALLED}/${VCPKG_TRIPLET}/include")
-    set(VCPKG_LIB "${VCPKG_INSTALLED}/${VCPKG_TRIPLET}/lib")
-
-    find_path(JXL_INCLUDE_DIR NAMES jxl/decode.h
-        PATHS "${VCPKG_INCLUDE}"
-        NO_DEFAULT_PATH
-    )
-    find_library(JXL_LIB NAMES jxl
-        PATHS "${VCPKG_LIB}"
-        NO_DEFAULT_PATH
-    )
-    find_library(JXL_THREADS_LIB NAMES jxl_threads
-        PATHS "${VCPKG_LIB}"
-        NO_DEFAULT_PATH
-    )
-    find_library(JXL_CMS_LIB NAMES jxl_cms
-        PATHS "${VCPKG_LIB}"
-        NO_DEFAULT_PATH
-    )
-    find_library(HWY_LIB NAMES hwy
-        PATHS "${VCPKG_LIB}"
-        NO_DEFAULT_PATH
-    )
-    find_library(BROTLIENC_LIB NAMES brotlienc
-        PATHS "${VCPKG_LIB}"
-        NO_DEFAULT_PATH
-    )
-    find_library(BROTLIDEC_LIB NAMES brotlidec
-        PATHS "${VCPKG_LIB}"
-        NO_DEFAULT_PATH
-    )
-    find_library(BROTLICOMMON_LIB NAMES brotlicommon
-        PATHS "${VCPKG_LIB}"
-        NO_DEFAULT_PATH
-    )
-
-    if(NOT JXL_LIB OR NOT JXL_THREADS_LIB)
-        message(FATAL_ERROR "libjxl not found. Searched in: ${VCPKG_LIB}")
-    endif()
-
-    if(NOT JXL_INCLUDE_DIR)
-        message(FATAL_ERROR "libjxl headers not found. Searched in: ${VCPKG_INCLUDE}")
-    endif()
-
-    set(LIBJXL_INCLUDE_DIRS "${JXL_INCLUDE_DIR}")
-    set(LIBJXL_LIBRARY_DIRS "${VCPKG_LIB}")
-    set(JXL_LIB_PATH "${JXL_LIB}")
-    set(JXL_THREADS_LIB_PATH "${JXL_THREADS_LIB}")
-    set(JXL_CMS_LIB_PATH "${JXL_CMS_LIB}")
-    set(HWY_LIB_PATH "${HWY_LIB}")
-    set(BROTLIENC_LIB_PATH "${BROTLIENC_LIB}")
-    set(BROTLIDEC_LIB_PATH "${BROTLIDEC_LIB}")
-    set(BROTLICOMMON_LIB_PATH "${BROTLICOMMON_LIB}")
-else()
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(LIBJXL REQUIRED libjxl libjxl_threads)
-endif()
-
-# Find the actual library files using absolute paths
-find_library(JXL_LIB_PATH NAMES jxl PATHS ${LIBJXL_LIBRARY_DIRS} NO_DEFAULT_PATH)
-find_library(JXL_THREADS_LIB_PATH NAMES jxl_threads PATHS ${LIBJXL_LIBRARY_DIRS} NO_DEFAULT_PATH)
-find_library(JXL_CMS_LIB_PATH NAMES jxl_cms PATHS ${LIBJXL_LIBRARY_DIRS} NO_DEFAULT_PATH)
-find_library(HWY_LIB_PATH NAMES hwy PATHS ${LIBJXL_LIBRARY_DIRS} NO_DEFAULT_PATH)
-find_library(BROTLIENC_LIB_PATH NAMES brotlienc PATHS ${LIBJXL_LIBRARY_DIRS} NO_DEFAULT_PATH)
-find_library(BROTLIDEC_LIB_PATH NAMES brotlidec PATHS ${LIBJXL_LIBRARY_DIRS} NO_DEFAULT_PATH)
-find_library(BROTLICOMMON_LIB_PATH NAMES brotlicommon PATHS ${LIBJXL_LIBRARY_DIRS} NO_DEFAULT_PATH)
-
-message(STATUS "Found libjxl: ${JXL_LIB_PATH}")
-message(STATUS "Found libjxl_threads: ${JXL_THREADS_LIB_PATH}")
+# libjxl - pkg-config with IMPORTED_TARGET handles transitive deps (hwy, brotli, etc.)
+find_package(PkgConfig REQUIRED)
+pkg_check_modules(LIBJXL REQUIRED libjxl libjxl_threads libjxl_cms IMPORTED_TARGET)
 
 # ============================================================================
 # Platform detection
@@ -317,13 +236,7 @@ target_link_libraries(dng
     PUBLIC
         xmp
         JPEG::JPEG
-        ${JXL_LIB_PATH}
-        ${JXL_THREADS_LIB_PATH}
-        ${JXL_CMS_LIB_PATH}
-        ${HWY_LIB_PATH}
-        ${BROTLIENC_LIB_PATH}
-        ${BROTLIDEC_LIB_PATH}
-        ${BROTLICOMMON_LIB_PATH}
+        PkgConfig::LIBJXL
         ZLIB::ZLIB
 )
 
@@ -336,8 +249,6 @@ endif()
 if(MINGW)
     target_link_libraries(dng PUBLIC pthread ws2_32)
 endif()
-
-target_include_directories(dng PRIVATE ${LIBJXL_INCLUDE_DIRS})
 
 # Set library properties
 set_target_properties(dng PROPERTIES

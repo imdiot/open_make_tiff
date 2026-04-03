@@ -1,0 +1,11 @@
+--- a/xmp/toolkit/source/SuppressSAL.h
++++ b/xmp/toolkit/source/SuppressSAL.h
+@@ -34,7 +34,7 @@
+ #ifndef _H_SuppressSAL
+ #define _H_SuppressSAL
+ 
+-#if !defined(_WIN32) && !defined(_WIN64) /* The following definition is applicable only for non-windows platform */
++#if (!defined(_WIN32) && !defined(_WIN64)) || defined(__MINGW32__) /* MinGW lacks MSVC SAL headers */
+ 
+ #define _In_
+ #define _In_opt_

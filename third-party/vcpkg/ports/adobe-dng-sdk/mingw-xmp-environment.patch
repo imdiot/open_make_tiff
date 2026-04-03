@@ -1,0 +1,14 @@
+--- a/xmp/toolkit/public/include/XMP_Environment.h
++++ b/xmp/toolkit/public/include/XMP_Environment.h
+@@ -254,7 +254,11 @@
+ 	#define XMP_HELPER_DLL_IMPORT
+ 	#define XMP_HELPER_DLL_EXPORT
+ 	#define XMP_HELPER_DLL_PRIVATE
++#if defined(__MINGW32__) || defined(__MINGW64__)
++	#define APICALL
++#else
+ 	#define APICALL __stdcall
++#endif
+ #endif
+ 
+ // =================================================================================================

@@ -5,20 +5,8 @@ include(CMakeFindDependencyMacro)
 find_dependency(JPEG)
 find_dependency(ZLIB)
 find_dependency(expat CONFIG)
-
-# libjxl - platform-specific handling
-if(WIN32)
-    # On Windows, libjxl libraries are expected to be found via default paths
-    # The include and library paths should be set by vcpkg toolchain
-    # No additional find_dependency needed for libjxl on Windows
-elseif(UNIX AND NOT APPLE)
-    find_dependency(PkgConfig)
-    pkg_check_modules(LIBJXL REQUIRED libjxl libjxl_threads)
-else()
-    # Apple and other Unix systems can use pkg-config if available
-    find_dependency(PkgConfig)
-    pkg_check_modules(LIBJXL REQUIRED libjxl libjxl_threads)
-endif()
+find_dependency(PkgConfig)
+pkg_check_modules(LIBJXL REQUIRED libjxl libjxl_threads libjxl_cms IMPORTED_TARGET)
 
 include("${CMAKE_CURRENT_LIST_DIR}/adobe-dng-sdkTargets.cmake")
 

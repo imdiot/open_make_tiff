@@ -4,7 +4,7 @@
   "port-version": 0,
   "description": "Adobe DNG SDK for reading and writing DNG (Digital Negative) files",
   "homepage": "https://helpx.adobe.com/camera-raw/digital-negative.html",
-  "license": null,
+  "license": "Adobe-2006",
   "supports": "!uwp & !xbox",
   "dependencies": [
     {

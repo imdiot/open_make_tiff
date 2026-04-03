@@ -320,6 +320,14 @@ func (t *TIFF) StripSize() int64 {
 	return int64(C.TIFFStripSize(t.tif))
 }
 
+// DefaultStripSize returns the default RowsPerStrip value (8192 / scanline_size).
+func (t *TIFF) DefaultStripSize() uint32 {
+	if err := t.checkOpen(); err != nil {
+		return 0
+	}
+	return uint32(C.TIFFDefaultStripSize(t.tif, 0))
+}
+
 func (t *TIFF) TileSize() int64 {
 	if err := t.checkOpen(); err != nil {
 		return 0

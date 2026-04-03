@@ -328,8 +328,13 @@ func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv) error {
 }
 
 func (r *Runner) convertNonRawFFF(_ context.Context, env ConvertEnv) error {
+	var opts []tiffcopy.Option
+	if r.cfg.EnableCompression {
+		opts = append(opts, tiffcopy.WithLZWCompression(golibtiff.PredictorHorizontal))
+	}
+
 	now := time.Now()
-	if err := tiffcopy.Copy(env.SrcPath, env.TiffIntPath); err != nil {
+	if err := tiffcopy.Copy(env.SrcPath, env.TiffIntPath, opts...); err != nil {
 		return err
 	}
 	r.logger.Info("run tiffcopy (TIFF-based fff)", "time", time.Since(now).Seconds())
@@ -377,9 +382,11 @@ func (r *Runner) writeMemImageToTIFF(path string, img *golibraw.ProcessedImage) 
 	tf.SetFieldUint16(golibtiff.TagBitsPerSample, bits)
 	tf.SetFieldUint16(golibtiff.TagSamplesPerPixel, colors)
 	tf.SetFieldUint16(golibtiff.TagPhotometric, golibtiff.PhotometricRGB)
-	tf.SetFieldUint16(golibtiff.TagCompression, golibtiff.CompressionNone)
+	if r.cfg.EnableCompression {
+		tf.SetFieldUint16(golibtiff.TagCompression, golibtiff.CompressionLZW)
+		tf.SetFieldUint16(golibtiff.TagPredictor, golibtiff.PredictorHorizontal)
+	}
 	tf.SetFieldUint16(golibtiff.TagPlanarConfig, golibtiff.PlanarConfigContig)
-	tf.SetFieldUint32(golibtiff.TagRowsPerStrip, 1)
 
 	for row := uint32(0); row < h; row++ {
 		off := int64(row) * scanline

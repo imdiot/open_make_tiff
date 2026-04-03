@@ -6,27 +6,25 @@ import (
 	"open-make-tiff/pkg/golibtiff"
 )
 
-type copyConfig struct {
+// Option configures the TIFF copy operation.
+type Option func(*config)
+
+type config struct {
 	compression uint16
 	predictor   uint16
 }
 
-// Option configures the TIFF copy operation.
-type Option func(*copyConfig)
-
 // WithLZWCompression enables LZW compression with the given predictor value.
-// A predictor of 2 enables horizontal differencing (recommended for most images).
 func WithLZWCompression(predictor uint16) Option {
-	return func(c *copyConfig) {
+	return func(c *config) {
 		c.compression = golibtiff.CompressionLZW
 		c.predictor = predictor
 	}
 }
 
-// WithDeflateCompression enables Deflate (zlib) compression with the given preset (1-9)
-// and predictor value.
-func WithDeflateCompression(preset int, predictor uint16) Option {
-	return func(c *copyConfig) {
+// WithDeflateCompression enables Deflate (zlib) compression with the given predictor value.
+func WithDeflateCompression(predictor uint16) Option {
+	return func(c *config) {
 		c.compression = golibtiff.CompressionDeflate
 		c.predictor = predictor
 	}
@@ -36,7 +34,7 @@ func WithDeflateCompression(preset int, predictor uint16) Option {
 // All pages (IFDs) in the source file are copied. Pixel data is read decompressed and
 // re-encoded with the target compression, preserving all image metadata tags.
 func Copy(srcPath, dstPath string, opts ...Option) error {
-	cfg := copyConfig{}
+	var cfg config
 	for _, opt := range opts {
 		opt(&cfg)
 	}
@@ -71,7 +69,7 @@ func Copy(srcPath, dstPath string, opts ...Option) error {
 	return nil
 }
 
-func copyIFD(src, dst *golibtiff.TIFF, cfg copyConfig) error {
+func copyIFD(src, dst *golibtiff.TIFF, cfg config) error {
 	if err := copyTags(src, dst, cfg); err != nil {
 		return err
 	}
@@ -82,7 +80,7 @@ func copyIFD(src, dst *golibtiff.TIFF, cfg copyConfig) error {
 	return copyStripData(src, dst)
 }
 
-func copyTags(src, dst *golibtiff.TIFF, cfg copyConfig) error {
+func copyTags(src, dst *golibtiff.TIFF, cfg config) error {
 	width, _ := src.GetFieldUint32(golibtiff.TagImageWidth)
 	height, _ := src.GetFieldUint32(golibtiff.TagImageLength)
 	spp, _ := src.GetFieldUint16(golibtiff.TagSamplesPerPixel)

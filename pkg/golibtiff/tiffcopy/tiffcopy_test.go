@@ -198,7 +198,7 @@ func TestCopyWithLZWCompression(t *testing.T) {
 	const w, h = 128, 64
 	createTestTIFF(t, src, w, h)
 
-	if err := Copy(src, dst, WithLZWCompression(2)); err != nil {
+	if err := Copy(src, dst, WithLZWCompression(golibtiff.PredictorHorizontal)); err != nil {
 		t.Fatalf("Copy: %v", err)
 	}
 
@@ -239,7 +239,7 @@ func TestCopy16bitRGB(t *testing.T) {
 	const w, h = 32, 16
 	createTestTIFF16bit(t, src, w, h)
 
-	if err := Copy(src, dst, WithLZWCompression(2)); err != nil {
+	if err := Copy(src, dst, WithLZWCompression(golibtiff.PredictorHorizontal)); err != nil {
 		t.Fatalf("Copy: %v", err)
 	}
 

@@ -80,6 +80,13 @@ const (
 	CompressionWebP       = 50001
 )
 
+// Predictor constants.
+const (
+	PredictorNone          = 1
+	PredictorHorizontal    = 2
+	PredictorFloatingPoint = 3
+)
+
 // Planar configuration constants.
 const (
 	PlanarConfigContig   = 1

@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -86,10 +85,11 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		dngIntPath    string
 		dngLinearPath string
 		tiffIntPath   string
+		iccPath       string
 	)
 
 	defer func() {
-		for _, f := range []string{dngIntPath, dngLinearPath, tiffIntPath} {
+		for _, f := range []string{dngIntPath, dngLinearPath, tiffIntPath, iccPath} {
 			if f != "" {
 				_ = os.Remove(f)
 			}
@@ -107,9 +107,10 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		dngIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.dng", base, token))
 		dngLinearPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.linear.dng", base, token))
 		tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.tiff", base, token))
+		iccPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.icc", base, token))
 
 		conflict := slices.ContainsFunc(
-			[]string{logPath, dngIntPath, dngLinearPath, tiffIntPath},
+			[]string{logPath, dngIntPath, dngLinearPath, tiffIntPath, iccPath},
 			func(f string) bool {
 				_, err := os.Stat(f)
 				return err == nil || !errors.Is(err, os.ErrNotExist)
@@ -184,7 +185,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	}
 
 	now := time.Now()
-	if err := r.runCopyExifAndInsertIccProfile(ctx, srcPath, tiffIntPath, r.cfg.Profile); err != nil {
+	if err := r.runCopyExifAndInsertIccProfile(ctx, srcPath, tiffIntPath, iccPath); err != nil {
 		returnErr = err
 		return returnErr
 	}
@@ -342,24 +343,24 @@ func (r *Runner) convertNonRawFFF(_ context.Context, env ConvertEnv) error {
 	return nil
 }
 
-func (r *Runner) runCopyExifAndInsertIccProfile(ctx context.Context, src string, dst string, profileName string) error {
+func (r *Runner) runCopyExifAndInsertIccProfile(ctx context.Context, src string, dst string, iccPath string) error {
 	executable, err := util.GetExiftoolExecutable()
 	if err != nil {
 		return err
 	}
 
 	args := []string{"-overwrite_original", "-tagsfromfile", src, "-EXIF:ALL"}
-	var stdin bytes.Buffer
-	profile, ok := icc.Profiles[profileName]
+	profile, ok := icc.Profiles[r.cfg.Profile]
 	if ok {
-		args = append(args, "-ICC_Profile<=-", dst)
-		stdin.Write(profile.Data())
+		if err := os.WriteFile(iccPath, profile.Data(), 0644); err != nil {
+			return fmt.Errorf("write icc profile: %w", err)
+		}
+		args = append(args, fmt.Sprintf("-ICC_Profile<=%s", iccPath), dst)
 	} else {
 		args = append(args, "-ICC_Profile=", dst)
 	}
 	cmd := exec.CommandContext(ctx, executable, args...)
 	r.logger.Info("run copy exif and insert icc profile", "args", cmd.Args)
-	cmd.Stdin = &stdin
 	cmd.SysProcAttr = util.GetSysProcAttr()
 	return cmd.Run()
 }

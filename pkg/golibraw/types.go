@@ -14,6 +14,24 @@ const (
 	ImageBitmap ImageFormat = C.LIBRAW_IMAGE_BITMAP
 )
 
+// InsetCropMask is a bitmask selecting which raw_inset_crop entries to check.
+type InsetCropMask uint
+
+const (
+	InsetCropDefaultMask InsetCropMask = 1 << iota // raw_inset_crops[0] (DefaultCropOrigin/DefaultCropSize)
+	InsetCropUserMask                              // raw_inset_crops[1] (UserCrop)
+	InsetCropAllMask  InsetCropMask = InsetCropDefaultMask | InsetCropUserMask
+)
+
+// InsetCropIndex indicates which raw_inset_crop was applied.
+type InsetCropIndex int
+
+const (
+	InsetCropNone     InsetCropIndex = iota // no valid crop found
+	InsetCropDefault                        // raw_inset_crops[0] (DefaultCropOrigin/DefaultCropSize)
+	InsetCropUser                           // raw_inset_crops[1] (UserCrop)
+)
+
 // RawInsetCrop mirrors libraw_raw_inset_crop_t.
 type RawInsetCrop struct {
 	Left   uint16

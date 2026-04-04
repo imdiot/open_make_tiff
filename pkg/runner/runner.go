@@ -299,6 +299,12 @@ func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv) error {
 	if err := rp.OpenFile(env.DngIntPath); err != nil {
 		return err
 	}
+
+	// Apply crop from DNG DefaultCrop/UserCrop metadata
+	if _, err := rp.AdjustToRawInsetCrop(golibraw.InsetCropAllMask, 0.0); err != nil {
+		return err
+	}
+
 	if err := rp.Unpack(); err != nil {
 		return err
 	}

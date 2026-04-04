@@ -385,3 +385,51 @@ func (rp *RawProcessor) GetICCProfile() []byte {
 	}
 	return C.GoBytes(rp.handle.color.profile, C.int(length))
 }
+
+// AdjustToRawInsetCrop applies the raw inset crop from DNG metadata.
+// mask selects which crops to check (InsetCropDefaultMask, InsetCropUserMask, or InsetCropAllMask).
+// UserCrop (crop[1]) is preferred over DefaultCrop (crop[0]) when both are valid.
+// maxcrop is the minimum fraction of the current width/height the crop must cover (0 = no limit).
+func (rp *RawProcessor) AdjustToRawInsetCrop(mask InsetCropMask, maxcrop float32) (InsetCropIndex, error) {
+	sizes := rp.GetImageSizes()
+
+	limW := int(float32(sizes.Width) * maxcrop)
+	limH := int(float32(sizes.Height) * maxcrop)
+
+	adjIndex := -1
+	for i := 1; i >= 0; i-- {
+		if mask&(1<<i) == 0 {
+			continue
+		}
+		c := sizes.RawInsetCrops[i]
+		if c.Top == 0xffff || c.Left == 0xffff {
+			continue
+		}
+		if int(c.Left)+int(c.Width) > int(sizes.RawWidth) {
+			continue
+		}
+		if int(c.Top)+int(c.Height) > int(sizes.RawHeight) {
+			continue
+		}
+		if int(c.Width) < limW || int(c.Height) < limH {
+			continue
+		}
+		adjIndex = i
+		break
+	}
+
+	if adjIndex < 0 {
+		return InsetCropNone, nil
+	}
+
+	c := sizes.RawInsetCrops[adjIndex]
+	w := min(int(c.Width), int(sizes.RawWidth)-int(c.Left))
+	h := min(int(c.Height), int(sizes.RawHeight)-int(c.Top))
+
+	if err := rp.ApplyOptions(WithCropBox(
+		uint(c.Left), uint(c.Top), uint(w), uint(h),
+	)); err != nil {
+		return InsetCropNone, err
+	}
+	return InsetCropIndex(adjIndex + 1), nil
+}

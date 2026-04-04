@@ -18,8 +18,10 @@ import (
 	wails_runtime "github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"open-make-tiff/pkg/dngconverter"
+	"open-make-tiff/pkg/exiftool"
 	"open-make-tiff/pkg/icc"
 	"open-make-tiff/pkg/runner"
+	"open-make-tiff/pkg/util"
 )
 
 type WorkerNumOption struct {
@@ -60,6 +62,7 @@ type Manager struct {
 	running atomic.Bool
 	config  *Config
 	setting *Setting
+	et      *exiftool.Exiftool
 }
 
 func New() *Manager {
@@ -94,6 +97,18 @@ func (m *Manager) OnStartup(ctx context.Context) {
 
 	m.loadConfig()
 	m.checkConfig()
+
+	if execPath, err := util.GetExiftoolExecutable(); err == nil {
+		m.et, err = exiftool.New(exiftool.WithExecutable(execPath), exiftool.WithLazyInit())
+		if err != nil {
+			slog.Warn("exiftool init failed", "error", err)
+			wails_runtime.MessageDialog(m.ctx, wails_runtime.MessageDialogOptions{
+				Type:    wails_runtime.WarningDialog,
+				Title:   "ExifTool",
+				Message: fmt.Sprintf("ExifTool 初始化失败: %v", err),
+			})
+		}
+	}
 }
 
 func (m *Manager) OnSecondInstanceLaunch(_ options.SecondInstanceData) {
@@ -105,6 +120,12 @@ func (m *Manager) OnSecondInstanceLaunch(_ options.SecondInstanceData) {
 
 	m.loadConfig()
 	m.checkConfig()
+}
+
+func (m *Manager) OnShutdown(_ context.Context) {
+	if m.et != nil {
+		m.et.Close()
+	}
 }
 
 func (m *Manager) configPath() string {
@@ -243,8 +264,10 @@ func (m *Manager) Convert(paths []string) {
 						EnableSubfolder:         cfg.EnableSubfolder,
 						EnableCompression:       cfg.EnableCompression,
 						Profile:                 cfg.ICCProfile,
-						DisableRemoveLog:        false,
-					}).Run(m.ctx, path); err != nil {
+					},
+						runner.WithDisableRemoveLog(),
+						runner.WithExiftool(m.et),
+					).Run(m.ctx, path); err != nil {
 						if errors.Is(err, runner.ErrDstFileExists) {
 							wails_runtime.EventsEmit(m.ctx, "omt:convert:file:skipped", path)
 						} else {

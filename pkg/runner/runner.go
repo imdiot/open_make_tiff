@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -16,11 +15,11 @@ import (
 	"github.com/google/uuid"
 
 	"open-make-tiff/pkg/dngconverter"
+	"open-make-tiff/pkg/exiftool"
 	"open-make-tiff/pkg/golibraw"
 	"open-make-tiff/pkg/golibtiff"
 	"open-make-tiff/pkg/golibtiff/tiffcopy"
 	"open-make-tiff/pkg/icc"
-	"open-make-tiff/pkg/util"
 )
 
 var ErrDstFileExists = errors.New("destination file already exists")
@@ -30,13 +29,27 @@ type Config struct {
 	EnableSubfolder         bool
 	EnableCompression       bool
 	Profile                 string
+}
 
-	DisableRemoveLog bool
+type Option func(*Runner)
+
+func WithDisableRemoveLog() Option {
+	return func(r *Runner) {
+		r.disableRemoveLog = true
+	}
+}
+
+func WithExiftool(et *exiftool.Exiftool) Option {
+	return func(r *Runner) {
+		r.et = et
+	}
 }
 
 type Runner struct {
-	cfg    Config
-	logger *slog.Logger
+	cfg              Config
+	logger           *slog.Logger
+	disableRemoveLog bool
+	et               *exiftool.Exiftool
 }
 
 type ConvertEnv struct {
@@ -47,11 +60,15 @@ type ConvertEnv struct {
 	TiffIntPath   string
 }
 
-func New(cfg Config) *Runner {
-	return &Runner{
+func New(cfg Config, opts ...Option) *Runner {
+	r := &Runner{
 		cfg:    cfg,
 		logger: slog.New(slog.NewTextHandler(os.Stdout, nil)),
 	}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 func (r *Runner) Run(ctx context.Context, srcPath string) error {
@@ -131,7 +148,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 			r.logger.Error(returnErr.Error())
 		}
 		_ = f.Close()
-		if returnErr == nil && !r.cfg.DisableRemoveLog {
+		if returnErr == nil && !r.disableRemoveLog {
 			_ = os.Remove(logPath)
 		}
 	}()
@@ -185,7 +202,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	}
 
 	now := time.Now()
-	if err := r.runCopyExifAndInsertIccProfile(ctx, srcPath, tiffIntPath, iccPath); err != nil {
+	if err := r.runCopyExifAndInsertIccProfile(srcPath, tiffIntPath, iccPath); err != nil {
 		returnErr = err
 		return returnErr
 	}
@@ -343,10 +360,9 @@ func (r *Runner) convertNonRawFFF(_ context.Context, env ConvertEnv) error {
 	return nil
 }
 
-func (r *Runner) runCopyExifAndInsertIccProfile(ctx context.Context, src string, dst string, iccPath string) error {
-	executable, err := util.GetExiftoolExecutable()
-	if err != nil {
-		return err
+func (r *Runner) runCopyExifAndInsertIccProfile(src string, dst string, iccPath string) error {
+	if r.et == nil {
+		return errors.New("exiftool not available")
 	}
 
 	args := []string{"-overwrite_original", "-tagsfromfile", src, "-EXIF:ALL"}
@@ -355,14 +371,13 @@ func (r *Runner) runCopyExifAndInsertIccProfile(ctx context.Context, src string,
 		if err := os.WriteFile(iccPath, profile.Data(), 0644); err != nil {
 			return fmt.Errorf("write icc profile: %w", err)
 		}
-		args = append(args, fmt.Sprintf("-ICC_Profile<=%s", iccPath), dst)
+		args = append(args, "-ICC_Profile<="+iccPath, dst)
 	} else {
 		args = append(args, "-ICC_Profile=", dst)
 	}
-	cmd := exec.CommandContext(ctx, executable, args...)
-	r.logger.Info("run copy exif and insert icc profile", "args", cmd.Args)
-	cmd.SysProcAttr = util.GetSysProcAttr()
-	return cmd.Run()
+	r.logger.Info("run copy exif and insert icc profile", "args", args)
+	_, err := r.et.Execute(args...)
+	return err
 }
 
 func (r *Runner) writeMemImageToTIFF(path string, img *golibraw.ProcessedImage) error {

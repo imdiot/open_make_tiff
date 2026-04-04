@@ -46,7 +46,8 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
-		OnStartup: mgr.OnStartup,
+		OnStartup:  mgr.OnStartup,
+		OnShutdown: mgr.OnShutdown,
 		SingleInstanceLock: &options.SingleInstanceLock{
 			UniqueId:               "9424f8fb-426f-4df0-9476-f025f2a10da4",
 			OnSecondInstanceLaunch: mgr.OnSecondInstanceLaunch,

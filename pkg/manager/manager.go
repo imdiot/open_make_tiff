@@ -47,6 +47,7 @@ type Config struct {
 	EnableCompression        bool   `json:"enable_compression,omitempty"`
 	ICCProfile               string `json:"icc_profile,omitempty"`
 	Workers                  int    `json:"workers,omitempty"`
+	DPI                      int    `json:"dpi,omitempty"`
 }
 
 func newConfig() *Config {
@@ -264,8 +265,9 @@ func (m *Manager) Convert(paths []string) {
 						EnableSubfolder:         cfg.EnableSubfolder,
 						EnableCompression:       cfg.EnableCompression,
 						Profile:                 cfg.ICCProfile,
+						DPI:                     cfg.DPI,
 					},
-						runner.WithDisableRemoveLog(),
+						runner.WithRemoveIntermediate(),
 						runner.WithExiftool(m.et),
 					).Run(m.ctx, path); err != nil {
 						if errors.Is(err, runner.ErrDstFileExists) {

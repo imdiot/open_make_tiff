@@ -29,13 +29,14 @@ type Config struct {
 	EnableSubfolder         bool
 	EnableCompression       bool
 	Profile                 string
+	DPI                     int
 }
 
 type Option func(*Runner)
 
-func WithDisableRemoveLog() Option {
+func WithRemoveIntermediate() Option {
 	return func(r *Runner) {
-		r.disableRemoveLog = true
+		r.removeIntermediate = true
 	}
 }
 
@@ -46,18 +47,25 @@ func WithExiftool(et *exiftool.Exiftool) Option {
 }
 
 type Runner struct {
-	cfg              Config
-	logger           *slog.Logger
-	disableRemoveLog bool
-	et               *exiftool.Exiftool
+	cfg                Config
+	logger             *slog.Logger
+	removeIntermediate bool
+	et                 *exiftool.Exiftool
 }
 
 type ConvertEnv struct {
 	SrcPath       string
 	DstDir        string
+	DngIntPrePath string
 	DngIntPath    string
-	DngLinearPath string
 	TiffIntPath   string
+}
+
+type MetadataConfig struct {
+	RawPath       string
+	SecondSrcPath string
+	TiffPath      string
+	IccPath       string
 }
 
 func New(cfg Config, opts ...Option) *Runner {
@@ -99,16 +107,18 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	var (
 		token         string
 		logPath       string
+		dngIntPrePath string
 		dngIntPath    string
-		dngLinearPath string
 		tiffIntPath   string
 		iccPath       string
 	)
 
 	defer func() {
-		for _, f := range []string{dngIntPath, dngLinearPath, tiffIntPath, iccPath} {
-			if f != "" {
-				_ = os.Remove(f)
+		if r.removeIntermediate {
+			for _, f := range []string{dngIntPrePath, dngIntPath, tiffIntPath, iccPath} {
+				if f != "" {
+					_ = os.Remove(f)
+				}
 			}
 		}
 		if returnErr != nil {
@@ -121,13 +131,13 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		token = hex.EncodeToString(u[:])
 
 		logPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.log", base, token))
+		dngIntPrePath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int_pre.dng", base, token))
 		dngIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.dng", base, token))
-		dngLinearPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.linear.dng", base, token))
 		tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.tiff", base, token))
 		iccPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.icc", base, token))
 
 		conflict := slices.ContainsFunc(
-			[]string{logPath, dngIntPath, dngLinearPath, tiffIntPath, iccPath},
+			[]string{logPath, dngIntPrePath, dngIntPath, tiffIntPath, iccPath},
 			func(f string) bool {
 				_, err := os.Stat(f)
 				return err == nil || !errors.Is(err, os.ErrNotExist)
@@ -148,7 +158,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 			r.logger.Error(returnErr.Error())
 		}
 		_ = f.Close()
-		if returnErr == nil && !r.disableRemoveLog {
+		if returnErr == nil && r.removeIntermediate {
 			_ = os.Remove(logPath)
 		}
 	}()
@@ -157,8 +167,8 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	env := ConvertEnv{
 		SrcPath:       srcPath,
 		DstDir:        dstDir,
+		DngIntPrePath: dngIntPrePath,
 		DngIntPath:    dngIntPath,
-		DngLinearPath: dngLinearPath,
 		TiffIntPath:   tiffIntPath,
 	}
 
@@ -202,11 +212,21 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	}
 
 	now := time.Now()
-	if err := r.runCopyExifAndInsertIccProfile(srcPath, tiffIntPath, iccPath); err != nil {
+	secondSrcPath := srcPath
+	if useDNG {
+		secondSrcPath = dngIntPath
+	}
+
+	if err := r.rebuildMetadata(MetadataConfig{
+		RawPath:       srcPath,
+		SecondSrcPath: secondSrcPath,
+		TiffPath:      tiffIntPath,
+		IccPath:       iccPath,
+	}); err != nil {
 		returnErr = err
 		return returnErr
 	}
-	r.logger.Info("copy exif and insert icc profile", "time", time.Since(now).Seconds())
+	r.logger.Info("rebuild metadata", "time", time.Since(now).Seconds())
 
 	if err := os.Rename(tiffIntPath, dstPath); err != nil {
 		returnErr = err
@@ -222,7 +242,7 @@ func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv) error {
 		dngconverter.WithPreviewSize(dngconverter.PreviewNone),
 		dngconverter.WithCameraRawCompat(dngconverter.CameraRaw54),
 		dngconverter.WithOutputDir(env.DstDir),
-		dngconverter.WithOutputFilename(filepath.Base(env.DngIntPath)),
+		dngconverter.WithOutputFilename(filepath.Base(env.DngIntPrePath)),
 		dngconverter.WithLogger(r.logger),
 	)
 	if err != nil {
@@ -241,24 +261,22 @@ func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv) error {
 		dngconverter.WithPreviewSize(dngconverter.PreviewNone),
 		dngconverter.WithDNGVersion(dngconverter.DNG11),
 		dngconverter.WithOutputDir(env.DstDir),
-		dngconverter.WithOutputFilename(filepath.Base(env.DngLinearPath)),
+		dngconverter.WithOutputFilename(filepath.Base(env.DngIntPath)),
 		dngconverter.WithLogger(r.logger),
 	)
 	if err != nil {
-		_ = os.Remove(env.DngIntPath)
+		_ = os.Remove(env.DngIntPrePath)
 		return fmt.Errorf("dng converter (linear): %w", err)
 	}
 
 	now = time.Now()
-	if err := dngConv2.Convert(ctx, env.DngIntPath); err != nil {
-		_ = os.Remove(env.DngIntPath)
+	if err := dngConv2.Convert(ctx, env.DngIntPrePath); err != nil {
+		_ = os.Remove(env.DngIntPrePath)
 		return fmt.Errorf("dng converter (linear) convert: %w", err)
 	}
 	r.logger.Info("dng converter (linear)", "time", time.Since(now).Seconds())
-	_ = os.Remove(env.DngIntPath)
-	r.logger.Info("rename linear dng to int", "from", env.DngLinearPath, "to", env.DngIntPath)
-	if err := os.Rename(env.DngLinearPath, env.DngIntPath); err != nil {
-		return fmt.Errorf("rename linear dng to int: %w", err)
+	if r.removeIntermediate {
+		_ = os.Remove(env.DngIntPrePath)
 	}
 
 	rp, err := golibraw.New(
@@ -312,7 +330,13 @@ func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv) error {
 		golibraw.WithEmbeddedColorMatrix(false),
 		golibraw.WithDNGSDK(golibraw.DNGSDKDefault|golibraw.DNGSDKXTrans),
 		golibraw.WithUseRawSpeed(golibraw.RawSpeedV3Use),
-		golibraw.WithRawOptions(golibraw.RawOptDNGAddPreviews|golibraw.RawOptDNGPreferLargestImage),
+		golibraw.WithRawOptions(
+			golibraw.RawOptDNGAddEnhanced|
+				golibraw.RawOptDNGPreferLargestImage|
+				golibraw.RawOptDNGAllowSizeChange|
+				golibraw.RawOptDNGStage2IfPresent|
+				golibraw.RawOptDNGStage3IfPresent,
+		),
 	)
 	if err != nil {
 		return err
@@ -360,24 +384,56 @@ func (r *Runner) convertNonRawFFF(_ context.Context, env ConvertEnv) error {
 	return nil
 }
 
-func (r *Runner) runCopyExifAndInsertIccProfile(src string, dst string, iccPath string) error {
+func (r *Runner) rebuildMetadata(mc MetadataConfig) error {
 	if r.et == nil {
 		return errors.New("exiftool not available")
 	}
 
-	args := []string{"-overwrite_original", "-tagsfromfile", src, "-EXIF:ALL"}
-	profile, ok := icc.Profiles[r.cfg.Profile]
-	if ok {
-		if err := os.WriteFile(iccPath, profile.Data(), 0644); err != nil {
+	dpi := r.cfg.DPI
+	if dpi == 0 {
+		dpi = 300
+	}
+
+	args := []string{"-overwrite_original"}
+
+	args = append(args, "-all=")
+	args = append(args, "-TagsFromFile", mc.RawPath, "-All")
+	args = append(args, "-XMP:all=", "-All:ImageDescription=")
+
+	// Override DNG-specific tags from the intermediate DNG for accurate color metadata
+	args = append(args, "-TagsFromFile", mc.SecondSrcPath,
+		"-AsShotNeutral",
+		"-UniqueCameraModel",
+		"-LocalizedCameraModel",
+		"-XMP-aux:All",
+		"-XMP-exifEX:All",
+		"-XMP-dc:Subject",
+		"-XMP-lr:HierarchicalSubject",
+		"-XMP-mwg-kw:All",
+	)
+	args = append(args, "-IPTC:all=", "-ICC_Profile:all=", "-All:Colorspace=")
+
+	if profile, ok := icc.Profiles[r.cfg.Profile]; ok {
+		if err := os.WriteFile(mc.IccPath, profile.Data(), 0644); err != nil {
 			return fmt.Errorf("write icc profile: %w", err)
 		}
-		args = append(args, "-ICC_Profile<="+iccPath, dst)
-	} else {
-		args = append(args, "-ICC_Profile=", dst)
+		args = append(args, "-ICC_Profile<="+mc.IccPath)
 	}
-	r.logger.Info("run copy exif and insert icc profile", "args", args)
-	_, err := r.et.Execute(args...)
-	return err
+
+	args = append(args, fmt.Sprintf("-XMP-crs:RAWFileName=%s", filepath.Base(mc.RawPath)))
+	args = append(args,
+		fmt.Sprintf("-Xresolution=%d", dpi),
+		fmt.Sprintf("-Yresolution=%d", dpi),
+		"-ResolutionUnit=inches",
+	)
+
+	// Reset orientation to avoid incorrect rotation from source
+	args = append(args, "-Orientation=")
+
+	args = append(args, mc.TiffPath)
+
+	r.logger.Info("rebuild metadata", "args", args)
+	return r.et.ExecuteWrite(args...)
 }
 
 func (r *Runner) writeMemImageToTIFF(path string, img *golibraw.ProcessedImage) error {

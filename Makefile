@@ -2,7 +2,9 @@
         vcpkg-install vcpkg-install-macos-arm64 vcpkg-install-macos-x64 vcpkg-install-macos-universal \
         vcpkg-install-windows vcpkg-clean-windows vcpkg-rebuild-windows \
         vcpkg-clean-macos vcpkg-rebuild-macos \
-        vcpkg-clean vcpkg-rebuild
+        vcpkg-clean vcpkg-rebuild \
+        exiftool-download exiftool-download-windows exiftool-download-macos \
+        exiftool-check-windows exiftool-check-macos exiftool-clean
 
 # Platform detection (consolidated)
 ifeq ($(OS),Windows_NT)
@@ -13,6 +15,7 @@ _VCPKG_INSTALL   := vcpkg-install-windows
 _VCPKG_CLEAN     := vcpkg-clean-windows
 _VCPKG_REBUILD   := vcpkg-rebuild-windows
 _BUILD_TARGET    := build-windows
+_EXIFTOOL_CHECK  := exiftool-check-windows
 else
 VCPKG_ROOT       ?= $(HOME)/vcpkg
 VCPKG            := $(VCPKG_ROOT)/vcpkg
@@ -21,12 +24,17 @@ _VCPKG_INSTALL   := vcpkg-install-macos-universal
 _VCPKG_CLEAN     := vcpkg-clean-macos
 _VCPKG_REBUILD   := vcpkg-rebuild-macos
 _BUILD_TARGET    := build-mac
+_EXIFTOOL_CHECK  := exiftool-check-macos
 endif
 
 # Package configuration
 VCPKG_PACKAGES = \
 	libraw[6by9rpi,dng-lossy,dngsdk,rawspeed,x3ftools] \
 	tiff[cxx,jpeg,lerc,libdeflate,lzma,webp,zip,zstd]
+
+# ExifTool configuration
+EXIFTOOL_VERSION   := 13.50
+EXIFTOOL_SF_BASE   := https://sourceforge.net/projects/exiftool/files
 
 OVERLAY_PORTS    = third-party/vcpkg/ports
 OVERLAY_TRIPLETS = third-party/vcpkg/triplets
@@ -53,15 +61,15 @@ build:
 	$(MAKE) $(_BUILD_TARGET)
 
 build-mac: export PKG_CONFIG_PATH := $(PKG_CONFIG_MAC)
-build-mac:
+build-mac: exiftool-check-macos
 	wails build -platform darwin/universal
 
 build-windows: export PKG_CONFIG_PATH := $(PKG_CONFIG_WINDOWS)
-build-windows:
+build-windows: exiftool-check-windows
 	wails build -platform windows/amd64
 
 dev: export PKG_CONFIG_PATH := $(VCPKG_INSTALLED)/$(TRIPLET)/lib/pkgconfig
-dev:
+dev: $(_EXIFTOOL_CHECK)
 	wails dev
 
 clean:
@@ -132,3 +140,49 @@ vcpkg-clean-windows:
 	$(VCPKG) remove libraw tiff adobe-dng-sdk --triplet=$(TRIPLET_WINDOWS) --recurse
 
 vcpkg-rebuild-windows: vcpkg-clean-windows vcpkg-install-windows
+
+# ── ExifTool download targets ───────────────────────────────────
+
+# Windows: use PowerShell script (works in cmd.exe / PowerShell)
+exiftool-check-windows exiftool-download-windows:
+	powershell -ExecutionPolicy Bypass -File scripts/download-exiftool.ps1 -Version $(EXIFTOOL_VERSION)
+
+# macOS: use bash commands (native on macOS)
+_EXIFTOOL_MAC_VER := $(shell cat third-party/macos-universal/.exiftool-version 2>/dev/null)
+
+ifneq ($(strip $(_EXIFTOOL_MAC_VER)),$(EXIFTOOL_VERSION))
+exiftool-check-macos:
+	$(MAKE) exiftool-download-macos
+else
+exiftool-check-macos:
+	@echo "ExifTool $(EXIFTOOL_VERSION) already present for macOS"
+endif
+
+exiftool-download-macos:
+	@echo "Downloading ExifTool $(EXIFTOOL_VERSION) for macOS..."
+	@rm -rf third-party/macos-universal
+	@mkdir -p third-party/macos-universal/exiftool_files
+	curl -L -o /tmp/exiftool-mac.tar.gz \
+		"$(EXIFTOOL_SF_BASE)/Image-ExifTool-$(EXIFTOOL_VERSION).tar.gz/download"
+	tar xzf /tmp/exiftool-mac.tar.gz -C /tmp
+	cp /tmp/Image-ExifTool-$(EXIFTOOL_VERSION)/exiftool third-party/macos-universal/exiftool
+	cp -r /tmp/Image-ExifTool-$(EXIFTOOL_VERSION)/lib third-party/macos-universal/exiftool_files/lib
+	chmod +x third-party/macos-universal/exiftool
+	rm -rf /tmp/Image-ExifTool-$(EXIFTOOL_VERSION) /tmp/exiftool-mac.tar.gz
+	@echo "$(EXIFTOOL_VERSION)" > third-party/macos-universal/.exiftool-version
+	@echo "ExifTool $(EXIFTOOL_VERSION) downloaded for macOS"
+
+exiftool-download:
+ifeq ($(OS),Windows_NT)
+	$(MAKE) exiftool-check-windows
+else
+	$(MAKE) exiftool-check-macos
+endif
+
+exiftool-clean:
+ifeq ($(OS),Windows_NT)
+	-rd /s /q third-party\windows-x64 2>nul
+	-rd /s /q third-party\macos-universal 2>nul
+else
+	rm -rf third-party/windows-x64 third-party/macos-universal
+endif

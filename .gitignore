@@ -4,3 +4,5 @@ frontend/dist
 frontend/wailsjs
 .idea
 .vscode
+third-party/windows-x64/
+third-party/macos-universal/

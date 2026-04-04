@@ -105,6 +105,12 @@ func TestBuildArgs(t *testing.T) {
 			want:   []string{"-l", "test.nef"},
 		},
 		{
+			name:   "uncompressed and linear",
+			opts:   []Option{WithUncompressed(true), WithLinear(true)},
+			inputs: []string{"test.nef"},
+			want:   []string{"-u", "-l", "test.nef"},
+		},
+		{
 			name:   "no preview",
 			opts:   []Option{WithPreviewSize(PreviewNone)},
 			inputs: []string{"test.nef"},

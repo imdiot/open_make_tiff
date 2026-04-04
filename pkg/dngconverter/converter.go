@@ -129,11 +129,13 @@ func (c *Converter) mergeOptions(opts []Option) Options {
 func (c *Converter) buildArgs(cfg Options, inputs ...string) []string {
 	args := make([]string, 0, 16)
 
-	if cfg.uncompressedSet {
+	if cfg.uncompressedSet && cfg.Uncompressed {
 		args = append(args, "-u")
-	} else if cfg.linearSet {
+	}
+	if cfg.linearSet && cfg.Linear {
 		args = append(args, "-l")
-	} else if cfg.compressSet {
+	}
+	if cfg.compressSet && cfg.Compress {
 		args = append(args, "-c")
 	}
 

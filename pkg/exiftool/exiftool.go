@@ -463,6 +463,16 @@ func parseVersion(ver string) (major, minor int, err error) {
 	return major, minor, nil
 }
 
+// ExecuteWrite runs an exiftool write command and validates the response.
+// Use this for commands that modify files (metadata writes, tag copies, etc.).
+func (e *Exiftool) ExecuteWrite(args ...string) error {
+	resp, err := e.Execute(args...)
+	if err != nil {
+		return err
+	}
+	return handleWriteResponse(resp)
+}
+
 func handleWriteResponse(resp string) error {
 	cleaned := strings.TrimSpace(resp)
 	if strings.Contains(cleaned, writeSuccessToken) {

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-const defaultCloseTimeout = 5 * time.Second
+const defaultCloseTimeout = 100 * time.Millisecond
 
 // Options configures Exiftool behavior.
 type Options struct {

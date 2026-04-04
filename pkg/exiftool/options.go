@@ -1,12 +1,13 @@
 package exiftool
 
 import (
+	"context"
 	"io"
 	"log/slog"
 	"time"
 )
 
-const defaultCloseTimeout = 100 * time.Millisecond
+const defaultCloseTimeout = 5 * time.Second
 
 // Options configures Exiftool behavior.
 type Options struct {
@@ -15,6 +16,7 @@ type Options struct {
 	closeTimeout time.Duration
 	stdout       io.Writer
 	lazyInit     bool
+	ctx          context.Context
 }
 
 // Option is a functional option for Exiftool.
@@ -54,6 +56,14 @@ func WithStdout(w io.Writer) Option {
 func WithLazyInit() Option {
 	return func(o *Options) {
 		o.lazyInit = true
+	}
+}
+
+// WithContext binds a context to the Exiftool instance lifecycle.
+// When ctx is canceled, the persistent process is killed immediately.
+func WithContext(ctx context.Context) Option {
+	return func(o *Options) {
+		o.ctx = ctx
 	}
 }
 

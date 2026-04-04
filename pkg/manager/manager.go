@@ -100,7 +100,7 @@ func (m *Manager) OnStartup(ctx context.Context) {
 	m.checkConfig()
 
 	if execPath, err := util.GetExiftoolExecutable(); err == nil {
-		m.et, err = exiftool.New(exiftool.WithExecutable(execPath), exiftool.WithLazyInit())
+		m.et, err = exiftool.New(exiftool.WithExecutable(execPath), exiftool.WithLazyInit(), exiftool.WithContext(ctx))
 		if err != nil {
 			slog.Warn("exiftool init failed", "error", err)
 			wails_runtime.MessageDialog(m.ctx, wails_runtime.MessageDialogOptions{

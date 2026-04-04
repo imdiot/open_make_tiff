@@ -24,6 +24,7 @@ var (
 	ErrVersionMismatch    = errors.New("exiftool version mismatch")
 	ErrNoResponse         = errors.New("unexpected EOF from exiftool")
 	ErrNoMetadata         = errors.New("no metadata returned")
+	ErrContextCanceled    = errors.New("exiftool operation canceled by context")
 )
 
 const (
@@ -48,6 +49,9 @@ type Exiftool struct {
 	scanner    *bufio.Scanner
 	closed     bool
 	done       chan struct{} // nil=not started, open=running, closed=exited
+
+	instanceCtx    context.Context    // lifecycle context
+	cancelInstance context.CancelFunc // cancel triggers process kill
 }
 
 // GetDefaultExecutablePath resolves the default exiftool path via exec.LookPath.
@@ -76,9 +80,17 @@ func New(opts ...Option) (*Exiftool, error) {
 
 	cfg.executable = execPath
 
+	instanceCtx := cfg.ctx
+	if instanceCtx == nil {
+		instanceCtx = context.Background()
+	}
+	instanceCtx, cancel := context.WithCancel(instanceCtx)
+
 	e := &Exiftool{
-		executable: execPath,
-		defaults:   cfg,
+		executable:     execPath,
+		defaults:       cfg,
+		instanceCtx:    instanceCtx,
+		cancelInstance: cancel,
 	}
 
 	if !cfg.lazyInit {
@@ -121,6 +133,19 @@ func (e *Exiftool) start() error {
 	go func() {
 		e.cmd.Wait()
 		close(e.done)
+	}()
+
+	// Context watcher: kill process immediately when context is canceled.
+	go func() {
+		select {
+		case <-e.done:
+			// Process exited on its own.
+		case <-e.instanceCtx.Done():
+			if e.cmd != nil && e.cmd.Process != nil {
+				e.cmd.Process.Kill()
+			}
+			<-e.done
+		}
 	}()
 
 	// First start: version check
@@ -176,6 +201,9 @@ func (e *Exiftool) ensureStarted() error {
 	if e.isRunning() {
 		return nil
 	}
+	if e.instanceCtx.Err() != nil {
+		return ErrContextCanceled
+	}
 	if e.done != nil {
 		e.reset()
 	}
@@ -191,6 +219,12 @@ func (e *Exiftool) Close() error {
 		return nil
 	}
 	e.closed = true
+
+	// Cancel instance context to trigger the context watcher goroutine
+	// and unblock any pending scanner.Scan() calls.
+	if e.cancelInstance != nil {
+		e.cancelInstance()
+	}
 
 	if !e.isRunning() {
 		return nil

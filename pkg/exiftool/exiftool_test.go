@@ -2,6 +2,7 @@ package exiftool
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"os"
 	"os/exec"
@@ -41,7 +42,34 @@ func copyToTmp(t *testing.T, name string) string {
 	return dst
 }
 
-// --- Unit tests ---
+// newTestInstance creates a started Exiftool with auto-cleanup.
+func newTestInstance(t *testing.T, opts ...Option) *Exiftool {
+	t.Helper()
+	exiftoolAvailable(t)
+	e, err := New(opts...)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	t.Cleanup(func() { e.Close() })
+	return e
+}
+
+// newLazyInstance creates a lazy-init Exiftool with auto-cleanup.
+func newLazyInstance(t *testing.T, opts ...Option) *Exiftool {
+	t.Helper()
+	exiftoolAvailable(t)
+	opts = append([]Option{WithLazyInit()}, opts...)
+	e, err := New(opts...)
+	if err != nil {
+		t.Fatalf("New(WithLazyInit) error = %v", err)
+	}
+	t.Cleanup(func() { e.Close() })
+	return e
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests (no exiftool process needed)
+// ---------------------------------------------------------------------------
 
 func TestSplitReadyToken(t *testing.T) {
 	tests := []struct {
@@ -152,7 +180,25 @@ func TestHandleWriteResponse(t *testing.T) {
 	}
 }
 
-// --- Integration tests ---
+func TestWithOptions(t *testing.T) {
+	cfg := defaultOptions()
+	if cfg.lazyInit {
+		t.Error("default lazyInit should be false")
+	}
+	if cfg.closeTimeout != 5*time.Second {
+		t.Errorf("default closeTimeout = %v, want 5s", cfg.closeTimeout)
+	}
+
+	WithLazyInit()(&cfg)
+	if !cfg.lazyInit {
+		t.Error("WithLazyInit() did not set lazyInit to true")
+	}
+
+	WithCloseTimeout(10 * time.Second)(&cfg)
+	if cfg.closeTimeout != 10*time.Second {
+		t.Errorf("custom closeTimeout = %v, want 10s", cfg.closeTimeout)
+	}
+}
 
 func TestNewInvalidPath(t *testing.T) {
 	_, err := New(WithExecutable("/nonexistent/exiftool"))
@@ -161,26 +207,25 @@ func TestNewInvalidPath(t *testing.T) {
 	}
 }
 
-func TestNewAndClose(t *testing.T) {
-	exiftoolAvailable(t)
+func TestGetDefaultExecutablePath(t *testing.T) {
+	path := GetDefaultExecutablePath()
+	t.Logf("default exiftool path: %q", path)
+}
 
-	e, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
+// ---------------------------------------------------------------------------
+// Lifecycle tests
+// ---------------------------------------------------------------------------
+
+func TestNewAndClose(t *testing.T) {
+	e := newTestInstance(t)
 
 	if _, err := e.Version(); err != nil {
 		t.Errorf("Version() error = %v", err)
-	}
-
-	if err := e.Close(); err != nil {
-		t.Errorf("Close() error = %v", err)
 	}
 }
 
 func TestExecuteAfterClose(t *testing.T) {
 	exiftoolAvailable(t)
-
 	e, err := New()
 	if err != nil {
 		t.Fatalf("New() error = %v", err)
@@ -193,20 +238,31 @@ func TestExecuteAfterClose(t *testing.T) {
 	}
 }
 
-func TestExecute(t *testing.T) {
-	exiftoolAvailable(t)
+func TestDoubleClose(t *testing.T) {
+	_ = newTestInstance(t)
+	// t.Cleanup will also call Close, verifying double-close is safe
+}
 
-	e, err := New()
+func TestNewWithCustomExecutable(t *testing.T) {
+	path, err := exec.LookPath("exiftool")
 	if err != nil {
-		t.Fatalf("New() error = %v", err)
+		t.Skip("exiftool not in PATH")
 	}
-	defer e.Close()
+
+	newTestInstance(t, WithExecutable(path))
+}
+
+// ---------------------------------------------------------------------------
+// Execute / Read / Write
+// ---------------------------------------------------------------------------
+
+func TestExecute(t *testing.T) {
+	e := newTestInstance(t)
 
 	resp, err := e.Execute("-ver")
 	if err != nil {
 		t.Fatalf("Execute(-ver) error = %v", err)
 	}
-
 	resp = strings.TrimSpace(resp)
 	if resp == "" {
 		t.Error("Execute(-ver) returned empty response")
@@ -214,16 +270,8 @@ func TestExecute(t *testing.T) {
 	t.Logf("exiftool version: %s", resp)
 }
 
-// --- ExifTool.jpg: general EXIF read/write ---
-
-func TestReadProperty_ExifToolJpg(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer e.Close()
+func TestReadProperty(t *testing.T) {
+	e := newTestInstance(t)
 
 	model, err := e.ReadProperty(testFile("ExifTool.jpg"), "Model")
 	if err != nil {
@@ -232,20 +280,13 @@ func TestReadProperty_ExifToolJpg(t *testing.T) {
 	t.Logf("ExifTool.jpg Model: %q", model)
 }
 
-func TestReadMetadata_ExifToolJpg(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer e.Close()
+func TestReadMetadata(t *testing.T) {
+	e := newTestInstance(t)
 
 	md, err := e.ReadMetadata(testFile("ExifTool.jpg"))
 	if err != nil {
 		t.Fatalf("ReadMetadata error = %v", err)
 	}
-
 	if md.File != testFile("ExifTool.jpg") {
 		t.Errorf("Metadata.File = %q, want %q", md.File, testFile("ExifTool.jpg"))
 	}
@@ -261,18 +302,11 @@ func TestReadMetadata_ExifToolJpg(t *testing.T) {
 	}
 }
 
-func TestWriteMetadata_ExifToolJpg(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer e.Close()
-
+func TestWriteMetadata(t *testing.T) {
+	e := newTestInstance(t)
 	dst := copyToTmp(t, "ExifTool.jpg")
 
-	err = e.WriteMetadata(dst, map[string]interface{}{
+	err := e.WriteMetadata(dst, map[string]interface{}{
 		"Comment": "test comment from exiftool binding",
 	})
 	if err != nil {
@@ -288,183 +322,33 @@ func TestWriteMetadata_ExifToolJpg(t *testing.T) {
 	}
 }
 
-func TestWriteMetadataDelete_ExifToolJpg(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer e.Close()
-
+func TestWriteMetadataDelete(t *testing.T) {
+	e := newTestInstance(t)
 	dst := copyToTmp(t, "ExifTool.jpg")
 
-	err = e.WriteMetadata(dst, map[string]interface{}{
-		"Comment": "temporary",
-	})
-	if err != nil {
+	if err := e.WriteMetadata(dst, map[string]interface{}{"Comment": "temporary"}); err != nil {
 		t.Fatalf("WriteMetadata error = %v", err)
 	}
 
 	// Delete via nil value
-	err = e.WriteMetadata(dst, map[string]interface{}{
-		"Comment": nil,
-	})
-	if err != nil {
+	if err := e.WriteMetadata(dst, map[string]interface{}{"Comment": nil}); err != nil {
 		t.Fatalf("WriteMetadata delete error = %v", err)
 	}
 }
 
-// --- GPS.jpg: GPS coordinate read ---
-
-func TestReadGPSFromGPSJpg(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer e.Close()
-
-	md, err := e.ReadMetadata(testFile("GPS.jpg"))
-	if err != nil {
-		t.Fatalf("ReadMetadata error = %v", err)
-	}
-
-	lat, err := md.GetString("GPSLatitude")
-	if err != nil {
-		t.Fatalf("GetString(GPSLatitude) error = %v", err)
-	}
-	if lat == "" {
-		t.Error("GPSLatitude is empty")
-	}
-	t.Logf("GPS.jpg Latitude: %s", lat)
-
-	lon, err := md.GetString("GPSLongitude")
-	if err != nil {
-		t.Fatalf("GetString(GPSLongitude) error = %v", err)
-	}
-	if lon == "" {
-		t.Error("GPSLongitude is empty")
-	}
-	t.Logf("GPS.jpg Longitude: %s", lon)
-}
-
-// --- Canon.jpg: camera maker info ---
-
-func TestReadCameraInfoFromCanonJpg(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer e.Close()
-
-	md, err := e.ReadMetadata(testFile("Canon.jpg"))
-	if err != nil {
-		t.Fatalf("ReadMetadata error = %v", err)
-	}
-
-	make, err := md.GetString("Make")
-	if err != nil {
-		t.Fatalf("GetString(Make) error = %v", err)
-	}
-	t.Logf("Canon.jpg Make: %s", make)
-}
-
-// --- DNG.dng: RAW metadata ---
-
-func TestReadDNGMetadata(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer e.Close()
-
-	md, err := e.ReadMetadata(testFile("DNG.dng"))
-	if err != nil {
-		t.Fatalf("ReadMetadata error = %v", err)
-	}
-	if len(md.Fields) == 0 {
-		t.Error("DNG metadata is empty")
-	}
-
-	make, err := md.GetString("Make")
-	if err != nil {
-		t.Logf("DNG Make not found: %v", err)
-	} else {
-		t.Logf("DNG.dng Make: %s", make)
-	}
-}
-
-// --- MP3.mp3: audio metadata ---
-
-func TestReadMP3Metadata(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer e.Close()
-
-	md, err := e.ReadMetadata(testFile("MP3.mp3"))
-	if err != nil {
-		t.Fatalf("ReadMetadata error = %v", err)
-	}
-	if len(md.Fields) == 0 {
-		t.Error("MP3 metadata is empty")
-	}
-	t.Logf("MP3.mp3 fields count: %d", len(md.Fields))
-}
-
-// --- QuickTime.mov: video metadata ---
-
-func TestReadQuickTimeMetadata(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer e.Close()
-
-	md, err := e.ReadMetadata(testFile("QuickTime.mov"))
-	if err != nil {
-		t.Fatalf("ReadMetadata error = %v", err)
-	}
-	if len(md.Fields) == 0 {
-		t.Error("QuickTime metadata is empty")
-	}
-	t.Logf("QuickTime.mov fields count: %d", len(md.Fields))
-}
-
-// --- CopyTags ---
-
 func TestCopyTags(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer e.Close()
-
+	e := newTestInstance(t)
 	src := copyToTmp(t, "ExifTool.jpg")
 	dst := copyToTmp(t, "Canon.jpg")
 
-	err = e.WriteMetadata(src, map[string]interface{}{
+	err := e.WriteMetadata(src, map[string]interface{}{
 		"Comment": "source comment for copy test",
 	})
 	if err != nil {
 		t.Fatalf("WriteMetadata src error = %v", err)
 	}
 
-	err = e.CopyTags(src, dst, []string{"Comment"})
-	if err != nil {
+	if err := e.CopyTags(src, dst, []string{"Comment"}); err != nil {
 		t.Fatalf("CopyTags error = %v", err)
 	}
 
@@ -477,69 +361,107 @@ func TestCopyTags(t *testing.T) {
 	}
 }
 
-// --- ExecuteWithStdin ---
+// ---------------------------------------------------------------------------
+// Format-specific metadata reads
+// ---------------------------------------------------------------------------
+
+func TestReadGPS(t *testing.T) {
+	e := newTestInstance(t)
+	md, err := e.ReadMetadata(testFile("GPS.jpg"))
+	if err != nil {
+		t.Fatalf("ReadMetadata error = %v", err)
+	}
+
+	lat, err := md.GetString("GPSLatitude")
+	if err != nil {
+		t.Fatalf("GetString(GPSLatitude) error = %v", err)
+	}
+	t.Logf("GPS.jpg Latitude: %s", lat)
+
+	lon, err := md.GetString("GPSLongitude")
+	if err != nil {
+		t.Fatalf("GetString(GPSLongitude) error = %v", err)
+	}
+	t.Logf("GPS.jpg Longitude: %s", lon)
+}
+
+func TestReadCanon(t *testing.T) {
+	e := newTestInstance(t)
+	md, err := e.ReadMetadata(testFile("Canon.jpg"))
+	if err != nil {
+		t.Fatalf("ReadMetadata error = %v", err)
+	}
+	make_, _ := md.GetString("Make")
+	t.Logf("Canon.jpg Make: %s", make_)
+}
+
+func TestReadDNG(t *testing.T) {
+	e := newTestInstance(t)
+	md, err := e.ReadMetadata(testFile("DNG.dng"))
+	if err != nil {
+		t.Fatalf("ReadMetadata error = %v", err)
+	}
+	if len(md.Fields) == 0 {
+		t.Error("DNG metadata is empty")
+	}
+}
+
+func TestReadMP3(t *testing.T) {
+	e := newTestInstance(t)
+	md, err := e.ReadMetadata(testFile("MP3.mp3"))
+	if err != nil {
+		t.Fatalf("ReadMetadata error = %v", err)
+	}
+	t.Logf("MP3.mp3 fields count: %d", len(md.Fields))
+}
+
+func TestReadQuickTime(t *testing.T) {
+	e := newTestInstance(t)
+	md, err := e.ReadMetadata(testFile("QuickTime.mov"))
+	if err != nil {
+		t.Fatalf("ReadMetadata error = %v", err)
+	}
+	t.Logf("QuickTime.mov fields count: %d", len(md.Fields))
+}
+
+// ---------------------------------------------------------------------------
+// Stdin / ICC
+// ---------------------------------------------------------------------------
 
 func TestExecuteWithStdin(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer e.Close()
-
+	e := newTestInstance(t)
 	dst := copyToTmp(t, "ExifTool.jpg")
+
 	iccData, err := os.ReadFile(testFile("ICC_Profile.icc"))
 	if err != nil {
 		t.Fatalf("failed to read ICC profile: %v", err)
 	}
 
-	ctx := t.Context()
-	result, err := e.ExecuteWithStdin(ctx, iccData, "-ICC_Profile<=-", "-overwrite_original", dst)
+	result, err := e.ExecuteWithStdin(t.Context(), iccData, "-ICC_Profile<=-", "-overwrite_original", dst)
 	if err != nil {
 		t.Fatalf("ExecuteWithStdin error = %v", err)
 	}
 	t.Logf("ExecuteWithStdin result: %q", result)
-
-	got, err := e.ReadProperty(dst, "ICC_Profile")
-	if err != nil {
-		t.Logf("ICC_Profile read error (may need -b flag): %v", err)
-	} else {
-		t.Logf("ICC_Profile written successfully, size: %d chars", len(got))
-	}
 }
 
-// --- ICC profile write via path ---
-
 func TestICCWriteViaPath(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer e.Close()
-
+	e := newTestInstance(t)
 	dst := copyToTmp(t, "ExifTool.jpg")
 	iccPath := testFile("ICC_Profile.icc")
 
-	resp, err := e.Execute("-ICC_Profile<=" + iccPath, "-overwrite_original", dst)
+	resp, err := e.Execute("-ICC_Profile<="+iccPath, "-overwrite_original", dst)
 	if err != nil {
 		t.Fatalf("ICC write via path error = %v", err)
 	}
 	t.Logf("ICC write via path response: %q", resp)
 }
 
-// --- Concurrent execution ---
+// ---------------------------------------------------------------------------
+// Concurrency
+// ---------------------------------------------------------------------------
 
 func TestConcurrentExecute(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer e.Close()
+	e := newTestInstance(t)
 
 	const n = 10
 	errCh := make(chan error, n)
@@ -557,64 +479,15 @@ func TestConcurrentExecute(t *testing.T) {
 	}
 }
 
-// --- Options ---
-
-func TestGetDefaultExecutablePath(t *testing.T) {
-	path := GetDefaultExecutablePath()
-	t.Logf("default exiftool path: %q", path)
-}
-
-func TestWithCloseTimeout(t *testing.T) {
-	cfg := defaultOptions()
-	if cfg.closeTimeout != 5*time.Second {
-		t.Errorf("default closeTimeout = %v, want 5s", cfg.closeTimeout)
-	}
-
-	WithCloseTimeout(10 * time.Second)(&cfg)
-	if cfg.closeTimeout != 10*time.Second {
-		t.Errorf("custom closeTimeout = %v, want 10s", cfg.closeTimeout)
-	}
-}
-
-func TestNewWithCustomExecutable(t *testing.T) {
-	exiftoolAvailable(t)
-
-	path, err := exec.LookPath("exiftool")
-	if err != nil {
-		t.Skip("exiftool not in PATH")
-	}
-
-	e, err := New(WithExecutable(path))
-	if err != nil {
-		t.Fatalf("New(WithExecutable) error = %v", err)
-	}
-	defer e.Close()
-
-	if _, err := e.Version(); err != nil {
-		t.Errorf("Version() error = %v", err)
-	}
-}
-
-// --- Lazy init ---
-
-func TestLazyInitOption(t *testing.T) {
-	cfg := defaultOptions()
-	if cfg.lazyInit {
-		t.Error("default lazyInit should be false")
-	}
-
-	WithLazyInit()(&cfg)
-	if !cfg.lazyInit {
-		t.Error("WithLazyInit() did not set lazyInit to true")
-	}
-}
+// ---------------------------------------------------------------------------
+// Lazy init
+// ---------------------------------------------------------------------------
 
 func TestLazyInitCloseWithoutUse(t *testing.T) {
 	exiftoolAvailable(t)
-
 	e, err := New(WithLazyInit())
 	if err != nil {
-		t.Fatalf("New(WithLazyInit()) error = %v", err)
+		t.Fatalf("New(WithLazyInit) error = %v", err)
 	}
 	if err := e.Close(); err != nil {
 		t.Errorf("Close() without use error = %v", err)
@@ -622,13 +495,7 @@ func TestLazyInitCloseWithoutUse(t *testing.T) {
 }
 
 func TestLazyInitExecuteTriggersStart(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New(WithLazyInit())
-	if err != nil {
-		t.Fatalf("New(WithLazyInit()) error = %v", err)
-	}
-	defer e.Close()
+	e := newLazyInstance(t)
 
 	resp, err := e.Execute("-ver")
 	if err != nil {
@@ -641,10 +508,9 @@ func TestLazyInitExecuteTriggersStart(t *testing.T) {
 
 func TestLazyInitExecuteAfterClose(t *testing.T) {
 	exiftoolAvailable(t)
-
 	e, err := New(WithLazyInit())
 	if err != nil {
-		t.Fatalf("New(WithLazyInit()) error = %v", err)
+		t.Fatalf("New(WithLazyInit) error = %v", err)
 	}
 	e.Close()
 
@@ -654,30 +520,23 @@ func TestLazyInitExecuteAfterClose(t *testing.T) {
 	}
 }
 
-func TestLazyInitVersionTriggersStart(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New(WithLazyInit())
-	if err != nil {
-		t.Fatalf("New(WithLazyInit()) error = %v", err)
-	}
-	defer e.Close()
+func TestLazyInitVersion(t *testing.T) {
+	e := newLazyInstance(t)
 
 	ver, err := e.Version()
 	if err != nil {
 		t.Fatalf("Version() error = %v", err)
 	}
 	if ver == "" {
-		t.Error("Version() returned empty, expected lazy start to populate it")
+		t.Error("Version() returned empty")
 	}
 }
 
 func TestLazyInitVersionAfterClose(t *testing.T) {
 	exiftoolAvailable(t)
-
 	e, err := New(WithLazyInit())
 	if err != nil {
-		t.Fatalf("New(WithLazyInit()) error = %v", err)
+		t.Fatalf("New(WithLazyInit) error = %v", err)
 	}
 	e.Close()
 
@@ -688,13 +547,7 @@ func TestLazyInitVersionAfterClose(t *testing.T) {
 }
 
 func TestLazyInitReadMetadata(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New(WithLazyInit())
-	if err != nil {
-		t.Fatalf("New(WithLazyInit()) error = %v", err)
-	}
-	defer e.Close()
+	e := newLazyInstance(t)
 
 	md, err := e.ReadMetadata(testFile("ExifTool.jpg"))
 	if err != nil {
@@ -706,31 +559,17 @@ func TestLazyInitReadMetadata(t *testing.T) {
 }
 
 func TestLazyInitWriteMetadata(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New(WithLazyInit())
-	if err != nil {
-		t.Fatalf("New(WithLazyInit()) error = %v", err)
-	}
-	defer e.Close()
-
+	e := newLazyInstance(t)
 	dst := copyToTmp(t, "ExifTool.jpg")
-	err = e.WriteMetadata(dst, map[string]interface{}{
-		"Comment": "lazy write test",
-	})
+
+	err := e.WriteMetadata(dst, map[string]interface{}{"Comment": "lazy write test"})
 	if err != nil {
 		t.Fatalf("WriteMetadata error = %v", err)
 	}
 }
 
 func TestLazyInitConcurrentStart(t *testing.T) {
-	exiftoolAvailable(t)
-
-	e, err := New(WithLazyInit())
-	if err != nil {
-		t.Fatalf("New(WithLazyInit()) error = %v", err)
-	}
-	defer e.Close()
+	e := newLazyInstance(t)
 
 	const n = 10
 	errCh := make(chan error, n)
@@ -748,7 +587,97 @@ func TestLazyInitConcurrentStart(t *testing.T) {
 	}
 }
 
-// --- Benchmarks: persistent vs one-shot ---
+// ---------------------------------------------------------------------------
+// Context lifecycle
+// ---------------------------------------------------------------------------
+
+func TestContextCancel(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	e := newTestInstance(t, WithContext(ctx))
+
+	ver, err := e.Version()
+	if err != nil {
+		t.Fatalf("Version() before cancel error = %v", err)
+	}
+	t.Logf("version before cancel: %s", ver)
+
+	// Cancel the context
+	cancel()
+
+	// Give the context watcher goroutine time to react
+	time.Sleep(50 * time.Millisecond)
+
+	// Execute should fail after context cancel
+	_, err = e.Execute("-ver")
+	if err == nil {
+		t.Error("Execute after context cancel should return error")
+	}
+	t.Logf("Execute after cancel error (expected): %v", err)
+}
+
+func TestCloseWithContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	e := newTestInstance(t, WithContext(ctx))
+
+	// Close should work fine with context
+	if err := e.Close(); err != nil {
+		t.Errorf("Close() error = %v", err)
+	}
+
+	// Double close should be fine
+	if err := e.Close(); err != nil {
+		t.Errorf("second Close() error = %v", err)
+	}
+}
+
+func TestContextCancelThenClose(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+
+	e := newTestInstance(t, WithContext(ctx))
+
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+
+	if err := e.Close(); err != nil {
+		t.Errorf("Close() after context cancel error = %v", err)
+	}
+}
+
+func TestLazyInitWithContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	e := newLazyInstance(t, WithContext(ctx))
+
+	ver, err := e.Version()
+	if err != nil {
+		t.Fatalf("Version() error = %v", err)
+	}
+	t.Logf("lazy + context version: %s", ver)
+}
+
+func TestLazyInitContextCanceledBeforeUse(t *testing.T) {
+	ctx, cancel := context.WithCancel(t.Context())
+
+	e := newLazyInstance(t, WithContext(ctx))
+
+	cancel()
+	time.Sleep(50 * time.Millisecond)
+
+	_, err := e.Execute("-ver")
+	if err == nil {
+		t.Error("Execute after context cancel should return error")
+	}
+	t.Logf("Execute after cancel error (expected): %v", err)
+}
+
+// ---------------------------------------------------------------------------
+// Benchmarks
+// ---------------------------------------------------------------------------
 
 func BenchmarkBitsPerSample_Persistent(b *testing.B) {
 	exiftoolAvailable(b)

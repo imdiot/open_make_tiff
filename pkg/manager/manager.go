@@ -13,6 +13,7 @@ import (
 	"slices"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/options"
 	wails_runtime "github.com/wailsapp/wails/v2/pkg/runtime"
@@ -64,6 +65,7 @@ type Manager struct {
 	config  *Config
 	setting *Setting
 	et      *exiftool.Exiftool
+	wg      sync.WaitGroup
 }
 
 func New() *Manager {
@@ -125,7 +127,21 @@ func (m *Manager) OnSecondInstanceLaunch(_ options.SecondInstanceData) {
 
 func (m *Manager) OnShutdown(_ context.Context) {
 	if m.et != nil {
+		slog.Debug("OnShutdown: closing exiftool", "at", time.Now().Format("15:04:05.000"))
 		m.et.Close()
+		slog.Debug("OnShutdown: exiftool closed", "at", time.Now().Format("15:04:05.000"))
+	}
+
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		slog.Debug("OnShutdown: wg done", "at", time.Now().Format("15:04:05.000"))
+	case <-time.After(time.Second):
+		slog.Debug("OnShutdown: wg timeout", "at", time.Now().Format("15:04:05.000"))
 	}
 }
 
@@ -220,30 +236,36 @@ func (m *Manager) SetConfig(cfg *Config) *Config {
 }
 
 func (m *Manager) Convert(paths []string) {
-	if m.running.Load() {
+	if !m.running.CompareAndSwap(false, true) {
 		return
 	}
 
+	m.wg.Add(1)
 	go func() {
-		m.running.Store(true)
 		wails_runtime.EventsEmit(m.ctx, "omt:convert:started")
 		defer func() {
 			m.running.Store(false)
-			wails_runtime.EventsEmit(m.ctx, "omt:convert:finished")
+			m.wg.Done()
+			if m.ctx.Err() == nil {
+				wails_runtime.EventsEmit(m.ctx, "omt:convert:finished")
+			}
 		}()
 
 		semaphoreWorkerCh := make(chan struct{}, m.config.Workers)
 		var wg sync.WaitGroup
+
+	loop:
 		for _, path := range paths {
 			select {
 			case <-m.ctx.Done():
-				break
+				break loop
 			case semaphoreWorkerCh <- struct{}{}:
 				wg.Go(func() {
 					defer func() {
 						<-semaphoreWorkerCh
 						if r := recover(); r != nil {
 							slog.Warn("panic", "error", r)
+							wails_runtime.EventsEmit(m.ctx, "omt:convert:file:error", path)
 						}
 					}()
 

@@ -12,14 +12,14 @@ var ErrKeyNotFound = errors.New("key not found")
 // Metadata represents file metadata extracted by exiftool.
 type Metadata struct {
 	File   string
-	Fields map[string]interface{}
+	Fields map[string]any
 }
 
 // NewMetadata creates an empty Metadata instance.
 func NewMetadata(file string) Metadata {
 	return Metadata{
 		File:   file,
-		Fields: make(map[string]interface{}),
+		Fields: make(map[string]any),
 	}
 }
 
@@ -75,7 +75,7 @@ func (m Metadata) GetStrings(k string) ([]string, error) {
 		return nil, ErrKeyNotFound
 	}
 	switch v := v.(type) {
-	case []interface{}:
+	case []any:
 		res := make([]string, len(v))
 		for i, item := range v {
 			res[i] = toString(item)
@@ -103,7 +103,7 @@ func (m Metadata) SetFloat(k string, v float64) {
 
 // SetStrings sets a string list field.
 func (m Metadata) SetStrings(k string, v []string) {
-	t := make([]interface{}, len(v))
+	t := make([]any, len(v))
 	for i, s := range v {
 		t[i] = s
 	}
@@ -115,7 +115,7 @@ func (m Metadata) Clear(k string) {
 	m.Fields[k] = nil
 }
 
-func toString(v interface{}) string {
+func toString(v any) string {
 	switch v := v.(type) {
 	case string:
 		return v

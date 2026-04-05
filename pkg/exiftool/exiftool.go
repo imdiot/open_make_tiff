@@ -108,18 +108,27 @@ func (e *Exiftool) start() error {
 	e.cmd = exec.Command(e.executable, args...)
 	e.cmd.SysProcAttr = getSysProcAttr()
 
-	// Merge stdout/stderr to avoid dual-stream read deadlock
-	pipeR, pipeW := io.Pipe()
-	e.stdout = pipeR
-	e.cmd.Stdout = pipeW
-	e.cmd.Stderr = pipeW
+	// OS-level pipe: has kernel buffer, process exit automatically sends EOF.
+	// Unlike io.Pipe (synchronous, unbuffered), writes only block when the
+	// kernel buffer is full, and cmd.Wait() is never blocked by an IO goroutine.
+	stdoutPipe, err := e.cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("error creating stdout pipe: %w", err)
+	}
+	e.stdout = stdoutPipe
 
-	var err error
+	// Capture stderr for diagnostics during startup.
+	// bytes.Buffer is synchronous (no deadlock risk unlike io.Pipe).
+	// exiftool's Perl startup errors appear here, critical for diagnosing
+	// why the process might exit immediately (e.g., antivirus kill).
+	var stderrBuf bytes.Buffer
+	e.cmd.Stderr = &stderrBuf
+
 	if e.stdin, err = e.cmd.StdinPipe(); err != nil {
 		return fmt.Errorf("error piping stdin: %w", err)
 	}
 
-	e.scanner = bufio.NewScanner(pipeR)
+	e.scanner = bufio.NewScanner(stdoutPipe)
 	buf := make([]byte, defaultScanBufSize)
 	e.scanner.Buffer(buf, defaultScanBufMax)
 	e.scanner.Split(splitReadyToken)
@@ -128,7 +137,10 @@ func (e *Exiftool) start() error {
 		return fmt.Errorf("error starting exiftool: %w", err)
 	}
 
-	// Monitor goroutine: sole caller of cmd.Wait
+	// Monitor goroutine: sole caller of cmd.Wait.
+	// cmd.StdoutPipe() creates no IO goroutine for stdout.
+	// stderr writes to bytes.Buffer (synchronous, never blocks).
+	// cmd.Wait() only waits for process exit — no deadlock possible.
 	e.done = make(chan struct{})
 	go func() {
 		e.cmd.Wait()
@@ -155,6 +167,9 @@ func (e *Exiftool) start() error {
 			e.cmd.Process.Kill()
 			<-e.done
 			e.reset()
+			if stderrOutput := strings.TrimSpace(stderrBuf.String()); stderrOutput != "" {
+				return fmt.Errorf("error checking version: %w (stderr: %s)", err, stderrOutput)
+			}
 			return fmt.Errorf("error checking version: %w", err)
 		}
 		ver = strings.TrimSpace(ver)
@@ -210,61 +225,45 @@ func (e *Exiftool) ensureStarted() error {
 	return e.start()
 }
 
-// Close sends -stay_open False and waits for the process to exit.
+// Close shuts down the exiftool process and releases all resources.
+//
+// Phase 0: Cancel context FIRST (no mutex needed).
+// This unblocks executeInner (select on instanceCtx.Done),
+// which causes Execute() to release the mutex.
+// cancelInstance is set once in New() and CancelFunc is goroutine-safe.
+//
+// Phase 1: Acquire mutex (executeInner has now returned), set closed flag.
+//
+// Phase 2: Wait for the process to exit (cmd.Wait closes all pipes).
 func (e *Exiftool) Close() error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+	// Phase 0: cancel context FIRST — no mutex needed
+	// Breaks the deadlock: executeInner waits for ctx, mutex waits for executeInner
+	e.cancelInstance()
 
+	// Phase 1: acquire mutex (executeInner has now returned)
+	e.mu.Lock()
 	if e.closed {
+		e.mu.Unlock()
 		return nil
 	}
 	e.closed = true
+	done := e.done
+	cmd := e.cmd
+	e.mu.Unlock()
 
-	// Cancel instance context to trigger the context watcher goroutine
-	// and unblock any pending scanner.Scan() calls.
-	if e.cancelInstance != nil {
-		e.cancelInstance()
-	}
-
-	if !e.isRunning() {
-		return nil
-	}
-
-	return e.forceCleanup()
-}
-
-func (e *Exiftool) forceCleanup() error {
-	var errs []error
-
-	// Best-effort close; process may have already exited
-	if e.stdin != nil {
-		fmt.Fprintln(e.stdin, "-stay_open")
-		fmt.Fprintln(e.stdin, "False")
-		fmt.Fprintln(e.stdin, "-execute")
-		e.stdin.Close()
-	}
-
-	if e.stdout != nil {
-		e.stdout.Close()
-	}
-
-	if e.done != nil {
-		timeout := e.defaults.closeTimeout
+	// Phase 2: wait for process to exit
+	if done != nil {
 		select {
-		case <-e.done:
-			// Process exited normally
-		case <-time.After(timeout):
-			if e.cmd != nil && e.cmd.Process != nil {
-				e.cmd.Process.Kill()
+		case <-done:
+		case <-time.After(e.defaults.closeTimeout):
+			if cmd != nil && cmd.Process != nil {
+				cmd.Process.Kill()
 			}
-			<-e.done
-			errs = append(errs, ErrProcessKilled)
+			<-done
+			return ErrProcessKilled
 		}
 	}
 
-	if len(errs) > 0 {
-		return fmt.Errorf("errors closing exiftool: %w", errors.Join(errs...))
-	}
 	return nil
 }
 
@@ -302,6 +301,8 @@ func (e *Exiftool) Execute(args ...string) (string, error) {
 }
 
 // executeInner is the lock-free internal execute method.
+// It can be interrupted by instanceCtx cancellation, which is critical for
+// preventing mutex deadlocks when Close() cancels the context.
 func (e *Exiftool) executeInner(args ...string) (string, error) {
 	var buf strings.Builder
 	for _, arg := range args {
@@ -314,16 +315,29 @@ func (e *Exiftool) executeInner(args ...string) (string, error) {
 		return "", fmt.Errorf("error writing command to stdin: %w", err)
 	}
 
-	if !e.scanner.Scan() {
-		if err := e.scanner.Err(); err != nil {
-			return "", fmt.Errorf("error reading response: %w", err)
-		}
-		return "", ErrNoResponse
+	type scanResult struct {
+		text string
+		err  error
 	}
+	resultCh := make(chan scanResult, 1)
+	go func() {
+		if !e.scanner.Scan() {
+			if err := e.scanner.Err(); err != nil {
+				resultCh <- scanResult{"", fmt.Errorf("error reading response: %w", err)}
+				return
+			}
+			resultCh <- scanResult{"", ErrNoResponse}
+			return
+		}
+		resultCh <- scanResult{e.scanner.Text(), nil}
+	}()
 
-	resp := e.scanner.Text()
-
-	return resp, nil
+	select {
+	case r := <-resultCh:
+		return r.text, r.err
+	case <-e.instanceCtx.Done():
+		return "", ErrContextCanceled
+	}
 }
 
 // ExecuteWithStdin runs a one-shot process for commands requiring stdin input.
@@ -377,7 +391,7 @@ func (e *Exiftool) ReadMetadata(file string) (*Metadata, error) {
 		return nil, err
 	}
 
-	var results []map[string]interface{}
+	var results []map[string]any
 	if err := json.Unmarshal([]byte(resp), &results); err != nil {
 		return nil, fmt.Errorf("error unmarshaling JSON: %w", err)
 	}
@@ -393,7 +407,7 @@ func (e *Exiftool) ReadMetadata(file string) (*Metadata, error) {
 
 // WriteMetadata writes tags to a file.
 // tags format: map[tag]value; nil value deletes the tag.
-func (e *Exiftool) WriteMetadata(file string, tags map[string]interface{}) error {
+func (e *Exiftool) WriteMetadata(file string, tags map[string]any) error {
 	args := []string{"-overwrite_original"}
 
 	for k, v := range tags {

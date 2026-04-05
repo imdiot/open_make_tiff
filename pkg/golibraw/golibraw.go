@@ -8,10 +8,19 @@ package golibraw
 #cgo darwin LDFLAGS: -framework CoreServices
 #cgo !darwin LDFLAGS: -lstdc++
 #include <libraw/libraw.h>
+#include <stdlib.h>
 
 extern void* golibraw_create_dng_host();
 extern void golibraw_destroy_dng_host(void* host);
 extern void golibraw_set_dng_host_for_raw(libraw_data_t* lr, void* host);
+
+static int golibraw_progress_cb(void* data, enum LibRaw_progress stage, int iteration, int expected) {
+	return *((int*)data);
+}
+
+static void golibraw_register_cancel_cb(libraw_data_t* lr, int* flag) {
+	libraw_set_progress_handler(lr, golibraw_progress_cb, flag);
+}
 */
 import "C"
 
@@ -37,11 +46,13 @@ var (
 
 // RawProcessor wraps libraw_data_t for RAW image processing.
 type RawProcessor struct {
-	handle   *C.libraw_data_t
-	dngHost  unsafe.Pointer
-	closed   bool
-	mu       sync.Mutex
-	cstrings []unsafe.Pointer
+	handle     *C.libraw_data_t
+	dngHost    unsafe.Pointer
+	closed     bool
+	mu         sync.Mutex
+	cancelMu   sync.Mutex
+	cstrings   []unsafe.Pointer
+	cancelFlag unsafe.Pointer // *C.int, C-allocated
 }
 
 func New(opts ...Option) (*RawProcessor, error) {
@@ -50,7 +61,11 @@ func New(opts ...Option) (*RawProcessor, error) {
 		return nil, ErrInitFailed
 	}
 
-	rp := &RawProcessor{handle: handle}
+	flag := (*C.int)(C.malloc(C.size_t(unsafe.Sizeof(C.int(0)))))
+	*flag = 0
+	C.golibraw_register_cancel_cb(handle, flag)
+
+	rp := &RawProcessor{handle: handle, cancelFlag: unsafe.Pointer(flag)}
 	runtime.SetFinalizer(rp, (*RawProcessor).Close)
 
 	cfg := defaultOptions()
@@ -75,6 +90,13 @@ func (rp *RawProcessor) Close() error {
 	rp.closed = true
 	runtime.SetFinalizer(rp, nil)
 	rp.freeCStrings()
+	rp.cancelMu.Lock()
+	flag := rp.cancelFlag
+	rp.cancelFlag = nil
+	rp.cancelMu.Unlock()
+	if flag != nil {
+		C.free(flag)
+	}
 	if rp.dngHost != nil {
 		C.golibraw_destroy_dng_host(rp.dngHost)
 		rp.dngHost = nil
@@ -91,8 +113,24 @@ func (rp *RawProcessor) Recycle() {
 	defer rp.mu.Unlock()
 
 	if !rp.closed && rp.handle != nil {
+		rp.cancelMu.Lock()
+		if rp.cancelFlag != nil {
+			*(*C.int)(rp.cancelFlag) = 0
+		}
+		rp.cancelMu.Unlock()
 		rp.freeCStrings()
 		C.libraw_recycle(rp.handle)
+	}
+}
+
+// Cancel aborts the current C operation (Process, Unpack, etc.).
+// The C function will return an error shortly after this is called.
+// Safe to call from any goroutine — does not acquire mu.
+func (rp *RawProcessor) Cancel() {
+	rp.cancelMu.Lock()
+	defer rp.cancelMu.Unlock()
+	if rp.cancelFlag != nil {
+		*(*C.int)(rp.cancelFlag) = 1
 	}
 }
 

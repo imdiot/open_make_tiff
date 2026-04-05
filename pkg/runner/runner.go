@@ -295,6 +295,16 @@ func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv) error {
 	}
 	defer rp.Close()
 
+	cancelDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			rp.Cancel()
+		case <-cancelDone:
+		}
+	}()
+	defer close(cancelDone)
+
 	now = time.Now()
 	if err := rp.OpenFile(env.DngIntPath); err != nil {
 		return err
@@ -348,6 +358,16 @@ func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv) error {
 		return err
 	}
 	defer rp.Close()
+
+	cancelDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			rp.Cancel()
+		case <-cancelDone:
+		}
+	}()
+	defer close(cancelDone)
 
 	if err := rp.EnableDNGSDK(); err != nil {
 		return err

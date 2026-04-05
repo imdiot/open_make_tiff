@@ -3,6 +3,7 @@ package golibraw
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 )
 
@@ -408,4 +409,73 @@ func TestDNGSDKAfterClose(t *testing.T) {
 	if err := rp.EnableDNGSDK(); err != ErrAlreadyClosed {
 		t.Fatalf("EnableDNGSDK after Close() = %v, want ErrAlreadyClosed", err)
 	}
+}
+
+// ── Cancel ──────────────────────────────────────────────────────────
+
+func TestCancelAbortsProcess(t *testing.T) {
+	rp, err := New()
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	defer rp.Close()
+
+	if err := rp.OpenFile(testRAWPath(t)); err != nil {
+		t.Fatalf("OpenFile() error: %v", err)
+	}
+	if err := rp.Unpack(); err != nil {
+		t.Fatalf("Unpack() error: %v", err)
+	}
+
+	// Cancel before Process — should return error
+	rp.Cancel()
+	err = rp.Process()
+	if err == nil {
+		t.Fatal("Process() should fail after Cancel()")
+	}
+	t.Logf("Process() after Cancel(): %v", err)
+}
+
+func TestCancelIdempotent(t *testing.T) {
+	rp, err := New()
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	rp.Cancel()
+	rp.Cancel()
+	rp.Cancel()
+	if err := rp.Close(); err != nil {
+		t.Fatalf("Close() after Cancel(): %v", err)
+	}
+}
+
+func TestCancelAfterClose(t *testing.T) {
+	rp, err := New()
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	rp.Close()
+	rp.Cancel() // should not panic
+}
+
+func TestCancelConcurrentClose(t *testing.T) {
+	rp, err := New()
+	if err != nil {
+		t.Fatalf("New() error: %v", err)
+	}
+	if err := rp.OpenFile(testRAWPath(t)); err != nil {
+		t.Fatalf("OpenFile() error: %v", err)
+	}
+	if err := rp.Unpack(); err != nil {
+		t.Fatalf("Unpack() error: %v", err)
+	}
+
+	var wg sync.WaitGroup
+	for range 10 {
+		wg.Go(func() {
+			rp.Cancel()
+		})
+	}
+	rp.Close()
+	wg.Wait()
 }

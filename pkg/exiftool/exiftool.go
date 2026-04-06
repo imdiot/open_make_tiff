@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"os/exec"
 	"strconv"
@@ -135,6 +136,13 @@ func (e *Exiftool) start() error {
 
 	if err := e.cmd.Start(); err != nil {
 		return fmt.Errorf("error starting exiftool: %w", err)
+	}
+
+	// Assign child to OS-level job/process-group for crash protection.
+	if pid := e.cmd.Process.Pid; pid > 0 {
+		if err := assignToJob(pid); err != nil {
+			slog.Warn("failed to assign exiftool to job object", "pid", pid, "error", err)
+		}
 	}
 
 	// Monitor goroutine: sole caller of cmd.Wait.
@@ -360,6 +368,13 @@ func (e *Exiftool) ExecuteWithStdin(ctx context.Context, stdinData []byte, args 
 
 	if err := cmd.Start(); err != nil {
 		return "", fmt.Errorf("error starting command: %w", err)
+	}
+
+	// Assign child to OS-level job/process-group for crash protection.
+	if pid := cmd.Process.Pid; pid > 0 {
+		if err := assignToJob(pid); err != nil {
+			slog.Warn("failed to assign exiftool to job object", "pid", pid, "error", err)
+		}
 	}
 
 	if _, err := stdin.Write(stdinData); err != nil {

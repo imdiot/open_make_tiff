@@ -45,6 +45,52 @@ const (
 	TagIccProfile        Tag = 34675
 	TagEXIFIFD           Tag = 34665
 	TagGPSIFD            Tag = 34853
+	TagXMP               Tag = 700 // XMP metadata (BYTE array)
+
+	// DNG tags (IFD0)
+	TagUniqueCameraModel    Tag = 50708
+	TagLocalizedCameraModel Tag = 50709
+	TagAsShotNeutral        Tag = 50728
+
+	// EXIF Sub-IFD tags
+	TagExifExposureTime              Tag = 33434
+	TagExifFNumber                   Tag = 33437
+	TagExifExposureProgram           Tag = 34850
+	TagExifISO                       Tag = 34855
+	TagExifSensitivityType           Tag = 34864
+	TagExifStandardOutputSensitivity Tag = 34865
+	TagExifShutterSpeedValue         Tag = 37377
+	TagExifApertureValue             Tag = 37378
+	TagExifBrightnessValue           Tag = 37379
+	TagExifExposureCompensation      Tag = 37380
+	TagExifMaxApertureValue          Tag = 37381
+	TagExifMeteringMode              Tag = 37383
+	TagExifLightSource               Tag = 37384
+	TagExifFlash                     Tag = 37385
+	TagExifFocalLength               Tag = 37386
+	TagExifMakerNote                 Tag = 37500
+	TagExifDateTimeOriginal          Tag = 36867
+	TagExifCreateDate                Tag = 36868
+	TagExifOffsetTime                Tag = 36880
+	TagExifOffsetTimeOriginal        Tag = 36881
+	TagExifOffsetTimeDigitized       Tag = 36882
+	TagExifSensingMethod             Tag = 41495
+	TagExifCustomRendered            Tag = 41985
+	TagExifExposureMode              Tag = 41986
+	TagExifWhiteBalance              Tag = 41987
+	TagExifSceneCaptureType          Tag = 41990
+	TagExifSharpness                 Tag = 41994
+	TagExifSerialNumber              Tag = 42033
+	TagExifLensInfo                  Tag = 42034
+	TagExifLensMake                  Tag = 42035
+	TagExifLensModel                 Tag = 42036
+	TagExifLensSerialNumber          Tag = 42037
+	TagExifColorSpace                Tag = 40961
+	TagExifImageWidth                Tag = 40962
+	TagExifImageHeight               Tag = 40963
+	TagExifGamma                     Tag = 42240
+	TagExifSubjectDistanceRange      Tag = 41996
+	TagExifSceneType                 Tag = 41729
 )
 
 // Photometric interpretation constants.
@@ -117,9 +163,9 @@ const (
 
 // Resolution unit constants.
 const (
-	ResolutionUnitNone        = 1
-	ResolutionUnitInch        = 2
-	ResolutionUnitCentimeter  = 3
+	ResolutionUnitNone       = 1
+	ResolutionUnitInch       = 2
+	ResolutionUnitCentimeter = 3
 )
 
 // Fill order constants.

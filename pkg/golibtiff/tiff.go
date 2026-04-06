@@ -32,6 +32,9 @@ static int tiffGetFieldDouble(TIFF *t, uint32_t tag, double *v) { return TIFFGet
 static int tiffGetFieldString(TIFF *t, uint32_t tag, const char **v) { return TIFFGetField(t, tag, v); }
 static int tiffGetFieldU16Array(TIFF *t, uint32_t tag, uint16_t **v, uint16_t *c) { return TIFFGetField(t, tag, c, v); }
 static int tiffGetFieldU32Array(TIFF *t, uint32_t tag, uint32_t **v, uint32_t *c) { return TIFFGetField(t, tag, c, v); }
+static int tiffGetFieldU8(TIFF *t, uint32_t tag, uint8_t *v) { return TIFFGetField(t, tag, v); }
+static int tiffGetFieldU64(TIFF *t, uint32_t tag, uint64_t *v) { return TIFFGetField(t, tag, v); }
+static int tiffReadEXIFDirectory(TIFF *t, uint64_t off) { return TIFFReadEXIFDirectory(t, (toff_t)off); }
 
 // Typed setters (avoid variadic TIFFSetField from Go).
 static int tiffSetFieldU16(TIFF *t, uint32_t tag, uint16_t v) { return TIFFSetField(t, tag, v); }
@@ -50,6 +53,38 @@ static tmsize_t tiffReadEncodedTile(TIFF *t, uint32_t tile, void *buf, tmsize_t 
 }
 static tmsize_t tiffWriteEncodedTile(TIFF *t, uint32_t tile, void *buf, tmsize_t size) {
 	return TIFFWriteEncodedTile(t, tile, buf, size);
+}
+
+// Byte-slice setter (count + data for UNDEFINED/BYTE arrays like ICC, XMP, MakerNotes).
+static int tiffSetFieldByteSlice(TIFF *t, uint32_t tag, uint32_t c, uint8_t *v) {
+	return TIFFSetField(t, tag, c, v);
+}
+// EXIF Sub-IFD creation and writing.
+static int tiffCreateEXIFDirectory(TIFF *t) {
+	return TIFFCreateEXIFDirectory(t);
+}
+static int tiffWriteCustomDirectory(TIFF *t, uint64_t *offset) {
+	return TIFFWriteCustomDirectory(t, offset);
+}
+// Float-array setter (count + float* for RATIONAL array tags).
+static int tiffSetFieldFloatSlice(TIFF *t, uint32_t tag, int c, float *v) {
+	return TIFFSetField(t, tag, c, v);
+}
+// uint64 setter (for EXIFIFD pointer tag).
+static int tiffSetFieldU64(TIFF *t, uint32_t tag, uint64_t v) {
+	return TIFFSetField(t, tag, v);
+}
+// CheckpointDirectory writes state to disk without closing the IFD.
+static int tiffCheckpointDirectory(TIFF *t) {
+	return TIFFCheckpointDirectory(t);
+}
+// Single-byte setter (SceneType: SETGET_UINT8).
+static int tiffSetFieldU8(TIFF *t, uint32_t tag, uint8_t v) {
+	return TIFFSetField(t, tag, v);
+}
+// C0 float-array setter (LensSpecification: SETGET_C0_FLOAT, fixed 4 floats, no count arg).
+static int tiffSetFieldC0Float(TIFF *t, uint32_t tag, float *v) {
+	return TIFFSetField(t, tag, v);
 }
 */
 import "C"
@@ -181,6 +216,30 @@ func (t *TIFF) GetFieldString(tag Tag) (string, error) {
 		return "", &FieldError{Tag: tag, Op: "get", Msg: "field not found"}
 	}
 	return C.GoString(val), nil
+}
+
+func (t *TIFF) GetFieldUint8(tag Tag) (uint8, error) {
+	if err := t.checkOpen(); err != nil {
+		return 0, err
+	}
+	C.clearLastTIFFError()
+	var val C.uint8_t
+	if C.tiffGetFieldU8(t.tif, C.uint32_t(tag), &val) == 0 {
+		return 0, &FieldError{Tag: tag, Op: "get", Msg: "field not found"}
+	}
+	return uint8(val), nil
+}
+
+func (t *TIFF) GetFieldUint64(tag Tag) (uint64, error) {
+	if err := t.checkOpen(); err != nil {
+		return 0, err
+	}
+	C.clearLastTIFFError()
+	var val C.uint64_t
+	if C.tiffGetFieldU64(t.tif, C.uint32_t(tag), &val) == 0 {
+		return 0, &FieldError{Tag: tag, Op: "get", Msg: "field not found"}
+	}
+	return uint64(val), nil
 }
 
 func (t *TIFF) GetFieldUint16Slice(tag Tag) ([]uint16, error) {
@@ -619,6 +678,22 @@ func (t *TIFF) WriteDirectory() error {
 	return nil
 }
 
+// CheckpointDirectory writes the current IFD state to disk without closing it.
+// This is needed before creating EXIF sub-IFDs.
+func (t *TIFF) CheckpointDirectory() error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	C.clearLastTIFFError()
+	if C.tiffCheckpointDirectory(t.tif) == 0 {
+		if err := lastError(); err != nil {
+			return err
+		}
+		return errors.New("libtiff: failed to checkpoint directory")
+	}
+	return nil
+}
+
 func (t *TIFF) SetSubDirectory(offset uint64) error {
 	if err := t.checkOpen(); err != nil {
 		return err
@@ -633,9 +708,147 @@ func (t *TIFF) SetSubDirectory(offset uint64) error {
 	return nil
 }
 
+// ReadEXIFDirectory reads the EXIF Sub-IFD at the given offset.
+// Unlike SetSubDirectory, this does not require ImageLength/ImageWidth.
+func (t *TIFF) ReadEXIFDirectory(offset uint64) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	C.clearLastTIFFError()
+	if C.tiffReadEXIFDirectory(t.tif, C.uint64_t(offset)) == 0 {
+		if err := lastError(); err != nil {
+			return err
+		}
+		return errors.New("libtiff: failed to read EXIF directory")
+	}
+	return nil
+}
+
 func (t *TIFF) LastDirectory() bool {
 	if err := t.checkOpen(); err != nil {
 		return false
 	}
 	return C.TIFFLastDirectory(t.tif) != 0
+}
+
+// --- EXIF Sub-IFD Operations ---
+
+// SetFieldByteSlice sets a byte-array field (e.g. ICC Profile, XMP, MakerNotes).
+// For tags that take (count, data) arguments.
+func (t *TIFF) SetFieldByteSlice(tag Tag, v []byte) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	if len(v) == 0 {
+		return nil
+	}
+	C.clearLastTIFFError()
+	if C.tiffSetFieldByteSlice(t.tif, C.uint32_t(tag), C.uint32_t(len(v)), (*C.uint8_t)(unsafe.Pointer(&v[0]))) == 0 {
+		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
+	}
+	return nil
+}
+
+// CreateEXIFDirectory creates a new EXIF Sub-IFD.
+// After calling this, use SetField* to populate EXIF tags, then WriteCustomDirectory.
+func (t *TIFF) CreateEXIFDirectory() error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	C.clearLastTIFFError()
+	if C.tiffCreateEXIFDirectory(t.tif) != 0 {
+		if err := lastError(); err != nil {
+			return fmt.Errorf("libtiff: CreateEXIFDirectory: %w", err)
+		}
+		return errors.New("libtiff: CreateEXIFDirectory failed")
+	}
+	return nil
+}
+
+// WriteCustomDirectory writes the current directory as a custom (unlinked) IFD
+// and returns its byte offset. Used for writing EXIF Sub-IFDs.
+func (t *TIFF) WriteCustomDirectory() (uint64, error) {
+	if err := t.checkOpen(); err != nil {
+		return 0, err
+	}
+	C.clearLastTIFFError()
+	var offset C.uint64_t
+	if C.tiffWriteCustomDirectory(t.tif, &offset) == 0 {
+		if err := lastError(); err != nil {
+			return 0, fmt.Errorf("libtiff: WriteCustomDirectory: %w", err)
+		}
+		return 0, errors.New("libtiff: WriteCustomDirectory failed")
+	}
+	return uint64(offset), nil
+}
+
+// SetFieldFloatSlice sets a RATIONAL array field by writing each value as a separate
+// TIFFSetField call. Used for tags like AsShotNeutral (RATIONAL[3]) and LensInfo (RATIONAL[4]).
+//
+// Note: This uses TIFFSetField directly with the tag and a float64 value per element.
+// For EXIF tags managed by TIFFCreateEXIFDirectory, the standard EXIF tag definitions
+// handle the RATIONAL encoding automatically.
+func (t *TIFF) SetFieldFloatSlice(tag Tag, v []float64) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	if len(v) == 0 {
+		return nil
+	}
+	C.clearLastTIFFError()
+	// Build a C float array and use TIFFSetField with count + pointer.
+	floats := make([]C.float, len(v))
+	for i, f := range v {
+		floats[i] = C.float(f)
+	}
+	// Use the existing byte-slice setter pattern with count + data.
+	// For RATIONAL arrays in custom directories, libtiff expects (count, float*).
+	if C.tiffSetFieldFloatSlice(t.tif, C.uint32_t(tag), C.int(len(v)), &floats[0]) == 0 {
+		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
+	}
+	return nil
+}
+
+// SetFieldUint64 sets a uint64 field (e.g. EXIFIFD pointer after WriteCustomDirectory).
+func (t *TIFF) SetFieldUint64(tag Tag, v uint64) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	C.clearLastTIFFError()
+	if C.tiffSetFieldU64(t.tif, C.uint32_t(tag), C.uint64_t(v)) == 0 {
+		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
+	}
+	return nil
+}
+
+// SetFieldUint8 sets a single-byte field (e.g. SceneType: SETGET_UINT8).
+func (t *TIFF) SetFieldUint8(tag Tag, v uint8) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	C.clearLastTIFFError()
+	if C.tiffSetFieldU8(t.tif, C.uint32_t(tag), C.uint8_t(v)) == 0 {
+		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
+	}
+	return nil
+}
+
+// SetFieldC0FloatSlice sets a fixed-count float array field (e.g. LensSpecification: SETGET_C0_FLOAT).
+// Unlike SetFieldFloatSlice, this does NOT pass a count argument — libtiff knows the fixed count.
+func (t *TIFF) SetFieldC0FloatSlice(tag Tag, v []float64) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	if len(v) == 0 {
+		return nil
+	}
+	C.clearLastTIFFError()
+	floats := make([]C.float, len(v))
+	for i, f := range v {
+		floats[i] = C.float(f)
+	}
+	if C.tiffSetFieldC0Float(t.tif, C.uint32_t(tag), &floats[0]) == 0 {
+		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
+	}
+	return nil
 }

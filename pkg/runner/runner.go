@@ -18,11 +18,21 @@ import (
 	"open-make-tiff/pkg/exiftool"
 	"open-make-tiff/pkg/golibraw"
 	"open-make-tiff/pkg/golibtiff"
-	"open-make-tiff/pkg/golibtiff/tiffcopy"
 	"open-make-tiff/pkg/icc"
 )
 
 var ErrDstFileExists = errors.New("destination file already exists")
+
+// decodedImage holds pixel data decoded from a TIFF source.
+// Unlike golibraw.ProcessedImage (whose Width/Height are uint16 per LibRaw C API),
+// decodedImage uses uint32 for dimensions to support arbitrarily large TIFF images.
+type decodedImage struct {
+	Width  uint32
+	Height uint32
+	Colors uint16
+	Bits   uint16
+	Data   []byte
+}
 
 type Config struct {
 	EnableAdobeDNGConverter bool
@@ -59,12 +69,6 @@ type ConvertEnv struct {
 	DngIntPrePath string
 	DngIntPath    string
 	TiffIntPath   string
-}
-
-type MetadataConfig struct {
-	RawPath       string
-	SecondSrcPath string
-	TiffPath      string
 }
 
 func New(cfg Config, opts ...Option) *Runner {
@@ -178,68 +182,73 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 			returnErr = fmt.Errorf("golibraw init failed: %w", err)
 			return returnErr
 		}
+		isNonRawFFF = rp.OpenFile(srcPath) != nil
+		rp.Close()
 
-		if err := rp.OpenFile(srcPath); err != nil {
-			rp.Close()
-			r.logger.Info("fff file is TIFF-based, using tiffcp directly", "path", srcPath)
-			if err := r.convertNonRawFFF(ctx, env); err != nil {
+		if isNonRawFFF {
+			r.logger.Info("fff file is TIFF-based, using direct TIFF read", "path", srcPath)
+		} else {
+			r.logger.Info("fff file is RAW, using golibraw", "path", srcPath)
+		}
+		useDNG = false
+	}
+
+	// Decode image
+	var img *decodedImage
+	secondSrc := srcPath
+
+	if isNonRawFFF {
+		now := time.Now()
+		img, err = decodeTIFF(srcPath)
+		if err != nil {
+			returnErr = err
+			return returnErr
+		}
+		r.logger.Info("read TIFF as mem image (TIFF-based fff)", "time", time.Since(now).Seconds())
+	} else {
+		usedDNG := false
+		var rawImg *golibraw.ProcessedImage
+		if useDNG {
+			rawImg, err = r.decodeWithDNG(ctx, env)
+			if err == nil {
+				usedDNG = true
+			} else {
+				r.logger.Warn("DNG converter path failed, falling back to direct: " + err.Error())
+			}
+		}
+		if !usedDNG {
+			rawImg, err = r.decodeDirect(ctx, env)
+			if err != nil {
 				returnErr = err
 				return returnErr
 			}
-			isNonRawFFF = true
 		} else {
-			rp.Close()
-			r.logger.Info("fff file is RAW, using golibraw", "path", srcPath)
-			useDNG = false
+			secondSrc = env.DngIntPath
+		}
+		img = &decodedImage{
+			Width:  uint32(rawImg.Width),
+			Height: uint32(rawImg.Height),
+			Colors: rawImg.Colors,
+			Bits:   rawImg.Bits,
+			Data:   rawImg.Data,
 		}
 	}
 
-	// Non-raw FFF: tiffcopy already wrote the TIFF, still need exiftool rebuild
-	if isNonRawFFF {
-		now := time.Now()
-		if err := r.rebuildMetadata(MetadataConfig{
-			RawPath:       srcPath,
-			SecondSrcPath: srcPath,
-			TiffPath:      tiffIntPath,
-		}); err != nil {
-			returnErr = err
-			return returnErr
-		}
-		r.logger.Info("rebuild metadata", "time", time.Since(now).Seconds())
-
-		if err := os.Rename(tiffIntPath, dstPath); err != nil {
-			returnErr = err
-			return returnErr
-		}
-		return nil
-	}
-
-	// Extract metadata before conversion (read-only ExifTool call)
-	// For direct path: metadata is extracted from srcPath itself
+	// Extract metadata
 	var meta *ExtractedMetadata
-	if !useDNG {
-		meta, err = r.extractMetadata(srcPath, srcPath)
-		if err != nil {
-			r.logger.Warn("extract metadata failed, proceeding without metadata", "error", err)
-		}
-	}
-
-	if useDNG {
-		if err := r.convertTiffWithDNG(ctx, env, meta); err != nil {
-			r.logger.Warn("DNG converter path failed, falling back to direct: " + err.Error())
-			useDNG = false
-			// Re-extract metadata for direct path (secondSrcPath = srcPath)
-			if meta, err = r.extractMetadata(srcPath, srcPath); err != nil {
-				r.logger.Warn("extract metadata retry failed", "error", err)
-			}
-		}
-	}
-
-	if !useDNG {
-		if err := r.convertTiffDirect(ctx, env, meta); err != nil {
-			returnErr = err
+	{
+		var metaErr error
+		meta, metaErr = r.extractMetadata(srcPath, secondSrc, "ColorSpace")
+		if metaErr != nil {
+			returnErr = fmt.Errorf("extract metadata: %w", metaErr)
 			return returnErr
 		}
+	}
+
+	// Write TIFF with embedded metadata
+	if writeErr := r.writeMemImageToTIFF(tiffIntPath, img, meta); writeErr != nil {
+		returnErr = writeErr
+		return returnErr
 	}
 
 	if err := os.Rename(tiffIntPath, dstPath); err != nil {
@@ -250,7 +259,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	return nil
 }
 
-func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv, meta *ExtractedMetadata) error {
+func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*golibraw.ProcessedImage, error) {
 	dngConv1, err := dngconverter.New(
 		dngconverter.WithUncompressed(true),
 		dngconverter.WithPreviewSize(dngconverter.PreviewNone),
@@ -260,12 +269,12 @@ func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv, meta *E
 		dngconverter.WithLogger(r.logger),
 	)
 	if err != nil {
-		return fmt.Errorf("dng converter (raw): %w", err)
+		return nil, fmt.Errorf("dng converter (raw): %w", err)
 	}
 
 	now := time.Now()
 	if err := dngConv1.Convert(ctx, env.SrcPath); err != nil {
-		return fmt.Errorf("dng converter (raw) convert: %w", err)
+		return nil, fmt.Errorf("dng converter (raw) convert: %w", err)
 	}
 	r.logger.Info("dng converter (raw)", "time", time.Since(now).Seconds())
 
@@ -280,27 +289,17 @@ func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv, meta *E
 	)
 	if err != nil {
 		_ = os.Remove(env.DngIntPrePath)
-		return fmt.Errorf("dng converter (linear): %w", err)
+		return nil, fmt.Errorf("dng converter (linear): %w", err)
 	}
 
 	now = time.Now()
 	if err := dngConv2.Convert(ctx, env.DngIntPrePath); err != nil {
 		_ = os.Remove(env.DngIntPrePath)
-		return fmt.Errorf("dng converter (linear) convert: %w", err)
+		return nil, fmt.Errorf("dng converter (linear) convert: %w", err)
 	}
 	r.logger.Info("dng converter (linear)", "time", time.Since(now).Seconds())
 	if r.removeIntermediate {
 		_ = os.Remove(env.DngIntPrePath)
-	}
-
-	// Extract metadata after DNG conversion (DNG file now exists)
-	if r.et != nil {
-		m, err := r.extractMetadata(env.SrcPath, env.DngIntPath)
-		if err != nil {
-			r.logger.Warn("extract metadata failed, proceeding without metadata", "error", err)
-		} else {
-			meta = m
-		}
 	}
 
 	rp, err := golibraw.New(
@@ -315,7 +314,7 @@ func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv, meta *E
 		golibraw.WithEmbeddedColorMatrix(false),
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer rp.Close()
 
@@ -331,33 +330,29 @@ func (r *Runner) convertTiffWithDNG(ctx context.Context, env ConvertEnv, meta *E
 
 	now = time.Now()
 	if err := rp.OpenFile(env.DngIntPath); err != nil {
-		return err
+		return nil, err
 	}
 
-	// Apply crop from DNG DefaultCrop/UserCrop metadata
 	if _, err := rp.AdjustToRawInsetCrop(golibraw.InsetCropAllMask, 0.0); err != nil {
-		return err
+		return nil, err
 	}
 
 	if err := rp.Unpack(); err != nil {
-		return err
+		return nil, err
 	}
 	if err := rp.Process(); err != nil {
-		return err
+		return nil, err
 	}
 	img, err := rp.MakeMemImage()
 	if err != nil {
-		return err
-	}
-	if err := r.writeMemImageToTIFF(env.TiffIntPath, img, meta); err != nil {
-		return err
+		return nil, err
 	}
 	r.logger.Info("run golibraw (with DNG)", "time", time.Since(now).Seconds())
 
-	return nil
+	return img, nil
 }
 
-func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv, meta *ExtractedMetadata) error {
+func (r *Runner) decodeDirect(ctx context.Context, env ConvertEnv) (*golibraw.ProcessedImage, error) {
 	rp, err := golibraw.New(
 		golibraw.WithUserMul(1, 1, 1, 1),
 		golibraw.WithOutputColorSpace(golibraw.ColorSpaceRaw),
@@ -379,7 +374,7 @@ func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv, meta *Ex
 		),
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer rp.Close()
 
@@ -394,126 +389,143 @@ func (r *Runner) convertTiffDirect(ctx context.Context, env ConvertEnv, meta *Ex
 	defer close(cancelDone)
 
 	if err := rp.EnableDNGSDK(); err != nil {
-		return err
+		return nil, err
 	}
 
 	now := time.Now()
 	if err := rp.OpenFile(env.SrcPath); err != nil {
-		return err
+		return nil, err
 	}
 	if err := rp.Unpack(); err != nil {
-		return err
+		return nil, err
 	}
 	if err := rp.Process(); err != nil {
-		return err
+		return nil, err
 	}
 	img, err := rp.MakeMemImage()
 	if err != nil {
-		return err
-	}
-	if err := r.writeMemImageToTIFF(env.TiffIntPath, img, meta); err != nil {
-		return err
+		return nil, err
 	}
 	r.logger.Info("run golibraw (direct)", "time", time.Since(now).Seconds())
 
-	return nil
+	return img, nil
 }
 
-func (r *Runner) convertNonRawFFF(_ context.Context, env ConvertEnv) error {
-	var opts []tiffcopy.Option
-	if r.cfg.EnableCompression {
-		opts = append(opts, tiffcopy.WithLZWCompression(golibtiff.PredictorHorizontal))
+func decodeTIFF(srcPath string) (*decodedImage, error) {
+	src, err := golibtiff.Open(srcPath, golibtiff.OpenRead)
+	if err != nil {
+		return nil, fmt.Errorf("decodeTIFF: open: %w", err)
+	}
+	defer src.Close()
+
+	width, err := src.GetFieldUint32(golibtiff.TagImageWidth)
+	if err != nil {
+		return nil, fmt.Errorf("decodeTIFF: missing ImageWidth: %w", err)
+	}
+	height, err := src.GetFieldUint32(golibtiff.TagImageLength)
+	if err != nil {
+		return nil, fmt.Errorf("decodeTIFF: missing ImageLength: %w", err)
+	}
+	colors, _ := src.GetFieldUint16(golibtiff.TagSamplesPerPixel)
+	bits, _ := src.GetFieldUint16(golibtiff.TagBitsPerSample)
+	if colors == 0 {
+		colors = 3
+	}
+	if bits == 0 {
+		bits = 16
 	}
 
-	now := time.Now()
-	if err := tiffcopy.Copy(env.SrcPath, env.TiffIntPath, opts...); err != nil {
-		return err
-	}
-	r.logger.Info("run tiffcopy (TIFF-based fff)", "time", time.Since(now).Seconds())
+	scanline := int64(width) * int64(colors) * int64(bits/8)
+	data := make([]byte, int64(height)*scanline)
 
-	return nil
-}
-
-func (r *Runner) rebuildMetadata(mc MetadataConfig) error {
-	if r.et == nil {
-		return errors.New("exiftool not available")
-	}
-
-	dpi := r.cfg.DPI
-	if dpi == 0 {
-		dpi = 300
-	}
-
-	args := []string{"-overwrite_original"}
-
-	args = append(args, "-all=")
-	args = append(args, "-TagsFromFile", mc.RawPath, "-All")
-	args = append(args, "-XMP:all=", "-All:ImageDescription=")
-
-	// Override DNG-specific tags from the intermediate DNG for accurate color metadata
-	args = append(args, "-TagsFromFile", mc.SecondSrcPath,
-		"-AsShotNeutral",
-		"-UniqueCameraModel",
-		"-LocalizedCameraModel",
-		"-XMP-aux:All",
-		"-XMP-exifEX:All",
-		"-XMP-dc:Subject",
-		"-XMP-lr:HierarchicalSubject",
-		"-XMP-mwg-kw:All",
-	)
-	args = append(args, "-IPTC:all=", "-ICC_Profile:all=", "-All:Colorspace=")
-
-	if profile, ok := icc.Profiles[r.cfg.Profile]; ok {
-		iccPath := mc.TiffPath + ".icc"
-		if err := os.WriteFile(iccPath, profile.Data(), 0644); err != nil {
-			return fmt.Errorf("write icc profile: %w", err)
+	if src.IsTiled() {
+		tileSize := src.TileSize()
+		tileBuf := make([]byte, tileSize)
+		tileWidth, _ := src.GetFieldUint32(golibtiff.TagTileWidth)
+		tileLength, _ := src.GetFieldUint32(golibtiff.TagTileLength)
+		if tileWidth == 0 || tileLength == 0 {
+			return nil, fmt.Errorf("decodeTIFF: invalid tile dimensions")
 		}
-		defer os.Remove(iccPath)
-		args = append(args, "-ICC_Profile<="+iccPath)
+		tilesAcross := (width + tileWidth - 1) / tileWidth
+		for tile := uint32(0); tile < src.NumberOfTiles(); tile++ {
+			_, err := src.ReadEncodedTile(tile, tileBuf, -1)
+			if err != nil {
+				return nil, fmt.Errorf("decodeTIFF: read tile %d: %w", tile, err)
+			}
+			tileRow := (tile / tilesAcross) * tileLength
+			tileCol := (tile % tilesAcross) * tileWidth
+			tileScanline := int64(tileWidth) * int64(colors) * int64(bits/8)
+			actualTileRows := tileLength
+			if tileRow+tileLength > height {
+				actualTileRows = height - tileRow
+			}
+			for tr := uint32(0); tr < actualTileRows; tr++ {
+				srcOff := int64(tr) * tileScanline
+				dstOff := int64(tileRow+tr)*scanline + int64(tileCol)*int64(colors)*int64(bits/8)
+				copySize := tileScanline
+				if tileCol+tileWidth > width {
+					copySize = int64(width-tileCol) * int64(colors) * int64(bits/8)
+				}
+				copy(data[dstOff:], tileBuf[srcOff:srcOff+copySize])
+			}
+		}
+	} else {
+		offset := int64(0)
+		for strip := uint32(0); strip < src.NumberOfStrips(); strip++ {
+			n, err := src.ReadEncodedStrip(strip, data[offset:], -1)
+			if err != nil {
+				return nil, fmt.Errorf("decodeTIFF: read strip %d: %w", strip, err)
+			}
+			offset += int64(n)
+		}
 	}
 
-	args = append(args, fmt.Sprintf("-XMP-crs:RAWFileName=%s", filepath.Base(mc.RawPath)))
-	args = append(args,
-		fmt.Sprintf("-Xresolution=%d", dpi),
-		fmt.Sprintf("-Yresolution=%d", dpi),
-		"-ResolutionUnit=inches",
-	)
-
-	// Reset orientation to avoid incorrect rotation from source
-	args = append(args, "-Orientation=")
-
-	args = append(args, mc.TiffPath)
-
-	r.logger.Info("rebuild metadata", "args", args)
-	return r.et.ExecuteWrite(args...)
+	return &decodedImage{
+		Width:  width,
+		Height: height,
+		Colors: colors,
+		Bits:   bits,
+		Data:   data,
+	}, nil
 }
 
-func (r *Runner) writeMemImageToTIFF(path string, img *golibraw.ProcessedImage, meta *ExtractedMetadata) error {
+func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *ExtractedMetadata) error {
+	now := time.Now()
+
 	tf, err := golibtiff.Open(path, golibtiff.OpenWrite)
 	if err != nil {
 		return err
 	}
 	defer tf.Close()
 
-	w := uint32(img.Width)
-	h := uint32(img.Height)
-	colors := uint16(img.Colors)
-	bits := uint16(img.Bits)
+	w := img.Width
+	h := img.Height
+	colors := img.Colors
+	bits := img.Bits
 	scanline := int64(w) * int64(colors) * int64(bits/8)
 
-	tf.SetFieldUint32(golibtiff.TagImageWidth, w)
-	tf.SetFieldUint32(golibtiff.TagImageLength, h)
-	tf.SetFieldUint16(golibtiff.TagBitsPerSample, bits)
-	tf.SetFieldUint16(golibtiff.TagSamplesPerPixel, colors)
-	tf.SetFieldUint16(golibtiff.TagPhotometric, golibtiff.PhotometricRGB)
-	if r.cfg.EnableCompression {
-		tf.SetFieldUint16(golibtiff.TagCompression, golibtiff.CompressionLZW)
-		tf.SetFieldUint16(golibtiff.TagPredictor, golibtiff.PredictorHorizontal)
+	if err := tf.SetFieldUint32(golibtiff.TagImageWidth, w); err != nil {
+		return fmt.Errorf("set ImageWidth: %w", err)
 	}
-	tf.SetFieldUint16(golibtiff.TagPlanarConfig, golibtiff.PlanarConfigContig)
+	if err := tf.SetFieldUint32(golibtiff.TagImageLength, h); err != nil {
+		return fmt.Errorf("set ImageLength: %w", err)
+	}
+	_ = tf.SetFieldUint16(golibtiff.TagBitsPerSample, bits)
+	_ = tf.SetFieldUint16(golibtiff.TagSamplesPerPixel, colors)
+	_ = tf.SetFieldUint16(golibtiff.TagPhotometric, golibtiff.PhotometricRGB)
+	if r.cfg.EnableCompression {
+		if err := tf.SetFieldUint16(golibtiff.TagCompression, golibtiff.CompressionLZW); err != nil {
+			return fmt.Errorf("set Compression: %w", err)
+		}
+		_ = tf.SetFieldUint16(golibtiff.TagPredictor, golibtiff.PredictorHorizontal)
+	}
+	_ = tf.SetFieldUint16(golibtiff.TagPlanarConfig, golibtiff.PlanarConfigContig)
+	_ = tf.SetFieldUint32(golibtiff.TagRowsPerStrip, h)
 
 	if meta != nil {
-		writeIFD0Tags(tf, meta, r.cfg)
+		if err := writeIFD0Tags(tf, meta, r.cfg); err != nil {
+			return fmt.Errorf("write IFD0 tags: %w", err)
+		}
 	}
 
 	for row := uint32(0); row < h; row++ {
@@ -523,30 +535,14 @@ func (r *Runner) writeMemImageToTIFF(path string, img *golibraw.ProcessedImage, 
 		}
 	}
 
-	// Write EXIF Sub-IFD if metadata contains EXIF tags.
-	// Use WriteDirectory (not CheckpointDirectory) to flush strip data to disk,
-	// otherwise the in-memory strip buffer is lost during the EXIF Sub-IFD flow.
-	if meta != nil && meta.hasEXIF() {
-		if err := tf.WriteDirectory(); err != nil {
-			return fmt.Errorf("write main IFD: %w", err)
-		}
-		if err := tf.SetDirectory(0); err != nil {
-			return fmt.Errorf("set directory 0: %w", err)
-		}
-		if err := writeEXIFSubIFD(tf, meta); err != nil {
-			return fmt.Errorf("write EXIF sub-IFD: %w", err)
-		}
-		return nil // writeEXIFSubIFD already calls WriteDirectory
+	if err := writeIFDWithOptionalEXIF(tf, meta); err != nil {
+		return err
 	}
-
-	if err := tf.WriteDirectory(); err != nil {
-		return fmt.Errorf("write main IFD: %w", err)
-	}
-
+	r.logger.Info("write TIFF", "time", time.Since(now).Seconds())
 	return nil
 }
 
-func writeIFD0Tags(tf *golibtiff.TIFF, meta *ExtractedMetadata, cfg Config) {
+func writeIFD0Tags(tf *golibtiff.TIFF, meta *ExtractedMetadata, cfg Config) error {
 	writeTagMap(tf, meta.RawTags, ifd0Mappings)
 	if len(meta.DNGTags) > 0 {
 		writeTagMap(tf, meta.DNGTags, dngOverrideMappings)
@@ -556,16 +552,25 @@ func writeIFD0Tags(tf *golibtiff.TIFF, meta *ExtractedMetadata, cfg Config) {
 	if dpi == 0 {
 		dpi = 300
 	}
-	tf.SetFieldFloat(golibtiff.TagXResolution, dpi)
-	tf.SetFieldFloat(golibtiff.TagYResolution, dpi)
-	tf.SetFieldUint16(golibtiff.TagResolutionUnit, golibtiff.ResolutionUnitInch)
+	if err := tf.SetFieldFloat(golibtiff.TagXResolution, dpi); err != nil {
+		return fmt.Errorf("set XResolution: %w", err)
+	}
+	if err := tf.SetFieldFloat(golibtiff.TagYResolution, dpi); err != nil {
+		return fmt.Errorf("set YResolution: %w", err)
+	}
+	_ = tf.SetFieldUint16(golibtiff.TagResolutionUnit, golibtiff.ResolutionUnitInch)
 
 	if profile, ok := icc.Profiles[cfg.Profile]; ok {
-		tf.SetFieldByteSlice(golibtiff.TagIccProfile, profile.Data())
+		if err := tf.SetFieldByteSlice(golibtiff.TagIccProfile, profile.Data()); err != nil {
+			return fmt.Errorf("set ICC profile: %w", err)
+		}
 	}
 	if len(meta.XMP) > 0 {
-		tf.SetFieldByteSlice(golibtiff.TagXMP, meta.XMP)
+		if err := tf.SetFieldByteSlice(golibtiff.TagXMP, meta.XMP); err != nil {
+			return fmt.Errorf("set XMP: %w", err)
+		}
 	}
+	return nil
 }
 
 func writeEXIFSubIFD(tf *golibtiff.TIFF, meta *ExtractedMetadata) error {
@@ -592,6 +597,21 @@ func writeEXIFSubIFD(tf *golibtiff.TIFF, meta *ExtractedMetadata) error {
 	}
 	if err := tf.WriteDirectory(); err != nil {
 		return fmt.Errorf("rewrite main IFD: %w", err)
+	}
+	return nil
+}
+
+func writeIFDWithOptionalEXIF(tf *golibtiff.TIFF, meta *ExtractedMetadata) error {
+	if err := tf.WriteDirectory(); err != nil {
+		return fmt.Errorf("write main IFD: %w", err)
+	}
+	if meta != nil && meta.hasEXIF() {
+		if err := tf.SetDirectory(0); err != nil {
+			return fmt.Errorf("set directory 0: %w", err)
+		}
+		if err := writeEXIFSubIFD(tf, meta); err != nil {
+			return fmt.Errorf("write EXIF sub-IFD: %w", err)
+		}
 	}
 	return nil
 }

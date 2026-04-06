@@ -144,7 +144,8 @@ func (em *ExtractedMetadata) hasEXIF() bool {
 }
 
 // extractMetadata reads metadata from rawPath and secondSrcPath via ExifTool.
-func (r *Runner) extractMetadata(rawPath, secondSrcPath string) (*ExtractedMetadata, error) {
+// excludeKeys are removed from RawTags after extraction.
+func (r *Runner) extractMetadata(rawPath, secondSrcPath string, excludeExifTagKeys ...string) (*ExtractedMetadata, error) {
 	if r.et == nil {
 		return nil, nil
 	}
@@ -162,7 +163,14 @@ func (r *Runner) extractMetadata(rawPath, secondSrcPath string) (*ExtractedMetad
 		return nil, fmt.Errorf("exiftool extract metadata: %w", err)
 	}
 
-	return parseExifToolJSON(resp, rawPath, secondSrcPath, filepath.Base(rawPath))
+	em, err := parseExifToolJSON(resp, rawPath, secondSrcPath, filepath.Base(rawPath))
+	if err != nil {
+		return nil, err
+	}
+	for _, key := range excludeExifTagKeys {
+		delete(em.RawTags, key)
+	}
+	return em, nil
 }
 
 func pathEqual(a, b string) bool {
@@ -177,13 +185,22 @@ func parseExifToolJSON(jsonStr, rawPath, secondSrcPath, rawFileName string) (*Ex
 	}
 
 	em := &ExtractedMetadata{}
+	samePath := pathEqual(rawPath, secondSrcPath)
 	for _, obj := range objects {
 		src, _ := obj["SourceFile"].(string)
 		if pathEqual(src, rawPath) {
 			em.RawTags = obj
 		}
 		if pathEqual(src, secondSrcPath) {
-			em.DNGTags = obj
+			if samePath {
+				cp := make(map[string]any, len(obj))
+				for k, v := range obj {
+					cp[k] = v
+				}
+				em.DNGTags = cp
+			} else {
+				em.DNGTags = obj
+			}
 		}
 	}
 

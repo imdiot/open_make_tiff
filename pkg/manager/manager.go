@@ -60,6 +60,7 @@ func newConfig() *Config {
 
 type Manager struct {
 	ctx     context.Context
+	cancel  context.CancelFunc
 	mu      sync.RWMutex
 	running atomic.Bool
 	config  *Config
@@ -96,7 +97,9 @@ func (m *Manager) OnStartup(ctx context.Context) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	ctx, cancel := context.WithCancel(ctx)
 	m.ctx = ctx
+	m.cancel = cancel
 
 	m.loadConfig()
 	m.checkConfig()
@@ -108,7 +111,7 @@ func (m *Manager) OnStartup(ctx context.Context) {
 			wails_runtime.MessageDialog(m.ctx, wails_runtime.MessageDialogOptions{
 				Type:    wails_runtime.WarningDialog,
 				Title:   "ExifTool",
-				Message: fmt.Sprintf("ExifTool 初始化失败: %v", err),
+				Message: fmt.Sprintf("ExifTool init failed: %v", err),
 			})
 		}
 	}
@@ -126,6 +129,10 @@ func (m *Manager) OnSecondInstanceLaunch(_ options.SecondInstanceData) {
 }
 
 func (m *Manager) OnShutdown(_ context.Context) {
+	if m.cancel != nil {
+		m.cancel()
+	}
+
 	if m.et != nil {
 		slog.Debug("OnShutdown: closing exiftool", "at", time.Now().Format("15:04:05.000"))
 		m.et.Close()
@@ -240,12 +247,10 @@ func (m *Manager) Convert(paths []string) {
 		return
 	}
 
-	m.wg.Add(1)
-	go func() {
+	m.wg.Go(func() {
 		wails_runtime.EventsEmit(m.ctx, "omt:convert:started")
 		defer func() {
 			m.running.Store(false)
-			m.wg.Done()
 			if m.ctx.Err() == nil {
 				wails_runtime.EventsEmit(m.ctx, "omt:convert:finished")
 			}
@@ -305,5 +310,5 @@ func (m *Manager) Convert(paths []string) {
 			}
 		}
 		wg.Wait()
-	}()
+	})
 }

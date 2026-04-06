@@ -51,10 +51,14 @@ type Config struct {
 	DPI                      int    `json:"dpi,omitempty"`
 }
 
+func maxWorkers() int {
+	return max(runtime.NumCPU()/2, 1)
+}
+
 func newConfig() *Config {
 	return &Config{
 		ICCProfile: "",
-		Workers:    max(runtime.NumCPU()/2, 1),
+		Workers:    maxWorkers(),
 	}
 }
 
@@ -75,7 +79,7 @@ func New() *Manager {
 		Profiles:                make([]*ProfileOption, 0),
 		EnableAdobeDNGConverter: func() bool { _, err := dngconverter.New(); return err == nil }(),
 	}
-	for i := 1; i <= runtime.NumCPU(); i++ {
+	for i := 1; i <= maxWorkers(); i++ {
 		setting.WorkerNums = append(setting.WorkerNums, &WorkerNumOption{Value: i, Label: fmt.Sprintf("%d", i)})
 	}
 	setting.Profiles = append(setting.Profiles, &ProfileOption{Value: "", Label: "none"})
@@ -212,8 +216,8 @@ func (m *Manager) checkConfig() {
 			m.config.ICCProfile = ""
 		}
 	}
-	if m.config.Workers < 1 || m.config.Workers > runtime.NumCPU() {
-		m.config.Workers = runtime.NumCPU()
+	if m.config.Workers < 1 || m.config.Workers > maxWorkers() {
+		m.config.Workers = maxWorkers()
 	}
 }
 

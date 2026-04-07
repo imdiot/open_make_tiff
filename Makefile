@@ -30,8 +30,7 @@ endif
 # Package configuration
 VCPKG_PACKAGES = \
 	libraw[6by9rpi,dng-lossy,dngsdk,rawspeed,x3ftools] \
-	tiff[cxx,jpeg,lerc,libdeflate,lzma,webp,zip,zstd] \
-	exiv2[bmff,png,xmp]
+	tiff[cxx,jpeg,lerc,libdeflate,lzma,webp,zip,zstd]
 
 # ExifTool configuration
 EXIFTOOL_VERSION   := 13.50

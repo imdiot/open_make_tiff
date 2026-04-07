@@ -25,6 +25,8 @@ var defaultExecutablePaths = map[string]string{
 type Converter struct {
 	executable string
 	defaults   Options
+	version    string
+	versionErr error
 }
 
 func New(opts ...Option) (*Converter, error) {
@@ -64,6 +66,21 @@ func (c *Converter) IsAvailable() bool {
 
 func (c *Converter) Executable() string {
 	return c.executable
+}
+
+// Version returns the Adobe DNG Converter version in "major.minor" format (e.g. "17.5").
+// The version is read from file metadata on first call and cached.
+func (c *Converter) Version() (string, error) {
+	if c.version != "" || c.versionErr != nil {
+		return c.version, c.versionErr
+	}
+	ver, err := readExecutableVersion(c.executable)
+	if err != nil {
+		c.versionErr = err
+		return "", err
+	}
+	c.version = ver
+	return ver, nil
 }
 
 func (c *Converter) Convert(ctx context.Context, input string, opts ...Option) error {

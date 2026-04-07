@@ -66,25 +66,25 @@ func TestDoubleClose(t *testing.T) {
 func TestReadJPEG(t *testing.T) {
 	img := openMetadata(t, "DSC_3079.jpg")
 
-	count := img.ExifCount()
+	count := img.EXIF.Count()
 	if count == 0 {
 		t.Fatal("expected EXIF tags in JPEG")
 	}
 
-	// Verify all keys are iterable and Has/String round-trip works.
-	for i := 0; i < count; i++ {
-		key, err := img.ExifKey(i)
+	for i := range count {
+		key, err := img.EXIF.Key(i)
 		if err != nil {
-			t.Fatalf("ExifKey(%d): %v", i, err)
+			t.Fatalf("EXIF.Key(%d): %v", i, err)
 		}
-		if !img.ExifHas(key) {
-			t.Errorf("ExifHas(%q) false after ExifKey(%d) returned it", key, i)
+		if !img.EXIF.Has(key) {
+			t.Errorf("EXIF.Has(%q) false after EXIF.Key(%d) returned it", key, i)
 		}
-		val, err := img.ExifString(key)
-		if err != nil {
-			t.Logf("  [%d] %s: ExifString error: %v", i, key, err)
+		tag, ok := img.EXIF.Tag(key)
+		if !ok {
+			t.Logf("  [%d] %s: EXIF.Tag not found", i, key)
 		} else {
-			t.Logf("  [%d] %s = %s", i, key, val)
+			t.Logf("  [%d] %s = %s (tag=%d type=%d ifd=%d)",
+				i, key, tag.Value, tag.TagID, tag.TypeID, tag.IfdID)
 		}
 	}
 }
@@ -92,59 +92,80 @@ func TestReadJPEG(t *testing.T) {
 func TestExifTypedAccess(t *testing.T) {
 	img := openMetadata(t, "DSC_3079.jpg")
 
-	t.Run("Long", func(t *testing.T) {
-		val, err := img.ExifLong("Exif.Photo.Flash")
-		if err != nil {
-			t.Fatalf("ExifLong(Flash): %v", err)
+	t.Run("Int", func(t *testing.T) {
+		tag, ok := img.EXIF.Tag("Exif.Photo.Flash")
+		if !ok {
+			t.Fatal("Exif.Photo.Flash not found")
 		}
-		t.Logf("Flash: %d", val)
+		val, err := tag.Int()
+		if err != nil {
+			t.Fatalf("tag.Int(): %v", err)
+		}
+		t.Logf("Flash: %d (tagID=%d)", val, tag.TagID)
 	})
 
-	t.Run("Double", func(t *testing.T) {
-		fnum, err := img.ExifDouble("Exif.Photo.FNumber")
+	t.Run("Float", func(t *testing.T) {
+		tag, ok := img.EXIF.Tag("Exif.Photo.FNumber")
+		if !ok {
+			t.Fatal("Exif.Photo.FNumber not found")
+		}
+		fnum, err := tag.Float()
 		if err != nil {
-			t.Fatalf("ExifDouble(FNumber): %v", err)
+			t.Fatalf("tag.Float(): %v", err)
 		}
 		if fnum <= 0 {
 			t.Errorf("FNumber = %.1f, want > 0", fnum)
 		}
 		t.Logf("FNumber: %.1f", fnum)
 
-		exp, err := img.ExifDouble("Exif.Photo.ExposureTime")
+		tag2, ok := img.EXIF.Tag("Exif.Photo.ExposureTime")
+		if !ok {
+			t.Fatal("Exif.Photo.ExposureTime not found")
+		}
+		exp, err := tag2.Float()
 		if err != nil {
-			t.Fatalf("ExifDouble(ExposureTime): %v", err)
+			t.Fatalf("tag.Float(ExposureTime): %v", err)
 		}
 		t.Logf("ExposureTime: %v", exp)
 	})
 
-	t.Run("Bytes", func(t *testing.T) {
-		if !img.ExifHas("Exif.Photo.MakerNote") {
+	t.Run("Binary", func(t *testing.T) {
+		tag, ok := img.EXIF.Tag("Exif.Photo.MakerNote")
+		if !ok {
 			t.Skip("no MakerNote in test file")
 		}
-		data, err := img.ExifBytes("Exif.Photo.MakerNote")
-		if err != nil {
-			t.Fatalf("ExifBytes(MakerNote): %v", err)
+		if !tag.Binary() {
+			t.Fatal("expected MakerNote to have raw bytes")
 		}
-		if len(data) == 0 {
-			t.Fatal("expected non-empty MakerNote")
+		if len(tag.Raw) == 0 {
+			t.Fatal("expected non-empty MakerNote raw data")
 		}
-		t.Logf("MakerNote: %d bytes", len(data))
+		t.Logf("MakerNote: %d bytes", len(tag.Raw))
 	})
 
 	t.Run("NonexistentKey", func(t *testing.T) {
-		for _, fn := range []struct {
-			name string
-			fn   func() error
-		}{
-			{"ExifLong", func() error { _, err := img.ExifLong("Exif.Photo.NoTag"); return err }},
-			{"ExifDouble", func() error { _, err := img.ExifDouble("Exif.Photo.NoTag"); return err }},
-			{"ExifBytes", func() error { _, err := img.ExifBytes("Exif.Photo.NoTag"); return err }},
-			{"ExifString", func() error { _, err := img.ExifString("Exif.Photo.NoTag"); return err }},
-		} {
-			if err := fn.fn(); err == nil {
-				t.Errorf("%s: expected error for nonexistent key", fn.name)
-			}
+		_, ok := img.EXIF.Tag("Exif.Photo.NoTag")
+		if ok {
+			t.Error("expected false for nonexistent key")
 		}
+	})
+
+	t.Run("RawFields", func(t *testing.T) {
+		tag, ok := img.EXIF.Tag("Exif.Image.Make")
+		if !ok {
+			t.Fatal("Exif.Image.Make not found")
+		}
+		if tag.TagID == 0 {
+			t.Error("expected non-zero TagID for Make")
+		}
+		if tag.TypeID == 0 {
+			t.Error("expected non-zero TypeID for Make")
+		}
+		if tag.Size == 0 {
+			t.Error("expected non-zero Size for Make")
+		}
+		t.Logf("Make: tag=%d type=%d count=%d size=%d ifd=%d",
+			tag.TagID, tag.TypeID, tag.Count, tag.Size, tag.IfdID)
 	})
 }
 
@@ -155,15 +176,15 @@ func TestExifTypedAccess(t *testing.T) {
 func TestReadGPS(t *testing.T) {
 	img := openMetadata(t, "GPS.jpg")
 
-	lat, err := img.ExifString("Exif.GPSInfo.GPSLatitude")
-	if err != nil {
-		t.Fatalf("GPSLatitude: %v", err)
+	lat, ok := img.EXIF.Tag("Exif.GPSInfo.GPSLatitude")
+	if !ok {
+		t.Fatal("GPSLatitude not found")
 	}
-	lon, err := img.ExifString("Exif.GPSInfo.GPSLongitude")
-	if err != nil {
-		t.Fatalf("GPSLongitude: %v", err)
+	lon, ok := img.EXIF.Tag("Exif.GPSInfo.GPSLongitude")
+	if !ok {
+		t.Fatal("GPSLongitude not found")
 	}
-	t.Logf("GPS: %s, %s", lat, lon)
+	t.Logf("GPS: %s, %s", lat.Value, lon.Value)
 }
 
 // ---------------------------------------------------------------------------
@@ -173,29 +194,30 @@ func TestReadGPS(t *testing.T) {
 func TestReadIPTC(t *testing.T) {
 	img := openMetadata(t, "IPTC.jpg")
 
-	count := img.IPTCCount()
+	count := img.IPTC.Count()
 	if count == 0 {
 		t.Fatal("expected IPTC tags")
 	}
 	t.Logf("IPTC tags: %d", count)
 
-	for i := 0; i < count; i++ {
-		key, err := img.IPTCKey(i)
+	for i := range count {
+		key, err := img.IPTC.Key(i)
 		if err != nil {
-			t.Fatalf("IPTCKey(%d): %v", i, err)
+			t.Fatalf("IPTC.Key(%d): %v", i, err)
 		}
-		if !img.IPTCHas(key) {
-			t.Errorf("IPTCHas(%q) false after IPTCKey(%d)", key, i)
+		if !img.IPTC.Has(key) {
+			t.Errorf("IPTC.Has(%q) false after IPTC.Key(%d)", key, i)
 		}
-		val, _ := img.IPTCString(key)
-		t.Logf("  [%d] %s = %s", i, key, val)
+		tag, _ := img.IPTC.Tag(key)
+		t.Logf("  [%d] %s = %s (tag=%d record=%d)",
+			i, key, tag.Value, tag.TagID, tag.Record)
 	}
 
-	caption, err := img.IPTCString("Iptc.Application2.Caption")
-	if err != nil {
-		t.Fatalf("IPTCString(Caption): %v", err)
+	tag, ok := img.IPTC.Tag("Iptc.Application2.Caption")
+	if !ok {
+		t.Fatal("IPTC Caption not found")
 	}
-	if caption == "" {
+	if tag.Value == "" {
 		t.Error("expected non-empty Caption")
 	}
 }
@@ -207,28 +229,25 @@ func TestReadIPTC(t *testing.T) {
 func TestReadXMP(t *testing.T) {
 	img := openMetadata(t, "XMP.jpg")
 
-	count := img.XMPCount()
+	count := img.XMP.Count()
 	if count == 0 {
 		t.Fatal("expected XMP tags")
 	}
 	t.Logf("XMP tags: %d", count)
 
-	for i := 0; i < count; i++ {
-		key, err := img.XMPKey(i)
+	for i := range count {
+		key, err := img.XMP.Key(i)
 		if err != nil {
-			t.Fatalf("XMPKey(%d): %v", i, err)
+			t.Fatalf("XMP.Key(%d): %v", i, err)
 		}
-		if !img.XMPHas(key) {
-			t.Errorf("XMPHas(%q) false after XMPKey(%d)", key, i)
+		if !img.XMP.Has(key) {
+			t.Errorf("XMP.Has(%q) false after XMP.Key(%d)", key, i)
 		}
-		val, _ := img.XMPString(key)
-		t.Logf("  [%d] %s = %s", i, key, val)
+		tag, _ := img.XMP.Tag(key)
+		t.Logf("  [%d] %s = %s (tagID=%d)", i, key, tag.Value, tag.TagID)
 	}
 
-	packet, err := img.XMPPacket()
-	if err != nil {
-		t.Fatalf("XMPPacket: %v", err)
-	}
+	packet := img.XMPPacket
 	if packet == "" {
 		t.Fatal("expected non-empty XMP packet")
 	}
@@ -254,11 +273,11 @@ func TestReadFormats(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			img := openMetadata(t, tc.file)
-			if img.ExifCount() == 0 {
+			if img.EXIF.Count() == 0 {
 				t.Error("expected EXIF tags")
 			}
 			t.Logf("EXIF: %d, IPTC: %d, XMP: %d",
-				img.ExifCount(), img.IPTCCount(), img.XMPCount())
+				img.EXIF.Count(), img.IPTC.Count(), img.XMP.Count())
 		})
 	}
 }
@@ -278,14 +297,14 @@ func TestEmptyFiles(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			img := openMetadata(t, tc.file)
-			if img.ExifCount() != 0 {
-				t.Errorf("EXIF = %d, want 0", img.ExifCount())
+			if img.EXIF.Count() != 0 {
+				t.Errorf("EXIF = %d, want 0", img.EXIF.Count())
 			}
-			if img.IPTCCount() != 0 {
-				t.Errorf("IPTC = %d, want 0", img.IPTCCount())
+			if img.IPTC.Count() != 0 {
+				t.Errorf("IPTC = %d, want 0", img.IPTC.Count())
 			}
-			if img.XMPCount() != 0 {
-				t.Errorf("XMP = %d, want 0", img.XMPCount())
+			if img.XMP.Count() != 0 {
+				t.Errorf("XMP = %d, want 0", img.XMP.Count())
 			}
 		})
 	}
@@ -310,37 +329,22 @@ func TestOperationsAfterClose(t *testing.T) {
 		}
 	})
 
-	t.Run("ExifCount", func(t *testing.T) {
-		if v := img.ExifCount(); v != 0 {
+	t.Run("EXIF.Count", func(t *testing.T) {
+		if v := img.EXIF.Count(); v != 0 {
 			t.Errorf("got %d, want 0", v)
 		}
 	})
 
-	t.Run("ExifString", func(t *testing.T) {
-		_, err := img.ExifString("Exif.Image.Make")
-		if err == nil {
-			t.Error("expected error")
-		}
-	})
-
-	t.Run("ExifLong", func(t *testing.T) {
-		_, err := img.ExifLong("Exif.Photo.Flash")
-		if err == nil {
-			t.Error("expected error")
-		}
-	})
-
-	t.Run("ExifDouble", func(t *testing.T) {
-		_, err := img.ExifDouble("Exif.Photo.FNumber")
-		if err == nil {
-			t.Error("expected error")
+	t.Run("EXIF.Tag", func(t *testing.T) {
+		_, ok := img.EXIF.Tag("Exif.Image.Make")
+		if ok {
+			t.Error("expected false after close")
 		}
 	})
 
 	t.Run("XMPPacket", func(t *testing.T) {
-		_, err := img.XMPPacket()
-		if err == nil {
-			t.Error("expected error")
+		if img.XMPPacket != "" {
+			t.Error("expected empty XMPPacket after close")
 		}
 	})
 }
@@ -349,9 +353,9 @@ func TestExifKeyOutOfRange(t *testing.T) {
 	img := openMetadata(t, "DSC_3079.jpg")
 
 	for _, idx := range []int{-1, 99999} {
-		_, err := img.ExifKey(idx)
+		_, err := img.EXIF.Key(idx)
 		if err == nil {
-			t.Errorf("ExifKey(%d) should return error", idx)
+			t.Errorf("EXIF.Key(%d) should return error", idx)
 		}
 	}
 }
@@ -368,9 +372,13 @@ func TestConcurrentRead(t *testing.T) {
 
 	for range n {
 		go func() {
-			_ = img.ExifCount()
-			_, err := img.ExifString("Exif.Image.Make")
-			errCh <- err
+			_ = img.EXIF.Count()
+			_, ok := img.EXIF.Tag("Exif.Image.Make")
+			if !ok {
+				errCh <- errors.New("Exif.Image.Make not found")
+				return
+			}
+			errCh <- nil
 		}()
 	}
 

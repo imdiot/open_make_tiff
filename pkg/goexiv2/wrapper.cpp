@@ -1,12 +1,13 @@
 // goexiv2 C bridge: wraps exiv2 C++ API behind C ABI for CGo.
+// Only exposes lifecycle + one-shot metadata dump.
 
 #include "wrapper.h"
 
 #include <exiv2/exiv2.hpp>
 
+#include <cstdlib>
 #include <cstring>
 #include <string>
-#include <vector>
 
 // --- Thread-local error storage ---
 
@@ -24,31 +25,75 @@ static void set_error(const char* msg) {
 
 struct GoExiv2Image {
     Exiv2::Image::UniquePtr image;
-    bool metadataRead;
-    std::vector<uint8_t> bytesCache;
-
-    // Key caches: populated once during readMetadata.
-    std::vector<std::string> exifKeys;
-    std::vector<std::string> iptcKeys;
-    std::vector<std::string> xmpKeys;
-
-    GoExiv2Image() : metadataRead(false) {}
 };
 
-// Populate a key cache by iterating [begin,end).
+// --- Helpers ---
+
+static bool is_binary_type(Exiv2::TypeId tid) {
+    return tid == Exiv2::undefined
+        || tid == Exiv2::unsignedByte
+        || tid == Exiv2::signedByte;
+}
+
+// Dump a metadata container into a GoExiv2TagArray.
 template<typename Container>
-static void cache_keys(Container& c, std::vector<std::string>& out) {
-    out.clear();
+static void dump_tags(Container& c, GoExiv2TagArray* out) {
+    out->tags = nullptr;
+    out->count = 0;
+
+    int n = 0;
+    for (auto it = c.begin(); it != c.end(); ++it) {
+        try { if (!it->key().empty()) n++; } catch (...) {}
+    }
+    if (n == 0) return;
+
+    out->tags = (GoExiv2Tag*)calloc(n, sizeof(GoExiv2Tag));
+    if (!out->tags) {
+        set_error("out of memory");
+        return;
+    }
+    out->count = n;
+
+    int i = 0;
     for (auto it = c.begin(); it != c.end(); ++it) {
         try {
-            std::string k = it->key();
-            if (!k.empty()) {
-                out.push_back(k);
+            auto k = it->key();
+            if (k.empty()) continue;
+            out->tags[i].tag     = static_cast<uint16_t>(it->tag());
+            out->tags[i].type_id = static_cast<int>(it->typeId());
+            out->tags[i].count   = static_cast<int>(it->count());
+            out->tags[i].size    = static_cast<int>(it->size());
+            out->tags[i].key     = strdup(k.c_str());
+            out->tags[i].value   = strdup(it->toString().c_str());
+            out->tags[i].ifd_id  = -1;
+            out->tags[i].record  = -1;
+
+            if (is_binary_type(it->typeId())) {
+                auto& val = it->value();
+                auto sz = val.size();
+                if (sz > 0) {
+                    out->tags[i].raw = (uint8_t*)malloc(sz);
+                    if (out->tags[i].raw) {
+                        val.copy(out->tags[i].raw, Exiv2::invalidByteOrder);
+                        out->tags[i].raw_len = static_cast<int>(sz);
+                    }
+                }
             }
-        } catch (...) {
-            // Skip entries that throw C++ exceptions.
-        }
+            i++;
+        } catch (...) {}
     }
+}
+
+static void free_tag_array(GoExiv2TagArray* arr) {
+    if (!arr->tags) return;
+    for (int i = 0; i < arr->count; i++) {
+        free(arr->tags[i].key);
+        free(arr->tags[i].value);
+        free(arr->tags[i].raw);
+    }
+    free(arr->tags);
+    arr->tags = nullptr;
+    arr->count = 0;
 }
 
 // --- Lifecycle ---
@@ -79,37 +124,75 @@ void* goexiv2_open(const char* path) {
 
 void goexiv2_close(void* p) {
     auto* g = static_cast<GoExiv2Image*>(p);
-    if (g) {
-        delete g;
-    }
+    delete g;
 }
 
 // --- Metadata reading ---
 
-int goexiv2_read_metadata(void* p) {
+GoExiv2Metadata* goexiv2_read_metadata(void* p) {
     tl_error[0] = '\0';
     auto* g = static_cast<GoExiv2Image*>(p);
     if (!g || !g->image) {
         set_error("invalid handle");
-        return -1;
+        return nullptr;
     }
     try {
         g->image->readMetadata();
-        g->metadataRead = true;
-
-        // Pre-cache all keys once.
-        cache_keys(g->image->exifData(), g->exifKeys);
-        cache_keys(g->image->iptcData(), g->iptcKeys);
-        cache_keys(g->image->xmpData(),  g->xmpKeys);
-
-        return 0;
     } catch (Exiv2::Error& e) {
         set_error(e.what());
-        return -1;
+        return nullptr;
     } catch (std::exception& e) {
         set_error(e.what());
-        return -1;
+        return nullptr;
     }
+
+    auto* md = (GoExiv2Metadata*)calloc(1, sizeof(GoExiv2Metadata));
+    if (!md) {
+        set_error("out of memory");
+        return nullptr;
+    }
+
+    try { dump_tags(g->image->exifData(), &md->exif); } catch (...) {}
+    try { dump_tags(g->image->iptcData(), &md->iptc); } catch (...) {}
+    try { dump_tags(g->image->xmpData(),  &md->xmp);  } catch (...) {}
+
+    // Fill family-specific raw fields that the template can't access
+    try {
+        int i = 0;
+        for (auto it = g->image->exifData().begin(); it != g->image->exifData().end(); ++it) {
+            try { if (!it->key().empty()) {
+                md->exif.tags[i].ifd_id = static_cast<int>(((Exiv2::Exifdatum*)&*it)->ifdId());
+                i++;
+            }} catch (...) { if (!it->key().empty()) i++; }
+        }
+    } catch (...) {}
+    try {
+        int i = 0;
+        for (auto it = g->image->iptcData().begin(); it != g->image->iptcData().end(); ++it) {
+            try { if (!it->key().empty()) {
+                md->iptc.tags[i].record = static_cast<int>(((Exiv2::Iptcdatum*)&*it)->record());
+                i++;
+            }} catch (...) { if (!it->key().empty()) i++; }
+        }
+    } catch (...) {}
+
+    try {
+        auto& packet = g->image->xmpPacket();
+        if (!packet.empty()) {
+            md->xmp_packet = strdup(packet.c_str());
+        }
+    } catch (...) {}
+
+    return md;
+}
+
+void goexiv2_metadata_free(GoExiv2Metadata* md) {
+    if (!md) return;
+    free_tag_array(&md->exif);
+    free_tag_array(&md->iptc);
+    free_tag_array(&md->xmp);
+    free(md->xmp_packet);
+    free(md);
 }
 
 // --- Error handling ---
@@ -118,194 +201,7 @@ const char* goexiv2_get_last_error(void) {
     return tl_error[0] ? tl_error : nullptr;
 }
 
-// --- EXIF ---
-
-int goexiv2_exif_count(void* p) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead) return 0;
-    return static_cast<int>(g->exifKeys.size());
-}
-
-char* goexiv2_exif_get_key(void* p, int index) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead) return nullptr;
-    if (index < 0 || index >= static_cast<int>(g->exifKeys.size())) return nullptr;
-    return strdup(g->exifKeys[index].c_str());
-}
-
-int goexiv2_exif_has_key(void* p, const char* key) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead || !key) return 0;
-    try {
-        auto& exif = g->image->exifData();
-        auto it = exif.findKey(Exiv2::ExifKey(key));
-        return it != exif.end() ? 1 : 0;
-    } catch (...) {
-        return 0;
-    }
-}
-
-char* goexiv2_exif_get_string(void* p, const char* key) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead || !key) return nullptr;
-    try {
-        auto& exif = g->image->exifData();
-        auto it = exif.findKey(Exiv2::ExifKey(key));
-        if (it == exif.end()) return nullptr;
-        return strdup(it->toString().c_str());
-    } catch (...) {
-        return nullptr;
-    }
-}
-
-int64_t goexiv2_exif_get_long(void* p, const char* key) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead || !key) return 0;
-    try {
-        auto& exif = g->image->exifData();
-        auto it = exif.findKey(Exiv2::ExifKey(key));
-        if (it == exif.end()) return 0;
-        return it->toInt64();
-    } catch (...) {
-        return 0;
-    }
-}
-
-double goexiv2_exif_get_double(void* p, const char* key) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead || !key) return 0.0;
-    try {
-        auto& exif = g->image->exifData();
-        auto it = exif.findKey(Exiv2::ExifKey(key));
-        if (it == exif.end()) return 0.0;
-        return it->toFloat();
-    } catch (...) {
-        return 0.0;
-    }
-}
-
-const uint8_t* goexiv2_exif_get_bytes(void* p, const char* key, int* out_len) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead || !key || !out_len) {
-        if (out_len) *out_len = 0;
-        return nullptr;
-    }
-    try {
-        auto& exif = g->image->exifData();
-        auto it = exif.findKey(Exiv2::ExifKey(key));
-        if (it == exif.end()) {
-            *out_len = 0;
-            return nullptr;
-        }
-        auto& val = it->value();
-        auto sz = val.size();
-        g->bytesCache.resize(sz);
-        val.copy(g->bytesCache.data(), Exiv2::invalidByteOrder);
-        *out_len = static_cast<int>(sz);
-        return g->bytesCache.data();
-    } catch (...) {
-        *out_len = 0;
-        return nullptr;
-    }
-}
-
-// --- IPTC ---
-
-int goexiv2_iptc_count(void* p) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead) return 0;
-    return static_cast<int>(g->iptcKeys.size());
-}
-
-char* goexiv2_iptc_get_key(void* p, int index) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead) return nullptr;
-    if (index < 0 || index >= static_cast<int>(g->iptcKeys.size())) return nullptr;
-    return strdup(g->iptcKeys[index].c_str());
-}
-
-int goexiv2_iptc_has_key(void* p, const char* key) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead || !key) return 0;
-    try {
-        auto& iptc = g->image->iptcData();
-        auto it = iptc.findKey(Exiv2::IptcKey(key));
-        return it != iptc.end() ? 1 : 0;
-    } catch (...) {
-        return 0;
-    }
-}
-
-char* goexiv2_iptc_get_string(void* p, const char* key) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead || !key) return nullptr;
-    try {
-        auto& iptc = g->image->iptcData();
-        auto it = iptc.findKey(Exiv2::IptcKey(key));
-        if (it == iptc.end()) return nullptr;
-        return strdup(it->toString().c_str());
-    } catch (...) {
-        return nullptr;
-    }
-}
-
-// --- XMP ---
-
-int goexiv2_xmp_count(void* p) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead) return 0;
-    return static_cast<int>(g->xmpKeys.size());
-}
-
-char* goexiv2_xmp_get_key(void* p, int index) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead) return nullptr;
-    if (index < 0 || index >= static_cast<int>(g->xmpKeys.size())) return nullptr;
-    return strdup(g->xmpKeys[index].c_str());
-}
-
-int goexiv2_xmp_has_key(void* p, const char* key) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead || !key) return 0;
-    try {
-        auto& xmp = g->image->xmpData();
-        auto it = xmp.findKey(Exiv2::XmpKey(key));
-        return it != xmp.end() ? 1 : 0;
-    } catch (...) {
-        return 0;
-    }
-}
-
-char* goexiv2_xmp_get_string(void* p, const char* key) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead || !key) return nullptr;
-    try {
-        auto& xmp = g->image->xmpData();
-        auto it = xmp.findKey(Exiv2::XmpKey(key));
-        if (it == xmp.end()) return nullptr;
-        return strdup(it->toString().c_str());
-    } catch (...) {
-        return nullptr;
-    }
-}
-
-char* goexiv2_xmp_packet(void* p) {
-    auto* g = static_cast<GoExiv2Image*>(p);
-    if (!g || !g->metadataRead) return nullptr;
-    try {
-        auto& packet = g->image->xmpPacket();
-        if (packet.empty()) return nullptr;
-        return strdup(packet.c_str());
-    } catch (...) {
-        return nullptr;
-    }
-}
-
 // --- Utility ---
-
-void goexiv2_free(void* ptr) {
-    free(ptr);
-}
 
 const char* goexiv2_version(void) {
     return Exiv2::version();

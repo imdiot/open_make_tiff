@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"cmp"
 	"context"
 	"encoding/hex"
 	"errors"
@@ -526,6 +527,15 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *Extra
 		if err := writeIFD0Tags(tf, meta, r.cfg); err != nil {
 			return fmt.Errorf("write IFD0 tags: %w", err)
 		}
+		// Reserve dummy offsets for Sub-IFD pointers in the main IFD.
+		// This prevents libtiff from rewriting the main IFD to a new location
+		// when we later set the real offsets (per libtiff official docs).
+		if len(meta.EXIF) > 0 {
+			_ = tf.SetFieldUint64(golibtiff.TagEXIFIFD, 0)
+		}
+		if len(meta.GPS) > 0 {
+			_ = tf.SetFieldUint64(golibtiff.TagGPSIFD, 0)
+		}
 	}
 
 	for row := uint32(0); row < h; row++ {
@@ -535,27 +545,22 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *Extra
 		}
 	}
 
-	if err := writeIFDWithOptionalEXIF(tf, meta); err != nil {
+	if err := writeIFDWithOptionalSubIFDs(tf, meta); err != nil {
 		return err
 	}
 	r.logger.Info("write TIFF", "time", time.Since(now).Seconds())
 	return nil
 }
 
-func writeIFD0Tags(tf *golibtiff.TIFF, meta *ExtractedMetadata, cfg Config) error {
-	writeTagMap(tf, meta.RawTags, ifd0Mappings)
-	if len(meta.DNGTags) > 0 {
-		writeTagMap(tf, meta.DNGTags, dngOverrideMappings)
-	}
 
-	dpi := float64(cfg.DPI)
-	if dpi == 0 {
-		dpi = 300
-	}
-	if err := tf.SetFieldFloat(golibtiff.TagXResolution, dpi); err != nil {
+func writeIFD0Tags(tf *golibtiff.TIFF, meta *ExtractedMetadata, cfg Config) error {
+	writeGroup(tf, meta.IFD0, skipIFD0IDs)
+
+	dpi := cmp.Or(float64(cfg.DPI), 300.0)
+	if err := tf.SetFieldDouble(golibtiff.TagXResolution, dpi); err != nil {
 		return fmt.Errorf("set XResolution: %w", err)
 	}
-	if err := tf.SetFieldFloat(golibtiff.TagYResolution, dpi); err != nil {
+	if err := tf.SetFieldDouble(golibtiff.TagYResolution, dpi); err != nil {
 		return fmt.Errorf("set YResolution: %w", err)
 	}
 	_ = tf.SetFieldUint16(golibtiff.TagResolutionUnit, golibtiff.ResolutionUnitInch)
@@ -565,53 +570,75 @@ func writeIFD0Tags(tf *golibtiff.TIFF, meta *ExtractedMetadata, cfg Config) erro
 			return fmt.Errorf("set ICC profile: %w", err)
 		}
 	}
-	if len(meta.XMP) > 0 {
-		if err := tf.SetFieldByteSlice(golibtiff.TagXMP, meta.XMP); err != nil {
+	if len(meta.XMPPacket) > 0 {
+		if err := tf.SetFieldByteSlice(golibtiff.TagXMP, meta.XMPPacket); err != nil {
 			return fmt.Errorf("set XMP: %w", err)
 		}
 	}
 	return nil
 }
 
-func writeEXIFSubIFD(tf *golibtiff.TIFF, meta *ExtractedMetadata) error {
-	if err := tf.CreateEXIFDirectory(); err != nil {
-		return fmt.Errorf("create EXIF directory: %w", err)
+func writeIFDWithOptionalSubIFDs(tf *golibtiff.TIFF, meta *ExtractedMetadata) error {
+	if meta == nil {
+		return tf.WriteDirectory()
 	}
+	hasEXIF := len(meta.EXIF) > 0
+	hasGPS := len(meta.GPS) > 0
 
-	writeTagMap(tf, meta.RawTags, exifMappings)
-
-	// MakerNotes (base64 decoded)
-	if mn := getMakerNotes(meta.RawTags); len(mn) > 0 {
-		tf.SetFieldByteSlice(golibtiff.TagExifMakerNote, mn)
-	}
-
-	offset, err := tf.WriteCustomDirectory()
-	if err != nil {
-		return fmt.Errorf("write custom directory: %w", err)
-	}
-	if err := tf.SetDirectory(0); err != nil {
-		return fmt.Errorf("set directory 0: %w", err)
-	}
-	if err := tf.SetFieldUint64(golibtiff.TagEXIFIFD, offset); err != nil {
-		return fmt.Errorf("set EXIFIFD pointer: %w", err)
-	}
+	// Step 1: Write main IFD (IFD0) to disk.
 	if err := tf.WriteDirectory(); err != nil {
-		return fmt.Errorf("rewrite main IFD: %w", err)
+		return fmt.Errorf("write IFD0: %w", err)
 	}
-	return nil
-}
 
-func writeIFDWithOptionalEXIF(tf *golibtiff.TIFF, meta *ExtractedMetadata) error {
-	if err := tf.WriteDirectory(); err != nil {
-		return fmt.Errorf("write main IFD: %w", err)
-	}
-	if meta != nil && meta.hasEXIF() {
+	// Step 2: Write EXIF Sub-IFD (if present).
+	if hasEXIF {
 		if err := tf.SetDirectory(0); err != nil {
-			return fmt.Errorf("set directory 0: %w", err)
+			return fmt.Errorf("set dir 0 for EXIF: %w", err)
 		}
-		if err := writeEXIFSubIFD(tf, meta); err != nil {
-			return fmt.Errorf("write EXIF sub-IFD: %w", err)
+		if err := tf.CreateEXIFDirectory(); err != nil {
+			return fmt.Errorf("create EXIF directory: %w", err)
+		}
+		writeGroup(tf, meta.EXIF, nil)
+		exifOffset, err := tf.WriteCustomDirectory()
+		if err != nil {
+			return fmt.Errorf("write EXIF custom directory: %w", err)
+		}
+
+		// Update EXIF pointer in IFD0.
+		if err := tf.SetDirectory(0); err != nil {
+			return fmt.Errorf("set dir 0 after EXIF: %w", err)
+		}
+		if err := tf.SetFieldUint64(golibtiff.TagEXIFIFD, exifOffset); err != nil {
+			return fmt.Errorf("set EXIF IFD pointer: %w", err)
+		}
+		if err := tf.WriteDirectory(); err != nil {
+			return fmt.Errorf("write IFD0 with EXIF pointer: %w", err)
 		}
 	}
+
+	// Step 3: Write GPS Sub-IFD (if present).
+	if hasGPS {
+		if err := tf.SetDirectory(0); err != nil {
+			return fmt.Errorf("set dir 0 for GPS: %w", err)
+		}
+		if err := tf.CreateGPSDirectory(); err != nil {
+			return fmt.Errorf("create GPS directory: %w", err)
+		}
+		writeGroup(tf, meta.GPS, nil)
+		gpsOffset, err := tf.WriteCustomDirectory()
+		if err != nil {
+			return fmt.Errorf("write GPS custom directory: %w", err)
+		}
+		if err := tf.SetDirectory(0); err != nil {
+			return fmt.Errorf("set dir 0 after GPS: %w", err)
+		}
+		if err := tf.SetFieldUint64(golibtiff.TagGPSIFD, gpsOffset); err != nil {
+			return fmt.Errorf("set GPS IFD pointer: %w", err)
+		}
+		if err := tf.WriteDirectory(); err != nil {
+			return fmt.Errorf("write IFD0 with GPS pointer: %w", err)
+		}
+	}
+
 	return nil
 }

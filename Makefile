@@ -161,12 +161,12 @@ endif
 exiftool-download-macos:
 	@echo "Downloading ExifTool $(EXIFTOOL_VERSION) for macOS..."
 	@rm -rf third-party/macos-universal
-	@mkdir -p third-party/macos-universal/exiftool_files
+	@mkdir -p third-party/macos-universal
 	curl -L -o /tmp/exiftool-mac.tar.gz \
 		"$(EXIFTOOL_SF_BASE)/Image-ExifTool-$(EXIFTOOL_VERSION).tar.gz/download"
 	tar xzf /tmp/exiftool-mac.tar.gz -C /tmp
 	cp /tmp/Image-ExifTool-$(EXIFTOOL_VERSION)/exiftool third-party/macos-universal/exiftool
-	cp -r /tmp/Image-ExifTool-$(EXIFTOOL_VERSION)/lib third-party/macos-universal/exiftool_files/lib
+	cp -r /tmp/Image-ExifTool-$(EXIFTOOL_VERSION)/lib third-party/macos-universal/lib
 	chmod +x third-party/macos-universal/exiftool
 	rm -rf /tmp/Image-ExifTool-$(EXIFTOOL_VERSION) /tmp/exiftool-mac.tar.gz
 	@echo "$(EXIFTOOL_VERSION)" > third-party/macos-universal/.exiftool-version

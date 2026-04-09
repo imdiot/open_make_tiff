@@ -38,14 +38,6 @@ const (
 	CameraRaw153 CameraRawVersion = "15.3"
 )
 
-func AllCameraRawVersions() []CameraRawVersion {
-	return []CameraRawVersion{
-		CameraRaw54, CameraRaw66, CameraRaw71,
-		CameraRaw112, CameraRaw124, CameraRaw132,
-		CameraRaw140, CameraRaw153,
-	}
-}
-
 func (v CameraRawVersion) String() string {
 	return string(v)
 }
@@ -61,12 +53,6 @@ const (
 	DNG17  DNGVersion = "1.7"
 	DNG171 DNGVersion = "1.7.1"
 )
-
-func AllDNGVersions() []DNGVersion {
-	return []DNGVersion{
-		DNG11, DNG13, DNG14, DNG15, DNG16, DNG17, DNG171,
-	}
-}
 
 func (v DNGVersion) String() string {
 	return string(v)

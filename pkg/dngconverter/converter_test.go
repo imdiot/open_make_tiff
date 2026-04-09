@@ -228,22 +228,6 @@ func TestPreviewSizeString(t *testing.T) {
 	}
 }
 
-func TestAllVersionsReturnValid(t *testing.T) {
-	// Test that AllCameraRawVersions returns expected versions
-	crVersions := AllCameraRawVersions()
-	expectedCount := 8
-	if len(crVersions) != expectedCount {
-		t.Errorf("AllCameraRawVersions() returned %d versions, want %d", len(crVersions), expectedCount)
-	}
-
-	// Test that AllDNGVersions returns expected versions
-	dngVersions := AllDNGVersions()
-	expectedDNGCount := 7
-	if len(dngVersions) != expectedDNGCount {
-		t.Errorf("AllDNGVersions() returned %d versions, want %d", len(dngVersions), expectedDNGCount)
-	}
-}
-
 func TestGetDefaultExecutablePath(t *testing.T) {
 	path := GetDefaultExecutablePath()
 	if path == "" {

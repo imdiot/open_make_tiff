@@ -130,7 +130,10 @@ func TestClosedHandle(t *testing.T) {
 	tif, _ := Open(path, OpenRead)
 	tif.Close()
 
-	if tif.Width() != 0 {
+	v, err := tif.Width()
+	if err == nil {
+		t.Error("Width on closed handle should error")
+	} else if v != 0 {
 		t.Error("Width on closed handle should return 0")
 	}
 	if tif.IsTiled() {
@@ -159,26 +162,40 @@ func TestWriteAndRead(t *testing.T) {
 	}
 	defer tif.Close()
 
-	if tif.Width() != w {
-		t.Errorf("Width = %d, want %d", tif.Width(), w)
+	if v, err := tif.Width(); err != nil {
+		t.Fatalf("Width: %v", err)
+	} else if v != w {
+		t.Errorf("Width = %d, want %d", v, w)
 	}
-	if tif.Height() != h {
-		t.Errorf("Height = %d, want %d", tif.Height(), h)
+	if v, err := tif.Height(); err != nil {
+		t.Fatalf("Height: %v", err)
+	} else if v != h {
+		t.Errorf("Height = %d, want %d", v, h)
 	}
-	if tif.BitsPerSample() != 8 {
-		t.Errorf("BitsPerSample = %d, want 8", tif.BitsPerSample())
+	if v, err := tif.BitsPerSample(); err != nil {
+		t.Fatalf("BitsPerSample: %v", err)
+	} else if v != 8 {
+		t.Errorf("BitsPerSample = %d, want 8", v)
 	}
-	if tif.SamplesPerPixel() != 3 {
-		t.Errorf("SamplesPerPixel = %d, want 3", tif.SamplesPerPixel())
+	if v, err := tif.SamplesPerPixel(); err != nil {
+		t.Fatalf("SamplesPerPixel: %v", err)
+	} else if v != 3 {
+		t.Errorf("SamplesPerPixel = %d, want 3", v)
 	}
-	if tif.Compression() != CompressionNone {
-		t.Errorf("Compression = %d, want %d", tif.Compression(), CompressionNone)
+	if v, err := tif.Compression(); err != nil {
+		t.Fatalf("Compression: %v", err)
+	} else if v != CompressionNone {
+		t.Errorf("Compression = %d, want %d", v, CompressionNone)
 	}
-	if tif.Photometric() != PhotometricRGB {
-		t.Errorf("Photometric = %d, want %d", tif.Photometric(), PhotometricRGB)
+	if v, err := tif.Photometric(); err != nil {
+		t.Fatalf("Photometric: %v", err)
+	} else if v != PhotometricRGB {
+		t.Errorf("Photometric = %d, want %d", v, PhotometricRGB)
 	}
-	if tif.PlanarConfig() != PlanarConfigContig {
-		t.Errorf("PlanarConfig = %d, want %d", tif.PlanarConfig(), PlanarConfigContig)
+	if v, err := tif.PlanarConfig(); err != nil {
+		t.Fatalf("PlanarConfig: %v", err)
+	} else if v != PlanarConfigContig {
+		t.Errorf("PlanarConfig = %d, want %d", v, PlanarConfigContig)
 	}
 
 	sw, err := tif.Software()
@@ -245,8 +262,10 @@ func TestLZWCompression(t *testing.T) {
 	}
 	defer tif2.Close()
 
-	if tif2.Compression() != CompressionLZW {
-		t.Errorf("Compression = %d, want %d", tif2.Compression(), CompressionLZW)
+	if v, err := tif2.Compression(); err != nil {
+		t.Fatalf("Compression: %v", err)
+	} else if v != CompressionLZW {
+		t.Errorf("Compression = %d, want %d", v, CompressionLZW)
 	}
 
 	buf := make([]byte, w*h)
@@ -303,8 +322,10 @@ func TestDeflateCompression(t *testing.T) {
 	}
 	defer tif2.Close()
 
-	if tif2.Compression() != CompressionDeflate {
-		t.Errorf("Compression = %d, want %d", tif2.Compression(), CompressionDeflate)
+	if v, err := tif2.Compression(); err != nil {
+		t.Fatalf("Compression: %v", err)
+	} else if v != CompressionDeflate {
+		t.Errorf("Compression = %d, want %d", v, CompressionDeflate)
 	}
 
 	buf := make([]byte, w*h)
@@ -600,8 +621,10 @@ func TestSetFieldFloatSlice(t *testing.T) {
 	}
 	defer tif.Close()
 
-	if tif.Width() != 1 || tif.Height() != 1 {
-		t.Errorf("dimensions = %dx%d, want 1x1", tif.Width(), tif.Height())
+	wv, _ := tif.Width()
+	hv, _ := tif.Height()
+	if wv != 1 || hv != 1 {
+		t.Errorf("dimensions = %dx%d, want 1x1", wv, hv)
 	}
 }
 
@@ -1349,8 +1372,10 @@ func TestGPSSubIFD(t *testing.T) {
 	}
 	defer tif.Close()
 
-	if tif.Width() != w || tif.Height() != h {
-		t.Errorf("dimensions = %dx%d, want %dx%d", tif.Width(), tif.Height(), w, h)
+	wv, _ := tif.Width()
+	hv, _ := tif.Height()
+	if wv != w || hv != h {
+		t.Errorf("dimensions = %dx%d, want %dx%d", wv, hv, w, h)
 	}
 
 	gpsOffset, err := tif.GetFieldUint64(TagGPSIFD)
@@ -1374,17 +1399,25 @@ func TestFixtures(t *testing.T) {
 		{
 			"Grayscale8bit", "minisblack-1c-8b.tiff",
 			func(t *testing.T, tf *TIFF) {
-				if tf.Width() == 0 || tf.Height() == 0 {
+				wv, _ := tf.Width()
+				hv, _ := tf.Height()
+				if wv == 0 || hv == 0 {
 					t.Error("expected non-zero dimensions")
 				}
-				if tf.BitsPerSample() != 8 {
-					t.Errorf("BitsPerSample = %d, want 8", tf.BitsPerSample())
+				if v, err := tf.BitsPerSample(); err != nil {
+					t.Fatalf("BitsPerSample: %v", err)
+				} else if v != 8 {
+					t.Errorf("BitsPerSample = %d, want 8", v)
 				}
-				if tf.SamplesPerPixel() != 1 {
-					t.Errorf("SamplesPerPixel = %d, want 1", tf.SamplesPerPixel())
+				if v, err := tf.SamplesPerPixel(); err != nil {
+					t.Fatalf("SamplesPerPixel: %v", err)
+				} else if v != 1 {
+					t.Errorf("SamplesPerPixel = %d, want 1", v)
 				}
-				if tf.Photometric() != PhotometricMinIsBlack {
-					t.Errorf("Photometric = %d, want %d", tf.Photometric(), PhotometricMinIsBlack)
+				if v, err := tf.Photometric(); err != nil {
+					t.Fatalf("Photometric: %v", err)
+				} else if v != PhotometricMinIsBlack {
+					t.Errorf("Photometric = %d, want %d", v, PhotometricMinIsBlack)
 				}
 				if tf.IsTiled() {
 					t.Error("strip-based image should not report as tiled")
@@ -1398,10 +1431,13 @@ func TestFixtures(t *testing.T) {
 		{
 			"Grayscale16bit", "minisblack-1c-16b.tiff",
 			func(t *testing.T, tf *TIFF) {
-				if tf.BitsPerSample() != 16 {
-					t.Errorf("BitsPerSample = %d, want 16", tf.BitsPerSample())
+				if v, err := tf.BitsPerSample(); err != nil {
+					t.Fatalf("BitsPerSample: %v", err)
+				} else if v != 16 {
+					t.Errorf("BitsPerSample = %d, want 16", v)
 				}
-				expected := int64(tf.Width()) * 2
+				wv, _ := tf.Width()
+				expected := int64(wv) * 2
 				if tf.ScanlineSize() != expected {
 					t.Errorf("ScanlineSize = %d, want %d", tf.ScanlineSize(), expected)
 				}
@@ -1414,14 +1450,20 @@ func TestFixtures(t *testing.T) {
 		{
 			"RGB8bit", "rgb-3c-8b.tiff",
 			func(t *testing.T, tf *TIFF) {
-				if tf.SamplesPerPixel() != 3 {
-					t.Errorf("SamplesPerPixel = %d, want 3", tf.SamplesPerPixel())
+				if v, err := tf.SamplesPerPixel(); err != nil {
+					t.Fatalf("SamplesPerPixel: %v", err)
+				} else if v != 3 {
+					t.Errorf("SamplesPerPixel = %d, want 3", v)
 				}
-				if tf.Photometric() != PhotometricRGB {
-					t.Errorf("Photometric = %d, want %d (RGB)", tf.Photometric(), PhotometricRGB)
+				if v, err := tf.Photometric(); err != nil {
+					t.Fatalf("Photometric: %v", err)
+				} else if v != PhotometricRGB {
+					t.Errorf("Photometric = %d, want %d (RGB)", v, PhotometricRGB)
 				}
-				if tf.BitsPerSample() != 8 {
-					t.Errorf("BitsPerSample = %d, want 8", tf.BitsPerSample())
+				if v, err := tf.BitsPerSample(); err != nil {
+					t.Fatalf("BitsPerSample: %v", err)
+				} else if v != 8 {
+					t.Errorf("BitsPerSample = %d, want 8", v)
 				}
 				buf := make([]byte, tf.ScanlineSize())
 				if err := tf.ReadScanline(buf, 0); err != nil {
@@ -1432,13 +1474,18 @@ func TestFixtures(t *testing.T) {
 		{
 			"RGB16bit", "rgb-3c-16b.tiff",
 			func(t *testing.T, tf *TIFF) {
-				if tf.BitsPerSample() != 16 {
-					t.Errorf("BitsPerSample = %d, want 16", tf.BitsPerSample())
+				if v, err := tf.BitsPerSample(); err != nil {
+					t.Fatalf("BitsPerSample: %v", err)
+				} else if v != 16 {
+					t.Errorf("BitsPerSample = %d, want 16", v)
 				}
-				if tf.SamplesPerPixel() != 3 {
-					t.Errorf("SamplesPerPixel = %d, want 3", tf.SamplesPerPixel())
+				if v, err := tf.SamplesPerPixel(); err != nil {
+					t.Fatalf("SamplesPerPixel: %v", err)
+				} else if v != 3 {
+					t.Errorf("SamplesPerPixel = %d, want 3", v)
 				}
-				expected := int64(tf.Width()) * 3 * 2
+				wv, _ := tf.Width()
+				expected := int64(wv) * 3 * 2
 				if tf.ScanlineSize() != expected {
 					t.Errorf("ScanlineSize = %d, want %d", tf.ScanlineSize(), expected)
 				}
@@ -1447,30 +1494,40 @@ func TestFixtures(t *testing.T) {
 		{
 			"Bilevel", "miniswhite-1c-1b.tiff",
 			func(t *testing.T, tf *TIFF) {
-				if tf.BitsPerSample() != 1 {
-					t.Errorf("BitsPerSample = %d, want 1", tf.BitsPerSample())
+				if v, err := tf.BitsPerSample(); err != nil {
+					t.Fatalf("BitsPerSample: %v", err)
+				} else if v != 1 {
+					t.Errorf("BitsPerSample = %d, want 1", v)
 				}
-				if tf.Photometric() != PhotometricMinIsWhite {
-					t.Errorf("Photometric = %d, want %d", tf.Photometric(), PhotometricMinIsWhite)
+				if v, err := tf.Photometric(); err != nil {
+					t.Fatalf("Photometric: %v", err)
+				} else if v != PhotometricMinIsWhite {
+					t.Errorf("Photometric = %d, want %d", v, PhotometricMinIsWhite)
 				}
 			},
 		},
 		{
 			"Palette", "palette-1c-8b.tiff",
 			func(t *testing.T, tf *TIFF) {
-				if tf.Photometric() != PhotometricPalette {
-					t.Errorf("Photometric = %d, want %d (Palette)", tf.Photometric(), PhotometricPalette)
+				if v, err := tf.Photometric(); err != nil {
+					t.Fatalf("Photometric: %v", err)
+				} else if v != PhotometricPalette {
+					t.Errorf("Photometric = %d, want %d (Palette)", v, PhotometricPalette)
 				}
-				if tf.BitsPerSample() != 8 {
-					t.Errorf("BitsPerSample = %d, want 8", tf.BitsPerSample())
+				if v, err := tf.BitsPerSample(); err != nil {
+					t.Fatalf("BitsPerSample: %v", err)
+				} else if v != 8 {
+					t.Errorf("BitsPerSample = %d, want 8", v)
 				}
 			},
 		},
 		{
 			"LZWSingleStrip", "lzw-single-strip.tiff",
 			func(t *testing.T, tf *TIFF) {
-				if tf.Compression() != CompressionLZW {
-					t.Errorf("Compression = %d, want %d (LZW)", tf.Compression(), CompressionLZW)
+				if v, err := tf.Compression(); err != nil {
+					t.Fatalf("Compression: %v", err)
+				} else if v != CompressionLZW {
+					t.Errorf("Compression = %d, want %d (LZW)", v, CompressionLZW)
 				}
 				stripSize := tf.StripSize()
 				buf := make([]byte, stripSize)
@@ -1488,8 +1545,10 @@ func TestFixtures(t *testing.T) {
 		{
 			"LZWCompat", "quad-lzw-compat.tiff",
 			func(t *testing.T, tf *TIFF) {
-				if tf.Compression() != CompressionLZW {
-					t.Errorf("Compression = %d, want %d", tf.Compression(), CompressionLZW)
+				if v, err := tf.Compression(); err != nil {
+					t.Fatalf("Compression: %v", err)
+				} else if v != CompressionLZW {
+					t.Errorf("Compression = %d, want %d", v, CompressionLZW)
 				}
 				buf := make([]byte, tf.StripSize())
 				for strip := uint32(0); strip < tf.NumberOfStrips(); strip++ {
@@ -1505,8 +1564,8 @@ func TestFixtures(t *testing.T) {
 				if !tf.IsTiled() {
 					t.Fatal("expected tiled image")
 				}
-				tw := tf.TileWidth()
-				tl := tf.TileLength()
+				tw, _ := tf.TileWidth()
+				tl, _ := tf.TileLength()
 				if tw == 0 || tl == 0 {
 					t.Errorf("TileWidth=%d, TileLength=%d, expected non-zero", tw, tl)
 				}
@@ -1523,11 +1582,15 @@ func TestFixtures(t *testing.T) {
 		{
 			"AlphaChannel", "minisblack-2c-8b-alpha.tiff",
 			func(t *testing.T, tf *TIFF) {
-				if tf.SamplesPerPixel() != 2 {
-					t.Errorf("SamplesPerPixel = %d, want 2 (grayscale + alpha)", tf.SamplesPerPixel())
+				if v, err := tf.SamplesPerPixel(); err != nil {
+					t.Fatalf("SamplesPerPixel: %v", err)
+				} else if v != 2 {
+					t.Errorf("SamplesPerPixel = %d, want 2 (grayscale + alpha)", v)
 				}
-				if tf.BitsPerSample() != 8 {
-					t.Errorf("BitsPerSample = %d, want 8", tf.BitsPerSample())
+				if v, err := tf.BitsPerSample(); err != nil {
+					t.Fatalf("BitsPerSample: %v", err)
+				} else if v != 8 {
+					t.Errorf("BitsPerSample = %d, want 8", v)
 				}
 			},
 		},
@@ -1561,7 +1624,8 @@ func TestFixtures(t *testing.T) {
 				if err := tf.RGBAImageOK(); err != nil {
 					t.Fatalf("RGBAImageOK: %v", err)
 				}
-				w, h := tf.Width(), tf.Height()
+				w, _ := tf.Width()
+				h, _ := tf.Height()
 				buf := make([]uint32, w*h)
 				if err := tf.ReadRGBAImage(buf); err != nil {
 					t.Fatalf("ReadRGBAImage: %v", err)
@@ -1575,19 +1639,25 @@ func TestFixtures(t *testing.T) {
 			"32bppNone", "32bpp-None.tiff",
 			func(t *testing.T, tf *TIFF) {
 				// 32bpp-None is actually 8-bit per channel RGBA (4 samples * 8 bits = 32bpp).
-				if tf.BitsPerSample() != 8 {
-					t.Errorf("BitsPerSample = %d, want 8", tf.BitsPerSample())
+				if v, err := tf.BitsPerSample(); err != nil {
+					t.Fatalf("BitsPerSample: %v", err)
+				} else if v != 8 {
+					t.Errorf("BitsPerSample = %d, want 8", v)
 				}
-				if tf.SamplesPerPixel() != 4 {
-					t.Errorf("SamplesPerPixel = %d, want 4", tf.SamplesPerPixel())
+				if v, err := tf.SamplesPerPixel(); err != nil {
+					t.Fatalf("SamplesPerPixel: %v", err)
+				} else if v != 4 {
+					t.Errorf("SamplesPerPixel = %d, want 4", v)
 				}
 			},
 		},
 		{
 			"DeflateLastStrip", "deflate-last-strip-extra-data.tiff",
 			func(t *testing.T, tf *TIFF) {
-				if tf.Compression() != CompressionDeflate {
-					t.Errorf("Compression = %d, want %d", tf.Compression(), CompressionDeflate)
+				if v, err := tf.Compression(); err != nil {
+					t.Fatalf("Compression: %v", err)
+				} else if v != CompressionDeflate {
+					t.Errorf("Compression = %d, want %d", v, CompressionDeflate)
 				}
 				buf := make([]byte, tf.StripSize())
 				for strip := uint32(0); strip < tf.NumberOfStrips(); strip++ {

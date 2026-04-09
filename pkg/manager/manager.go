@@ -244,11 +244,11 @@ func (m *Manager) checkConfig() {
 }
 
 // symlinkIfExists creates a symlink only if src exists.
-func symlinkIfExists(src, dst string) {
+func symlinkIfExists(src, dst string) error {
 	if _, err := os.Stat(src); err != nil {
-		return
+		return nil
 	}
-	_ = os.Symlink(src, dst)
+	return os.Symlink(src, dst)
 }
 
 // initDNGShadowBundle creates a Shadow Bundle to suppress the DNG Converter Dock icon.
@@ -274,8 +274,12 @@ func (m *Manager) initDNGShadowBundle() {
 		if err := os.Symlink(dngExec, filepath.Join(macOSPath, filepath.Base(dngExec))); err != nil {
 			return err
 		}
-		symlinkIfExists(filepath.Join(dngBundle, "Contents", "Frameworks"), filepath.Join(wp, "Contents", "Frameworks"))
-		symlinkIfExists(filepath.Join(dngBundle, "Contents", "Resources"), filepath.Join(wp, "Contents", "Resources"))
+		if err := symlinkIfExists(filepath.Join(dngBundle, "Contents", "Frameworks"), filepath.Join(wp, "Contents", "Frameworks")); err != nil {
+			return err
+		}
+		if err := symlinkIfExists(filepath.Join(dngBundle, "Contents", "Resources"), filepath.Join(wp, "Contents", "Resources")); err != nil {
+			return err
+		}
 
 		data, err := os.ReadFile(filepath.Join(dngBundle, "Contents", "Info.plist"))
 		if err != nil {

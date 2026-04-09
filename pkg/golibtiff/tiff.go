@@ -560,7 +560,14 @@ func (t *TIFF) ReadRGBAImage(buf []uint32) error {
 	if err := t.checkOpen(); err != nil {
 		return err
 	}
-	w, h := t.Width(), t.Height()
+	w, err := t.Width()
+	if err != nil {
+		return &ReadError{Op: "rgba_image", Msg: err.Error()}
+	}
+	h, err := t.Height()
+	if err != nil {
+		return &ReadError{Op: "rgba_image", Msg: err.Error()}
+	}
 	if w == 0 || h == 0 {
 		return &ReadError{Op: "rgba_image", Msg: "invalid dimensions"}
 	}

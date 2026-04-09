@@ -541,17 +541,29 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *Extra
 	if err := tf.SetFieldUint32(golibtiff.TagImageLength, h); err != nil {
 		return fmt.Errorf("set ImageLength: %w", err)
 	}
-	_ = tf.SetFieldUint16(golibtiff.TagBitsPerSample, bits)
-	_ = tf.SetFieldUint16(golibtiff.TagSamplesPerPixel, colors)
-	_ = tf.SetFieldUint16(golibtiff.TagPhotometric, golibtiff.PhotometricRGB)
+	if err := tf.SetFieldUint16(golibtiff.TagBitsPerSample, bits); err != nil {
+		return fmt.Errorf("set BitsPerSample: %w", err)
+	}
+	if err := tf.SetFieldUint16(golibtiff.TagSamplesPerPixel, colors); err != nil {
+		return fmt.Errorf("set SamplesPerPixel: %w", err)
+	}
+	if err := tf.SetFieldUint16(golibtiff.TagPhotometric, golibtiff.PhotometricRGB); err != nil {
+		return fmt.Errorf("set Photometric: %w", err)
+	}
 	if r.cfg.EnableCompression {
 		if err := tf.SetFieldUint16(golibtiff.TagCompression, golibtiff.CompressionLZW); err != nil {
 			return fmt.Errorf("set Compression: %w", err)
 		}
-		_ = tf.SetFieldUint16(golibtiff.TagPredictor, golibtiff.PredictorHorizontal)
+		if err := tf.SetFieldUint16(golibtiff.TagPredictor, golibtiff.PredictorHorizontal); err != nil {
+			return fmt.Errorf("set Predictor: %w", err)
+		}
 	}
-	_ = tf.SetFieldUint16(golibtiff.TagPlanarConfig, golibtiff.PlanarConfigContig)
-	_ = tf.SetFieldUint32(golibtiff.TagRowsPerStrip, h)
+	if err := tf.SetFieldUint16(golibtiff.TagPlanarConfig, golibtiff.PlanarConfigContig); err != nil {
+		return fmt.Errorf("set PlanarConfig: %w", err)
+	}
+	if err := tf.SetFieldUint32(golibtiff.TagRowsPerStrip, h); err != nil {
+		return fmt.Errorf("set RowsPerStrip: %w", err)
+	}
 
 	if meta != nil {
 		if err := writeIFD0Tags(tf, meta, r.cfg); err != nil {
@@ -561,10 +573,14 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *Extra
 		// This prevents libtiff from rewriting the main IFD to a new location
 		// when we later set the real offsets (per libtiff official docs).
 		if len(meta.EXIF) > 0 {
-			_ = tf.SetFieldUint64(golibtiff.TagEXIFIFD, 0)
+			if err := tf.SetFieldUint64(golibtiff.TagEXIFIFD, 0); err != nil {
+				return fmt.Errorf("set EXIF IFD offset: %w", err)
+			}
 		}
 		if len(meta.GPS) > 0 {
-			_ = tf.SetFieldUint64(golibtiff.TagGPSIFD, 0)
+			if err := tf.SetFieldUint64(golibtiff.TagGPSIFD, 0); err != nil {
+				return fmt.Errorf("set GPS IFD offset: %w", err)
+			}
 		}
 	}
 

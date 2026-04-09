@@ -180,7 +180,6 @@ const handleConfigChange = async () => {
           <el-checkbox
               label="keep window top"
               size="small"
-              :disabled="running"
               v-model="config.enableWindowTop"
               @change="handleConfigChange"
           />

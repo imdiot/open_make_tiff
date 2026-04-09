@@ -1,12 +1,9 @@
-vcpkg_download_distfile(ARCHIVE
-    URLS "https://github.com/LibRaw/LibRaw/archive/4224202121cd94e87d96bf789750251ed38a0386.zip"
-    FILENAME "LibRaw-4224202121cd94e87d96bf789750251ed38a0386.zip"
-    SHA512 a563b23b4412e15e198941a242372b7a0250ea4da8eeb7b6adcb4d19f231c77d2d8a8036cc572639c9daf3d8f8ed71eba3a5298adeb8aa18df72073a5a747a59
-)
-
-vcpkg_extract_source_archive(
-    SOURCE_PATH
-    ARCHIVE "${ARCHIVE}"
+vcpkg_from_github(
+    OUT_SOURCE_PATH SOURCE_PATH
+    REPO LibRaw/LibRaw
+    REF "${VERSION}"
+    SHA512 123050ea30366ada37b40e0aee84453f71f10a5e5e39261a1d16b96dc395f85a9ecdfd043d51b4c347a67546affdfa7ca84c10fa84d73b9b4070c074f1d301e8
+    HEAD_REF master
 )
 
 vcpkg_from_github(

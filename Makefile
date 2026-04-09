@@ -33,7 +33,7 @@ VCPKG_PACKAGES = \
 	tiff[cxx,jpeg,lerc,libdeflate,lzma,webp,zip,zstd]
 
 # ExifTool configuration
-EXIFTOOL_VERSION   := 13.50
+EXIFTOOL_VERSION   := 13.55
 EXIFTOOL_SF_BASE   := https://sourceforge.net/projects/exiftool/files
 
 OVERLAY_PORTS    = third-party/vcpkg/ports

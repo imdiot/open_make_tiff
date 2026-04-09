@@ -13,149 +13,76 @@ import (
 	"open-make-tiff/pkg/golibtiff"
 )
 
-// tagWriter writes a single tag value to a TIFF IFD.
-type tagWriter func(tf *golibtiff.TIFF, tag golibtiff.Tag, v any)
-
-// tagMapping maps an ExifTool JSON key to a libtiff tag + writer function.
-type tagMapping struct {
-	jsonKey string
-	tag     golibtiff.Tag
-	write   tagWriter
+// TagInfo represents a single tag from exiftool's structured JSON output (-l flag).
+type TagInfo struct {
+	Val   string `json:"val"`              // Display value; binary tags become "base64:..."
+	Num   any    `json:"num,omitempty"`     // Numeric value (float64 or string)
+	Rat   string `json:"rat,omitempty"`     // Raw RATIONAL: "1/15", "54/1 5938/100 0/1"
+	Hex   string `json:"hex,omitempty"`     // Raw bytes hex (large data truncated to [...])
+	Fmt   string `json:"fmt,omitempty"`     // exiftool format: int16u/rational64u/string/undef etc.
+	ID    any    `json:"id"`                // Tag ID (int or "0x0112")
+	Table string `json:"table"`             // Source table (Exif::Main, GPS::Main etc.)
 }
 
-// Predefined writer functions for each TIFF field type.
-var (
-	writeStr tagWriter = func(tf *golibtiff.TIFF, tag golibtiff.Tag, v any) {
-		tf.SetFieldString(tag, valToStr(v))
-	}
-	writeByteStr tagWriter = func(tf *golibtiff.TIFF, tag golibtiff.Tag, v any) {
-		tf.SetFieldByteSlice(tag, []byte(valToStr(v)))
-	}
-	writeFlt tagWriter = func(tf *golibtiff.TIFF, tag golibtiff.Tag, v any) {
-		tf.SetFieldFloat(tag, valToFloat(v))
-	}
-	writeU16 tagWriter = func(tf *golibtiff.TIFF, tag golibtiff.Tag, v any) {
-		tf.SetFieldUint16(tag, valToUint16(v))
-	}
-	writeU32 tagWriter = func(tf *golibtiff.TIFF, tag golibtiff.Tag, v any) {
-		tf.SetFieldUint32(tag, valToUint32(v))
-	}
-	writeU8 tagWriter = func(tf *golibtiff.TIFF, tag golibtiff.Tag, v any) {
-		tf.SetFieldUint8(tag, uint8(valToUint16(v)))
-	}
-	writeU16Slice tagWriter = func(tf *golibtiff.TIFF, tag golibtiff.Tag, v any) {
-		tf.SetFieldUint16Slice(tag, []uint16{valToUint16(v)})
-	}
-	writeFltSlice tagWriter = func(tf *golibtiff.TIFF, tag golibtiff.Tag, v any) {
-		if s := valToFloatSlice(v); len(s) > 0 {
-			tf.SetFieldFloatSlice(tag, s)
-		}
-	}
-	writeC0FltSlice tagWriter = func(tf *golibtiff.TIFF, tag golibtiff.Tag, v any) {
-		if s := valToFloatSlice(v); len(s) > 0 {
-			tf.SetFieldC0FloatSlice(tag, s)
-		}
-	}
-)
-
-// IFD0 tag mappings (written to main IFD).
-var ifd0Mappings = []tagMapping{
-	{"Make", golibtiff.TagMake, writeStr},
-	{"Model", golibtiff.TagModel, writeStr},
-	{"Software", golibtiff.TagSoftware, writeStr},
-	{"ModifyDate", golibtiff.TagDateTime, writeStr},
-	{"Artist", golibtiff.TagArtist, writeStr},
-	{"Copyright", golibtiff.TagCopyright, writeStr},
-}
-
-// DNG override tag mappings (written to main IFD, from secondSrcPath).
-var dngOverrideMappings = []tagMapping{
-	{"UniqueCameraModel", golibtiff.TagUniqueCameraModel, writeStr},
-	{"LocalizedCameraModel", golibtiff.TagLocalizedCameraModel, writeByteStr},
-	{"AsShotNeutral", golibtiff.TagAsShotNeutral, writeFltSlice},
-}
-
-// EXIF Sub-IFD tag mappings.
-var exifMappings = []tagMapping{
-	{"ExposureTime", golibtiff.TagExifExposureTime, writeFlt},
-	{"FNumber", golibtiff.TagExifFNumber, writeFlt},
-	{"ExposureProgram", golibtiff.TagExifExposureProgram, writeU16},
-	{"ISO", golibtiff.TagExifISO, writeU16Slice},
-	{"SensitivityType", golibtiff.TagExifSensitivityType, writeU16},
-	{"StandardOutputSensitivity", golibtiff.TagExifStandardOutputSensitivity, writeU32},
-	{"ShutterSpeedValue", golibtiff.TagExifShutterSpeedValue, writeFlt},
-	{"ApertureValue", golibtiff.TagExifApertureValue, writeFlt},
-	{"BrightnessValue", golibtiff.TagExifBrightnessValue, writeFlt},
-	{"ExposureCompensation", golibtiff.TagExifExposureCompensation, writeFlt},
-	{"MaxApertureValue", golibtiff.TagExifMaxApertureValue, writeFlt},
-	{"LightSource", golibtiff.TagExifLightSource, writeU16},
-	{"Flash", golibtiff.TagExifFlash, writeU16},
-	{"FocalLength", golibtiff.TagExifFocalLength, writeFlt},
-	{"CreateDate", golibtiff.TagExifCreateDate, writeStr},
-	{"DateTimeOriginal", golibtiff.TagExifDateTimeOriginal, writeStr},
-	{"OffsetTime", golibtiff.TagExifOffsetTime, writeStr},
-	{"OffsetTimeOriginal", golibtiff.TagExifOffsetTimeOriginal, writeStr},
-	{"OffsetTimeDigitized", golibtiff.TagExifOffsetTimeDigitized, writeStr},
-	{"LensInfo", golibtiff.TagExifLensInfo, writeC0FltSlice},
-	{"LensMake", golibtiff.TagExifLensMake, writeStr},
-	{"LensModel", golibtiff.TagExifLensModel, writeStr},
-	{"LensSerialNumber", golibtiff.TagExifLensSerialNumber, writeStr},
-	{"MeteringMode", golibtiff.TagExifMeteringMode, writeU16},
-	{"ColorSpace", golibtiff.TagExifColorSpace, writeU16},
-	{"ExifImageWidth", golibtiff.TagExifImageWidth, writeU32},
-	{"ExifImageHeight", golibtiff.TagExifImageHeight, writeU32},
-	{"SceneCaptureType", golibtiff.TagExifSceneCaptureType, writeU16},
-	{"Sharpness", golibtiff.TagExifSharpness, writeU16},
-	{"SerialNumber", golibtiff.TagExifSerialNumber, writeStr},
-	{"ExposureMode", golibtiff.TagExifExposureMode, writeU16},
-	{"WhiteBalance", golibtiff.TagExifWhiteBalance, writeU16},
-	{"CustomRendered", golibtiff.TagExifCustomRendered, writeU16},
-	{"SceneType", golibtiff.TagExifSceneType, writeU8},
-	{"SensingMethod", golibtiff.TagExifSensingMethod, writeU16},
-	{"SubjectDistanceRange", golibtiff.TagExifSubjectDistanceRange, writeU16},
-	{"Gamma", golibtiff.TagExifGamma, writeFlt},
-}
-
-// MakerNote JSON key variants per manufacturer.
-var makerNoteKeys = []string{
-	"MakerNoteFujiFilm", "MakerNoteCanon", "MakerNoteNikon",
-	"MakerNoteSony", "MakerNoteSigma", "MakerNotePanasonic",
-	"MakerNoteOlympus", "MakerNotePentax", "MakerNoteUnknown",
-}
-
-// ExtractedMetadata holds raw JSON objects from ExifTool and a constructed XMP packet.
+// ExtractedMetadata holds merged metadata ready for TIFF writing.
+// Merging (Raw + DNG override) is done during extraction, not during write.
 type ExtractedMetadata struct {
-	RawTags map[string]any // from rawPath
-	DNGTags map[string]any // from secondSrcPath
-	XMP     []byte         // constructed XMP packet
+	IFD0      map[string]TagInfo // IFD0 tags (Raw base + DNG override for specific tags)
+	EXIF      map[string]TagInfo // EXIF Sub-IFD tags (from Raw)
+	GPS       map[string]TagInfo // GPS Sub-IFD tags (from Raw)
+	XMPPacket []byte             // Constructed XMP packet from DNG's XMP tags
 }
 
-// hasEXIF checks if rawTags contains any EXIF-like keys.
-func (em *ExtractedMetadata) hasEXIF() bool {
-	if em == nil || len(em.RawTags) == 0 {
-		return false
-	}
-	for _, m := range exifMappings {
-		if _, ok := em.RawTags[m.jsonKey]; ok {
-			return true
-		}
-	}
-	return false
+// fileMetadata holds parsed metadata for a single file, grouped by IFD.
+type fileMetadata struct {
+	IFD0 map[string]TagInfo
+	EXIF map[string]TagInfo
+	GPS  map[string]TagInfo
+	XMP  map[string]TagInfo
 }
 
-// extractMetadata reads metadata from rawPath and secondSrcPath via ExifTool.
-// excludeKeys are removed from RawTags after extraction.
-func (r *Runner) extractMetadata(rawPath, secondSrcPath string, excludeExifTagKeys ...string) (*ExtractedMetadata, error) {
+// --- DNG override tag IDs ---
+// These IFD0 tags from DNG (secondSrcPath) override the ones from Raw.
+var dngOverrideIDs = []uint32{
+	50708, // UniqueCameraModel
+	50709, // LocalizedCameraModel
+	50728, // AsShotNeutral
+}
+
+// --- IFD0 skip list ---
+// Tags managed by image data or configuration, not written from metadata.
+var skipIFD0IDs = map[uint32]bool{
+	254: true,                        // NewSubfileType — output is full-res, not thumbnail
+	256: true, 257: true, 258: true, // ImageWidth/Height/BitsPerSample
+	259: true, 262: true, 277: true, // Compression/Photometric/SamplesPerPixel
+	278: true, 279: true, 317: true, // RowsPerStrip/StripOffsets/Predictor
+	339: true, // SampleFormat
+	282: true, 283: true, 296: true, // XResolution/YResolution/ResolutionUnit → config override
+	34665: true, // ExifIFD pointer
+	34853: true, // GPSInfoIFD pointer
+	34675: true, // ICC Profile → config override
+	700: true,   // XMP → packet logic
+}
+
+// --- Extraction ---
+
+func (r *Runner) extractMetadata(rawPath, secondSrcPath string, excludeKeys ...string) (*ExtractedMetadata, error) {
 	if r.et == nil {
 		return nil, nil
 	}
 
+	samePath := pathEqual(rawPath, secondSrcPath)
+
 	args := []string{
-		"-json", "-n", "-b",
-		"-IFD0:All", "-ExifIFD:All",
+		"-json", "-G1", "-l", "-t", "-b", "-a", "-U", "-ee",
+		"-api", "SaveBin=1", "-api", "SaveFormat=1", "-api", "MakerNotes=2",
+		"-IFD0:All", "-ExifIFD:All", "-GPS:All",
 		"-XMP-aux:All", "-XMP-exifEX:All",
 		"-XMP-dc:Subject", "-XMP-lr:HierarchicalSubject", "-XMP-mwg-kw:All",
-		rawPath, secondSrcPath,
+	}
+	args = append(args, rawPath)
+	if !samePath {
+		args = append(args, secondSrcPath)
 	}
 
 	resp, err := r.et.Execute(args...)
@@ -163,86 +90,182 @@ func (r *Runner) extractMetadata(rawPath, secondSrcPath string, excludeExifTagKe
 		return nil, fmt.Errorf("exiftool extract metadata: %w", err)
 	}
 
-	em, err := parseExifToolJSON(resp, rawPath, secondSrcPath, filepath.Base(rawPath))
-	if err != nil {
-		return nil, err
+	var objects []map[string]any
+	if err := json.Unmarshal([]byte(resp), &objects); err != nil {
+		return nil, fmt.Errorf("json parse: %w", err)
 	}
-	for _, key := range excludeExifTagKeys {
-		delete(em.RawTags, key)
+	if len(objects) == 0 {
+		return nil, nil
 	}
+
+	var rawFM, dngFM *fileMetadata
+	if samePath {
+		fm := parseFileMetadata(objects[0])
+		rawFM = fm
+		dngFM = fm
+	} else {
+		for _, obj := range objects {
+			src, _ := obj["SourceFile"].(string)
+			fm := parseFileMetadata(obj)
+			if pathEqual(src, rawPath) {
+				rawFM = fm
+			} else {
+				dngFM = fm
+			}
+		}
+	}
+
+	if rawFM == nil {
+		return nil, nil
+	}
+
+	em := &ExtractedMetadata{
+		IFD0: rawFM.IFD0,
+		EXIF: rawFM.EXIF,
+		GPS:  rawFM.GPS,
+	}
+
+	// DNG override: replace specific IFD0 tags from DNG metadata
+	if dngFM != nil {
+		idMap := make(map[uint32]string, len(dngFM.IFD0))
+		for name, ti := range dngFM.IFD0 {
+			if id := parseTagID(ti.ID); id != 0 {
+				idMap[id] = name
+			}
+		}
+		for _, id := range dngOverrideIDs {
+			if name, ok := idMap[id]; ok {
+				em.IFD0[name] = dngFM.IFD0[name]
+			}
+		}
+	}
+
+	// Exclude specified tag keys
+	for _, key := range excludeKeys {
+		delete(em.IFD0, key)
+		delete(em.EXIF, key)
+	}
+
+	// Build XMP packet from DNG's XMP tags
+	if dngFM != nil && len(dngFM.XMP) > 0 {
+		em.XMPPacket = buildXMPacket(dngFM.XMP, filepath.Base(rawPath))
+	}
+
 	return em, nil
 }
+
+// --- Parsing ---
 
 func pathEqual(a, b string) bool {
 	return a == b || strings.EqualFold(a, b) ||
 		strings.EqualFold(strings.ReplaceAll(a, `\`, `/`), strings.ReplaceAll(b, `\`, `/`))
 }
 
-func parseExifToolJSON(jsonStr, rawPath, secondSrcPath, rawFileName string) (*ExtractedMetadata, error) {
-	var objects []map[string]any
-	if err := json.Unmarshal([]byte(jsonStr), &objects); err != nil {
-		return nil, fmt.Errorf("json parse: %w", err)
+// splitGroupKey extracts group prefix and tag name from a -G1 prefixed key.
+// "IFD0:Make" → ("IFD0", "Make")
+// "XMP-aux:Lens" → ("XMP-aux", "Lens")
+func splitGroupKey(key string) (group, name string) {
+	idx := strings.IndexByte(key, ':')
+	if idx < 0 {
+		return "", key
 	}
-
-	em := &ExtractedMetadata{}
-	samePath := pathEqual(rawPath, secondSrcPath)
-	for _, obj := range objects {
-		src, _ := obj["SourceFile"].(string)
-		if pathEqual(src, rawPath) {
-			em.RawTags = obj
-		}
-		if pathEqual(src, secondSrcPath) {
-			if samePath {
-				cp := make(map[string]any, len(obj))
-				for k, v := range obj {
-					cp[k] = v
-				}
-				em.DNGTags = cp
-			} else {
-				em.DNGTags = obj
-			}
-		}
-	}
-
-	// Build XMP from DNG tags (secondSrcPath block)
-	if len(em.DNGTags) > 0 {
-		em.XMP = buildXMPacket(em.DNGTags, rawFileName)
-	}
-
-	return em, nil
+	return key[:idx], key[idx+1:]
 }
 
-// getMakerNotes decodes base64 MakerNotes from the first matching key.
-func getMakerNotes(obj map[string]any) []byte {
-	for _, key := range makerNoteKeys {
-		if v, ok := obj[key]; ok {
-			s := valToStr(v)
-			data := s
-			if rest, ok := strings.CutPrefix(s, "base64:"); ok {
-				data = rest
-			}
-			if d, err := base64.StdEncoding.DecodeString(data); err == nil {
-				return d
+func parseFileMetadata(obj map[string]any) *fileMetadata {
+	fm := &fileMetadata{
+		IFD0: make(map[string]TagInfo),
+		EXIF: make(map[string]TagInfo),
+		GPS:  make(map[string]TagInfo),
+		XMP:  make(map[string]TagInfo),
+	}
+	for key, raw := range obj {
+		if key == "SourceFile" {
+			continue
+		}
+		group, name := splitGroupKey(key)
+		if name == "" {
+			continue
+		}
+		ti := parseTagInfo(raw)
+		switch group {
+		case "IFD0", "SubIFD":
+			fm.IFD0[name] = ti
+		case "ExifIFD":
+			fm.EXIF[name] = ti
+		case "GPS":
+			fm.GPS[name] = ti
+		default:
+			if strings.HasPrefix(group, "XMP") {
+				fm.XMP[name] = ti
 			}
 		}
 	}
-	return nil
+	return fm
+}
+
+// parseTagInfo converts a raw JSON value to TagInfo.
+// Handles both structured objects (-l flag) and simple values.
+func parseTagInfo(v any) TagInfo {
+	switch val := v.(type) {
+	case map[string]any:
+		ti := TagInfo{}
+		for k, v := range val {
+			switch k {
+			case "val":
+				ti.Val = fmt.Sprintf("%v", v)
+			case "num":
+				ti.Num = v
+			case "rat":
+				if s, ok := v.(string); ok {
+					ti.Rat = s
+				}
+			case "hex":
+				if s, ok := v.(string); ok {
+					ti.Hex = s
+				}
+			case "fmt":
+				if s, ok := v.(string); ok {
+					ti.Fmt = s
+				}
+			case "id":
+				ti.ID = v
+			case "table":
+				if s, ok := v.(string); ok {
+					ti.Table = s
+				}
+			}
+		}
+		return ti
+	case string:
+		return TagInfo{Val: val}
+	default:
+		return TagInfo{Val: fmt.Sprintf("%v", v)}
+	}
+}
+
+// --- Tag ID parsing ---
+
+func parseTagID(v any) uint32 {
+	switch val := v.(type) {
+	case float64:
+		return uint32(val)
+	case string:
+		if strings.HasPrefix(val, "0x") || strings.HasPrefix(val, "0X") {
+			if u, err := strconv.ParseUint(val[2:], 16, 32); err == nil {
+				return uint32(u)
+			}
+		}
+		if u, err := strconv.ParseUint(val, 10, 32); err == nil {
+			return uint32(u)
+		}
+	}
+	return 0
 }
 
 // --- Value conversion helpers ---
 
-func valToStr(v any) string {
-	switch val := v.(type) {
-	case string:
-		return val
-	case float64:
-		return strconv.FormatFloat(val, 'f', -1, 64)
-	default:
-		return fmt.Sprintf("%v", val)
-	}
-}
-
-func valToFloat(v any) float64 {
+func numToFloat(v any) float64 {
 	switch val := v.(type) {
 	case float64:
 		return val
@@ -253,7 +276,7 @@ func valToFloat(v any) float64 {
 	return 0
 }
 
-func valToUint16(v any) uint16 {
+func numToUint16(v any) uint16 {
 	switch val := v.(type) {
 	case float64:
 		return uint16(val)
@@ -264,7 +287,7 @@ func valToUint16(v any) uint16 {
 	return 0
 }
 
-func valToUint32(v any) uint32 {
+func numToUint32(v any) uint32 {
 	switch val := v.(type) {
 	case float64:
 		return uint32(val)
@@ -275,34 +298,221 @@ func valToUint32(v any) uint32 {
 	return 0
 }
 
-func valToFloatSlice(v any) []float64 {
+func numToUint8(v any) uint8 {
 	switch val := v.(type) {
+	case float64:
+		return uint8(val)
 	case string:
-		var r []float64
-		for p := range strings.FieldsSeq(val) {
-			if f, err := strconv.ParseFloat(p, 64); err == nil {
-				r = append(r, f)
-			}
-		}
-		return r
-	case []any:
-		r := make([]float64, 0, len(val))
-		for _, item := range val {
-			if f, ok := item.(float64); ok {
-				r = append(r, f)
-			}
-		}
-		return r
+		u, _ := strconv.ParseUint(strings.TrimSpace(val), 10, 8)
+		return uint8(u)
 	}
-	return nil
+	return 0
 }
 
-// writeTagMap writes all mapped tags present in tags to the TIFF.
-func writeTagMap(tf *golibtiff.TIFF, tags map[string]any, mappings []tagMapping) {
-	for _, m := range mappings {
-		if v, ok := tags[m.jsonKey]; ok && !isEmptyValue(v) {
-			m.write(tf, m.tag, v)
+// tagUint16 extracts a uint16 from TagInfo, trying Num first, then Hex, then Val.
+func tagUint16(ti TagInfo) uint16 {
+	if ti.Num != nil {
+		return numToUint16(ti.Num)
+	}
+	if data := decodeHex(ti.Hex); len(data) >= 2 {
+		return uint16(data[0]) | uint16(data[1])<<8
+	}
+	return numToUint16(ti.Val)
+}
+
+// tagUint8 extracts a uint8 from TagInfo: Num > Hex > Val.
+func tagUint8(ti TagInfo) uint8 {
+	if ti.Num != nil {
+		return numToUint8(ti.Num)
+	}
+	if data := decodeHex(ti.Hex); len(data) >= 1 {
+		return data[0]
+	}
+	return numToUint8(ti.Val)
+}
+
+// tagUint32 extracts a uint32 from TagInfo: Num > Hex > Val.
+func tagUint32(ti TagInfo) uint32 {
+	if ti.Num != nil {
+		return numToUint32(ti.Num)
+	}
+	if data := decodeHex(ti.Hex); len(data) >= 4 {
+		return uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24
+	}
+	return numToUint32(ti.Val)
+}
+
+// tagFloat extracts a float64 from TagInfo: Num > Hex (RATIONAL decode) > Val.
+func tagFloat(ti TagInfo) float64 {
+	if ti.Num != nil {
+		return numToFloat(ti.Num)
+	}
+	if ti.Hex != "" {
+		if data := decodeHex(ti.Hex); len(data) == 8 {
+			num := uint32(data[0]) | uint32(data[1])<<8 | uint32(data[2])<<16 | uint32(data[3])<<24
+			den := uint32(data[4]) | uint32(data[5])<<8 | uint32(data[6])<<16 | uint32(data[7])<<24
+			if den != 0 {
+				return float64(num) / float64(den)
+			}
 		}
+	}
+	return numToFloat(ti.Val)
+}
+
+// --- RATIONAL parsing ---
+
+// parseRational parses a rat string like "1/15" or "54/1 5938/100 0/1"
+// into a slice of float64 values preserving exact division.
+func parseRational(ratStr string) []float64 {
+	var vals []float64
+	for part := range strings.FieldsSeq(ratStr) {
+		numStr, denStr, ok := strings.Cut(part, "/")
+		if !ok {
+			continue
+		}
+		num, errN := strconv.ParseInt(numStr, 10, 64)
+		den, errD := strconv.ParseInt(denStr, 10, 64)
+		if errN != nil || errD != nil || den == 0 {
+			continue
+		}
+		vals = append(vals, float64(num)/float64(den))
+	}
+	return vals
+}
+
+// --- Binary decoding ---
+
+// decodeBinary decodes binary data from base64 (Val) or hex (Hex).
+// Prefers base64 as it contains complete data; hex may be truncated for large blobs.
+func decodeBinary(ti TagInfo) []byte {
+	if rest, ok := strings.CutPrefix(ti.Val, "base64:"); ok {
+		if d, err := base64.StdEncoding.DecodeString(rest); err == nil {
+			return d
+		}
+	}
+	return decodeHex(ti.Hex)
+}
+
+// decodeHex parses a hex string like "43 61 6e 6f 6e 00".
+// Returns nil if the string contains [...] (truncated data).
+func decodeHex(hexStr string) []byte {
+	if hexStr == "" || strings.Contains(hexStr, "[...]") {
+		return nil
+	}
+	parts := strings.Fields(hexStr)
+	data := make([]byte, 0, len(parts))
+	for _, p := range parts {
+		if len(p) > 2 {
+			continue
+		}
+		b, err := strconv.ParseUint(p, 16, 8)
+		if err != nil {
+			return nil
+		}
+		data = append(data, byte(b))
+	}
+	return data
+}
+
+// --- Auto-type writing ---
+
+// writeTag writes a single tag to the TIFF based on libtiff field_type and writecount.
+func writeTag(tf *golibtiff.TIFF, ti TagInfo, skipIDs map[uint32]bool) {
+	id := parseTagID(ti.ID)
+	if skipIDs != nil && skipIDs[id] {
+		return
+	}
+	if ti.Rat == "0/0" {
+		return
+	}
+	tag := golibtiff.Tag(id)
+
+	ft := tf.GetFieldType(tag)
+	if ft < 0 {
+		return // unknown tag
+	}
+
+	// RATIONAL via rat field takes priority
+	if ti.Rat != "" {
+		writeRationalTag(tf, tag, ti)
+		return
+	}
+
+	wc := tf.FieldWriteCount(tag)
+
+	switch ft {
+	case 3, 8: // SHORT, SSHORT
+		if wc == 1 {
+			tf.SetFieldUint16(tag, tagUint16(ti))
+		} else if wc < 0 {
+			// Variable-count SHORT array (e.g. ISO tag 34855: SETGET_C16_UINT16)
+			if v := tagUint16(ti); v != 0 {
+				tf.SetFieldUint16Slice(tag, []uint16{v})
+			}
+		}
+	case 4, 9: // LONG, SLONG
+		if wc == 1 {
+			tf.SetFieldUint32(tag, tagUint32(ti))
+		}
+	case 1, 6: // BYTE, SBYTE
+		if wc == 1 {
+			tf.SetFieldUint8(tag, tagUint8(ti))
+		} else if data := decodeBinary(ti); len(data) > 0 {
+			if !tf.FieldPassCount(tag) {
+				tf.SetFieldC0ByteSlice(tag, data)
+			} else {
+				tf.SetFieldByteSlice(tag, data)
+			}
+		}
+	case 7: // UNDEFINED
+		if data := decodeBinary(ti); len(data) > 0 {
+			if !tf.FieldPassCount(tag) {
+				tf.SetFieldC0ByteSlice(tag, data)
+			} else {
+				tf.SetFieldByteSlice(tag, data)
+			}
+		}
+	case 2: // ASCII
+		// Prefer ti.Num (raw value) over ti.Val (display value).
+		// GPS Ref tags: Num="N", Val="North" — EXIF spec requires the raw form.
+		if s, ok := ti.Num.(string); ok && s != "" {
+			tf.SetFieldString(tag, s)
+		} else if ti.Val != "" {
+			tf.SetFieldString(tag, ti.Val)
+		}
+	case 5, 10: // RATIONAL, SRATIONAL (no rat field — single value only)
+		if wc == 1 {
+			tf.SetFieldDouble(tag, tagFloat(ti))
+		}
+	case 11, 12: // FLOAT, DOUBLE
+		if wc == 1 {
+			tf.SetFieldDouble(tag, tagFloat(ti))
+		}
+	case 13: // IFD
+	}
+}
+
+// writeRationalTag writes a RATIONAL/SRATIONAL tag using double-precision.
+func writeRationalTag(tf *golibtiff.TIFF, tag golibtiff.Tag, ti TagInfo) {
+	vals := parseRational(ti.Rat)
+	switch len(vals) {
+	case 0:
+		return
+	case 1:
+		tf.SetFieldDouble(tag, vals[0])
+	default:
+		if !tf.FieldPassCount(tag) {
+			tf.SetFieldC0DoubleSlice(tag, vals)
+		} else {
+			tf.SetFieldDoubleSlice(tag, vals)
+		}
+	}
+}
+
+// writeGroup writes all tags in a group to the current TIFF directory.
+func writeGroup(tf *golibtiff.TIFF, tags map[string]TagInfo, skip map[uint32]bool) {
+	for _, ti := range tags {
+		writeTag(tf, ti, skip)
 	}
 }
 
@@ -318,7 +528,7 @@ var xmpNS = map[string]string{
 	"crs":    "http://ns.adobe.com/camera-raw-settings/1.0/",
 }
 
-// xmpTagMap maps ExifTool JSON keys to XMP prefix + array flag.
+// xmpTagMap maps ExifTool JSON tag names to XMP prefix and array flag.
 var xmpTagMap = map[string]struct {
 	prefix  string
 	isArray bool
@@ -341,34 +551,33 @@ var xmpTagMap = map[string]struct {
 	"Keywords":                {"mwg-kw", true},
 }
 
-func buildXMPacket(xmpValues map[string]any, rawFileName string) []byte {
+func buildXMPacket(xmpValues map[string]TagInfo, rawFileName string) []byte {
 	type elem struct {
 		prefix  string
 		key     string
-		value   any
+		value   string
 		isArray bool
 	}
 
 	var elements []elem
 	usedNS := make(map[string]string)
-	for jsonKey, val := range xmpValues {
-		if jsonKey == "SourceFile" {
-			continue
-		}
-		info, ok := xmpTagMap[jsonKey]
-		if !ok || isEmptyValue(val) {
+	for name, ti := range xmpValues {
+		info, ok := xmpTagMap[name]
+		if !ok || ti.Val == "" {
 			continue
 		}
 		elements = append(elements, elem{
-			prefix: info.prefix, key: jsonKey,
-			value: val, isArray: info.isArray,
+			prefix: info.prefix, key: name,
+			value: ti.Val, isArray: info.isArray,
 		})
 		usedNS[info.prefix] = xmpNS[info.prefix]
 	}
 	if len(elements) == 0 && rawFileName == "" {
 		return nil
 	}
-	usedNS["crs"] = xmpNS["crs"]
+	if rawFileName != "" {
+		usedNS["crs"] = xmpNS["crs"]
+	}
 
 	var buf bytes.Buffer
 	enc := xml.NewEncoder(&buf)
@@ -404,7 +613,7 @@ func buildXMPacket(xmpValues map[string]any, rawFileName string) []byte {
 		if e.isArray {
 			writeXMPArray(enc, name, e.value)
 		} else {
-			writeXMPText(enc, name, e.value)
+			writeXMLElement(enc, name, e.value)
 		}
 	}
 	if rawFileName != "" {
@@ -430,19 +639,10 @@ func writeXMLElement(enc *xml.Encoder, name, text string) {
 	enc.EncodeToken(start.End())
 }
 
-func writeXMPText(enc *xml.Encoder, name string, value any) {
-	writeXMLElement(enc, name, valToStr(value))
-}
-
-func writeXMPArray(enc *xml.Encoder, name string, value any) {
+func writeXMPArray(enc *xml.Encoder, name, value string) {
 	var items []string
-	switch v := value.(type) {
-	case []any:
-		for _, item := range v {
-			items = append(items, fmt.Sprintf("%v", item))
-		}
-	case string:
-		for part := range strings.SplitSeq(v, ", ") {
+	for part := range strings.SplitSeq(value, ", ") {
+		if part != "" {
 			items = append(items, part)
 		}
 	}
@@ -458,17 +658,4 @@ func writeXMPArray(enc *xml.Encoder, name string, value any) {
 	}
 	enc.EncodeToken(bag.End())
 	enc.EncodeToken(tag.End())
-}
-
-func isEmptyValue(v any) bool {
-	switch val := v.(type) {
-	case nil:
-		return true
-	case string:
-		return val == ""
-	case []any:
-		return len(val) == 0
-	default:
-		return false
-	}
 }

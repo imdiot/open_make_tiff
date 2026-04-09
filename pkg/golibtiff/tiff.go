@@ -59,6 +59,10 @@ static tmsize_t tiffWriteEncodedTile(TIFF *t, uint32_t tile, void *buf, tmsize_t
 static int tiffSetFieldByteSlice(TIFF *t, uint32_t tag, uint32_t c, uint8_t *v) {
 	return TIFFSetField(t, tag, c, v);
 }
+// C0 byte-slice setter (no count arg, for fixed-count BYTE arrays like DNGVersion).
+static int tiffSetFieldC0ByteSlice(TIFF *t, uint32_t tag, uint8_t *v) {
+	return TIFFSetField(t, tag, v);
+}
 // EXIF Sub-IFD creation and writing.
 static int tiffCreateEXIFDirectory(TIFF *t) {
 	return TIFFCreateEXIFDirectory(t);
@@ -85,6 +89,74 @@ static int tiffSetFieldU8(TIFF *t, uint32_t tag, uint8_t v) {
 // C0 float-array setter (LensSpecification: SETGET_C0_FLOAT, fixed 4 floats, no count arg).
 static int tiffSetFieldC0Float(TIFF *t, uint32_t tag, float *v) {
 	return TIFFSetField(t, tag, v);
+}
+// Double setters (64-bit, no precision loss for RATIONAL values).
+static int tiffSetFieldDouble(TIFF *t, uint32_t tag, double v) {
+	return TIFFSetField(t, tag, v);
+}
+static int tiffSetFieldDoubleSlice(TIFF *t, uint32_t tag, int c, double *v) {
+	return TIFFSetField(t, tag, c, v);
+}
+static int tiffSetFieldC0Double(TIFF *t, uint32_t tag, double *v) {
+	return TIFFSetField(t, tag, v);
+}
+// GPS Sub-IFD creation.
+static int tiffCreateGPSDirectory(TIFF *t) {
+	return TIFFCreateGPSDirectory(t);
+}
+// Check if a tag is registered in libtiff's field definitions.
+// Returns 1 if known, 0 if unknown (calling TIFFSetField on unknown tags may crash).
+static int tiffIsFieldKnown(TIFF *t, uint32_t tag) {
+	return TIFFFieldWithTag(t, tag) != NULL;
+}
+// Get the registered TIFFDataType for a tag.
+// Returns -1 if tag is unknown. TIFFDataType: 1=BYTE, 2=ASCII, 3=SHORT, 4=LONG,
+// 5=RATIONAL, 6=SBYTE, 7=UNDEFINED, 8=SSHORT, 9=SLONG, 10=SRATIONAL, 11=FLOAT, 12=DOUBLE, 13=IFD.
+static int tiffGetFieldType(TIFF *t, uint32_t tag) {
+	const TIFFField *f = TIFFFieldWithTag(t, tag);
+	return f ? (int)TIFFFieldDataType(f) : -1;
+}
+// Check whether a tag requires a count argument in TIFFSetField.
+// Returns 1 if count is needed, 0 if not (C0/fixed-count tags), -1 if unknown.
+static int tiffFieldPassCount(TIFF *t, uint32_t tag) {
+	const TIFFField *f = TIFFFieldWithTag(t, tag);
+	return f ? (int)TIFFFieldPassCount(f) : -1;
+}
+// Get the write count for a tag. Positive = fixed count, -1 = TIFF_VARIABLE,
+// -2 = TIFF_VARIABLE2, -3 = TIFF_SPP. Returns 0 if unknown.
+static int tiffFieldWriteCount(TIFF *t, uint32_t tag) {
+	const TIFFField *f = TIFFFieldWithTag(t, tag);
+	return f ? (int)TIFFFieldWriteCount(f) : 0;
+}
+
+// Diagnostic: test GPS Sub-IFD creation (minimal reproduction).
+static int tiffTestCreateGPSSubIFD(TIFF *tif, uint64_t *gpsOffset) {
+    unsigned char gpsVersion[4] = {2, 2, 0, 1};
+    uint64_t off = 0;
+    clearLastTIFFError();
+    if (TIFFWriteDirectory(tif) == 0) {
+        snprintf(tiffLastErrMsg, sizeof(tiffLastErrMsg), "WriteDirectory failed");
+        return -1;
+    }
+    if (TIFFSetDirectory(tif, 0) == 0) {
+        snprintf(tiffLastErrMsg, sizeof(tiffLastErrMsg), "SetDirectory(0) failed");
+        return -1;
+    }
+    if (TIFFCreateGPSDirectory(tif) != 0) {
+        snprintf(tiffLastErrMsg, sizeof(tiffLastErrMsg), "CreateGPSDirectory failed");
+        return -1;
+    }
+    if (!TIFFSetField(tif, 0, gpsVersion)) {
+        snprintf(tiffLastErrMsg, sizeof(tiffLastErrMsg), "SetField GPSVersionID failed");
+        return -1;
+    }
+    if (TIFFWriteCustomDirectory(tif, &off) == 0) {
+        snprintf(tiffLastErrMsg, sizeof(tiffLastErrMsg),
+                 "WriteCustomDirectory failed: %s", tiffLastErrMsg);
+        return -1;
+    }
+    *gpsOffset = off;
+    return 0;
 }
 */
 import "C"
@@ -749,6 +821,22 @@ func (t *TIFF) SetFieldByteSlice(tag Tag, v []byte) error {
 	return nil
 }
 
+// SetFieldC0ByteSlice sets a fixed-count byte-array field (no count argument).
+// For C0 tags like DNGVersion (BYTE[4]) that use TIFF_SETGET_C0_UINT8.
+func (t *TIFF) SetFieldC0ByteSlice(tag Tag, v []byte) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	if len(v) == 0 {
+		return nil
+	}
+	C.clearLastTIFFError()
+	if C.tiffSetFieldC0ByteSlice(t.tif, C.uint32_t(tag), (*C.uint8_t)(unsafe.Pointer(&v[0]))) == 0 {
+		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
+	}
+	return nil
+}
+
 // CreateEXIFDirectory creates a new EXIF Sub-IFD.
 // After calling this, use SetField* to populate EXIF tags, then WriteCustomDirectory.
 func (t *TIFF) CreateEXIFDirectory() error {
@@ -851,4 +939,128 @@ func (t *TIFF) SetFieldC0FloatSlice(tag Tag, v []float64) error {
 		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
 	}
 	return nil
+}
+
+// SetFieldDouble sets a double-precision floating-point field (64-bit, no precision loss).
+func (t *TIFF) SetFieldDouble(tag Tag, v float64) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	C.clearLastTIFFError()
+	if C.tiffSetFieldDouble(t.tif, C.uint32_t(tag), C.double(v)) == 0 {
+		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
+	}
+	return nil
+}
+
+// SetFieldDoubleSlice sets a double-precision float array field with count.
+func (t *TIFF) SetFieldDoubleSlice(tag Tag, v []float64) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	if len(v) == 0 {
+		return nil
+	}
+	C.clearLastTIFFError()
+	doubles := make([]C.double, len(v))
+	for i, f := range v {
+		doubles[i] = C.double(f)
+	}
+	if C.tiffSetFieldDoubleSlice(t.tif, C.uint32_t(tag), C.int(len(v)), &doubles[0]) == 0 {
+		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
+	}
+	return nil
+}
+
+// SetFieldC0DoubleSlice sets a fixed-count double array field (no count argument).
+func (t *TIFF) SetFieldC0DoubleSlice(tag Tag, v []float64) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	if len(v) == 0 {
+		return nil
+	}
+	C.clearLastTIFFError()
+	doubles := make([]C.double, len(v))
+	for i, f := range v {
+		doubles[i] = C.double(f)
+	}
+	if C.tiffSetFieldC0Double(t.tif, C.uint32_t(tag), &doubles[0]) == 0 {
+		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
+	}
+	return nil
+}
+
+// CreateGPSDirectory creates a new GPS Sub-IFD.
+// After calling this, use SetField* to populate GPS tags, then WriteCustomDirectory.
+func (t *TIFF) CreateGPSDirectory() error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	C.clearLastTIFFError()
+	if C.tiffCreateGPSDirectory(t.tif) != 0 {
+		if err := lastError(); err != nil {
+			return fmt.Errorf("libtiff: CreateGPSDirectory: %w", err)
+		}
+		return errors.New("libtiff: CreateGPSDirectory failed")
+	}
+	return nil
+}
+
+// TestCreateGPSSubIFD tests GPS Sub-IFD creation entirely in C.
+// Diagnostic method to isolate CGO vs libtiff issues.
+func (t *TIFF) TestCreateGPSSubIFD() (uint64, error) {
+	if err := t.checkOpen(); err != nil {
+		return 0, err
+	}
+	C.clearLastTIFFError()
+	var off C.uint64_t
+	if C.tiffTestCreateGPSSubIFD(t.tif, &off) != 0 {
+		if err := lastError(); err != nil {
+			return 0, fmt.Errorf("libtiff: TestCreateGPSSubIFD: %w", err)
+		}
+		return 0, errors.New("libtiff: TestCreateGPSSubIFD failed")
+	}
+	return uint64(off), nil
+}
+
+// IsFieldKnown checks if a tag is registered in libtiff's field definitions.
+// Tags not known to libtiff cannot be written with TIFFSetField and may cause crashes.
+func (t *TIFF) IsFieldKnown(tag Tag) bool {
+	if err := t.checkOpen(); err != nil {
+		return false
+	}
+	return C.tiffIsFieldKnown(t.tif, C.uint32_t(tag)) != 0
+}
+
+// GetFieldType returns the libtiff-registered TIFFDataType for a tag.
+// Returns -1 if the tag is not registered.
+// TIFFDataType values: 1=BYTE, 2=ASCII, 3=SHORT, 4=LONG, 5=RATIONAL,
+// 6=SBYTE, 7=UNDEFINED, 8=SSHORT, 9=SLONG, 10=SRATIONAL, 11=FLOAT, 12=DOUBLE, 13=IFD.
+func (t *TIFF) GetFieldType(tag Tag) int {
+	if err := t.checkOpen(); err != nil {
+		return -1
+	}
+	return int(C.tiffGetFieldType(t.tif, C.uint32_t(tag)))
+}
+
+// FieldPassCount reports whether a tag requires a count argument in TIFFSetField.
+// Returns true for normal array tags (count needed), false for C0/fixed-count tags (no count).
+// Returns false for unknown tags.
+func (t *TIFF) FieldPassCount(tag Tag) bool {
+	if err := t.checkOpen(); err != nil {
+		return false
+	}
+	return C.tiffFieldPassCount(t.tif, C.uint32_t(tag)) != 0
+}
+
+// FieldWriteCount returns the number of values a tag expects.
+// Positive = fixed count (1 = scalar, >1 = fixed array).
+// Negative = variable (-1=TIFF_VARIABLE, -2=TIFF_VARIABLE2, -3=TIFF_SPP).
+// Returns 0 for unknown tags.
+func (t *TIFF) FieldWriteCount(tag Tag) int {
+	if err := t.checkOpen(); err != nil {
+		return 0
+	}
+	return int(C.tiffFieldWriteCount(t.tif, C.uint32_t(tag)))
 }

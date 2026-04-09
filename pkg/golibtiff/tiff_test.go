@@ -1258,6 +1258,111 @@ func TestEXIFSubIFD(t *testing.T) {
 	}
 }
 
+// --- GPS Sub-IFD ---
+
+func TestGPSSubIFD(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "gps_test.tif")
+
+	const w, h uint32 = 4, 4
+
+	// --- Write phase (following libtiff official custom_dir_EXIF_231.c flow) ---
+	func() {
+		tif, err := Open(path, OpenWrite)
+		if err != nil {
+			t.Fatalf("Open write: %v", err)
+		}
+		defer tif.Close()
+
+		// IFD0 tags
+		tif.SetFieldUint32(TagImageWidth, w)
+		tif.SetFieldUint32(TagImageLength, h)
+		tif.SetFieldUint16(TagBitsPerSample, 8)
+		tif.SetFieldUint16(TagSamplesPerPixel, 3)
+		tif.SetFieldUint16(TagCompression, CompressionNone)
+		tif.SetFieldUint16(TagPhotometric, PhotometricRGB)
+		tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+
+		// Reserve dummy GPS IFD pointer (per libtiff docs)
+		tif.SetFieldUint64(TagGPSIFD, 0)
+
+		// Write pixel data
+		scanline := make([]byte, w*3)
+		for row := uint32(0); row < h; row++ {
+			for i := range scanline {
+				scanline[i] = byte(row * 50)
+			}
+			if err := tif.WriteScanline(scanline, row); err != nil {
+				t.Fatalf("WriteScanline %d: %v", row, err)
+			}
+		}
+
+		// Save main IFD to file
+		if err := tif.WriteDirectory(); err != nil {
+			t.Fatalf("WriteDirectory IFD0: %v", err)
+		}
+
+		// Reload IFD0 and create GPS directory
+		if err := tif.SetDirectory(0); err != nil {
+			t.Fatalf("SetDirectory(0): %v", err)
+		}
+		if err := tif.CreateGPSDirectory(); err != nil {
+			t.Fatalf("CreateGPSDirectory: %v", err)
+		}
+
+		// Write GPS tags (GPSTAG IDs: 0=VersionID, 1=LatitudeRef, 2=Latitude)
+		gpsVersion := []byte{2, 2, 0, 1}
+		if err := tif.SetFieldC0ByteSlice(0, gpsVersion); err != nil {
+			t.Fatalf("SetField GPSVersionID: %v", err)
+		}
+		if err := tif.SetFieldString(1, "N"); err != nil {
+			t.Fatalf("SetField LatitudeRef: %v", err)
+		}
+		// Latitude: RATIONAL[3], SETGET_C0_DOUBLE
+		if err := tif.SetFieldC0DoubleSlice(2, []float64{30.0, 15.0, 0.0}); err != nil {
+			t.Fatalf("SetField Latitude: %v", err)
+		}
+
+		// Write GPS custom directory
+		gpsOffset, err := tif.WriteCustomDirectory()
+		if err != nil {
+			t.Fatalf("WriteCustomDirectory GPS: %v", err)
+		}
+		t.Logf("GPS Sub-IFD offset: %d", gpsOffset)
+
+		// Return to main IFD and set GPS pointer
+		if err := tif.SetDirectory(0); err != nil {
+			t.Fatalf("SetDirectory(0) after GPS: %v", err)
+		}
+		if err := tif.SetFieldUint64(TagGPSIFD, gpsOffset); err != nil {
+			t.Fatalf("SetField GPSIFD: %v", err)
+		}
+		if err := tif.WriteDirectory(); err != nil {
+			t.Fatalf("WriteDirectory with GPS pointer: %v", err)
+		}
+	}()
+
+	// --- Read phase ---
+	tif, err := Open(path, OpenRead)
+	if err != nil {
+		t.Fatalf("Open read: %v", err)
+	}
+	defer tif.Close()
+
+	if tif.Width() != w || tif.Height() != h {
+		t.Errorf("dimensions = %dx%d, want %dx%d", tif.Width(), tif.Height(), w, h)
+	}
+
+	gpsOffset, err := tif.GetFieldUint64(TagGPSIFD)
+	if err != nil {
+		t.Fatalf("GetFieldUint64 GPSIFD: %v", err)
+	}
+	if gpsOffset == 0 {
+		t.Fatal("GPSIFD offset is 0, GPS Sub-IFD not linked")
+	}
+	t.Logf("Read back GPS IFD offset: %d", gpsOffset)
+}
+
 // --- Fixture files (table-driven) ---
 
 func TestFixtures(t *testing.T) {

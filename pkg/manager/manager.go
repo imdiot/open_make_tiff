@@ -18,6 +18,8 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/options"
 	wails_runtime "github.com/wailsapp/wails/v2/pkg/runtime"
 
+	"howett.net/plist"
+
 	"open-make-tiff/pkg/dngconverter"
 	"open-make-tiff/pkg/exiftool"
 	"open-make-tiff/pkg/icc"
@@ -71,6 +73,9 @@ type Manager struct {
 	setting *Setting
 	et      *exiftool.Exiftool
 	wg      sync.WaitGroup
+
+	tmpDir                 *util.TempDir
+	dngConverterExecutable string
 }
 
 func New() *Manager {
@@ -87,10 +92,19 @@ func New() *Manager {
 		setting.Profiles = append(setting.Profiles, &ProfileOption{Value: v.Name(), Label: k})
 	}
 	slices.SortStableFunc(setting.Profiles, func(a, b *ProfileOption) int { return cmp.Compare(a.Value, b.Value) })
-	return &Manager{
+
+	m := &Manager{
 		config:  newConfig(),
 		setting: setting,
 	}
+
+	if td, err := util.NewTempDir("omt-"); err != nil {
+		slog.Warn("temp dir failed", "error", err)
+	} else {
+		m.tmpDir = td
+	}
+
+	return m
 }
 
 func (m *Manager) Api() *Api {
@@ -119,6 +133,8 @@ func (m *Manager) OnStartup(ctx context.Context) {
 			})
 		}
 	}
+
+	m.initDNGShadowBundle()
 }
 
 func (m *Manager) OnSecondInstanceLaunch(_ options.SecondInstanceData) {
@@ -153,6 +169,12 @@ func (m *Manager) OnShutdown(_ context.Context) {
 		slog.Debug("OnShutdown: wg done", "at", time.Now().Format("15:04:05.000"))
 	case <-time.After(time.Second):
 		slog.Debug("OnShutdown: wg timeout", "at", time.Now().Format("15:04:05.000"))
+	}
+
+	if m.tmpDir != nil {
+		if err := m.tmpDir.Cleanup(); err != nil {
+			slog.Debug("OnShutdown: temp dir cleanup", "error", err)
+		}
 	}
 }
 
@@ -218,6 +240,63 @@ func (m *Manager) checkConfig() {
 	}
 	if m.config.Workers < 1 || m.config.Workers > maxWorkers() {
 		m.config.Workers = maxWorkers()
+	}
+}
+
+// symlinkIfExists creates a symlink only if src exists.
+func symlinkIfExists(src, dst string) {
+	if _, err := os.Stat(src); err != nil {
+		return
+	}
+	_ = os.Symlink(src, dst)
+}
+
+// initDNGShadowBundle creates a Shadow Bundle to suppress the DNG Converter Dock icon.
+func (m *Manager) initDNGShadowBundle() {
+	if m.tmpDir == nil || !m.setting.EnableAdobeDNGConverter {
+		return
+	}
+
+	dngExec := dngconverter.GetDefaultExecutablePath()
+	if _, err := os.Stat(dngExec); err != nil {
+		return
+	}
+
+	dngBundle := filepath.Dir(filepath.Dir(filepath.Dir(dngExec)))
+	appName := filepath.Base(dngBundle)
+
+	wrapperPath, err := util.ShadowBundle(m.tmpDir.Path(), appName, func(wp string) error {
+		macOSPath := filepath.Join(wp, "Contents", "MacOS")
+		if err := os.MkdirAll(macOSPath, 0755); err != nil {
+			return err
+		}
+
+		if err := os.Symlink(dngExec, filepath.Join(macOSPath, filepath.Base(dngExec))); err != nil {
+			return err
+		}
+		symlinkIfExists(filepath.Join(dngBundle, "Contents", "Frameworks"), filepath.Join(wp, "Contents", "Frameworks"))
+		symlinkIfExists(filepath.Join(dngBundle, "Contents", "Resources"), filepath.Join(wp, "Contents", "Resources"))
+
+		data, err := os.ReadFile(filepath.Join(dngBundle, "Contents", "Info.plist"))
+		if err != nil {
+			return err
+		}
+		var dict map[string]any
+		if _, err := plist.Unmarshal(data, &dict); err != nil {
+			return err
+		}
+		dict["LSUIElement"] = true
+		out, err := plist.Marshal(dict, plist.XMLFormat)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(filepath.Join(wp, "Contents", "Info.plist"), out, 0644)
+	})
+	if err != nil {
+		slog.Warn("shadow bundle failed", "error", err)
+	} else {
+		m.dngConverterExecutable = filepath.Join(wrapperPath, "Contents", "MacOS", filepath.Base(dngExec))
+		slog.Info("shadow bundle created", "path", wrapperPath)
 	}
 }
 
@@ -291,16 +370,21 @@ func (m *Manager) Convert(paths []string) {
 					cfg := m.config
 					m.mu.RUnlock()
 
+					runnerOpts := []runner.Option{
+						runner.WithRemoveIntermediate(),
+						runner.WithExiftool(m.et),
+					}
+					if m.dngConverterExecutable != "" {
+						runnerOpts = append(runnerOpts, runner.WithDNGConverterExecutable(m.dngConverterExecutable))
+					}
+
 					if err = runner.New(runner.Config{
 						EnableAdobeDNGConverter: !cfg.DisableAdobeDNGConverter,
 						EnableSubfolder:         cfg.EnableSubfolder,
 						EnableCompression:       cfg.EnableCompression,
 						Profile:                 cfg.ICCProfile,
 						DPI:                     cfg.DPI,
-					},
-						runner.WithRemoveIntermediate(),
-						runner.WithExiftool(m.et),
-					).Run(m.ctx, path); err != nil {
+					}, runnerOpts...).Run(m.ctx, path); err != nil {
 						if errors.Is(err, runner.ErrDstFileExists) {
 							wails_runtime.EventsEmit(m.ctx, "omt:convert:file:skipped", path)
 						} else {

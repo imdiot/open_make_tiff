@@ -73,7 +73,8 @@ func (v DNGVersion) String() string {
 }
 
 type Options struct {
-	executable string
+	executable    string
+	executableSet bool
 
 	Logger *slog.Logger
 
@@ -116,6 +117,7 @@ type Option func(*Options)
 func WithExecutable(path string) Option {
 	return func(o *Options) {
 		o.executable = path
+		o.executableSet = true
 	}
 }
 

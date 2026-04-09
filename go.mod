@@ -6,6 +6,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/wailsapp/wails/v2 v2.12.0
 	golang.org/x/sys v0.30.0
+	howett.net/plist v1.0.2-0.20250314012144-ee69052608d9
 )
 
 require (

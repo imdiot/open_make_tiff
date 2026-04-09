@@ -1,7 +1,6 @@
 package dngconverter
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -35,7 +34,12 @@ func New(opts ...Option) (*Converter, error) {
 		opt(&cfg)
 	}
 
-	execPath := cmp.Or(cfg.executable, GetDefaultExecutablePath())
+	var execPath string
+	if cfg.executableSet {
+		execPath = cfg.executable
+	} else {
+		execPath = GetDefaultExecutablePath()
+	}
 	if execPath == "" {
 		return nil, ErrExecutableNotFound
 	}

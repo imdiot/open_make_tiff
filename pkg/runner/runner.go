@@ -57,11 +57,20 @@ func WithExiftool(et *exiftool.Exiftool) Option {
 	}
 }
 
+func WithDNGConverterExecutable(path string) Option {
+	return func(r *Runner) {
+		r.dngConverterExecutable = path
+		r.dngConverterExecutableSet = true
+	}
+}
+
 type Runner struct {
-	cfg                Config
-	logger             *slog.Logger
-	removeIntermediate bool
-	et                 *exiftool.Exiftool
+	cfg                       Config
+	logger                    *slog.Logger
+	removeIntermediate        bool
+	et                        *exiftool.Exiftool
+	dngConverterExecutable    string
+	dngConverterExecutableSet bool
 }
 
 type ConvertEnv struct {
@@ -175,6 +184,20 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	}
 
 	useDNG := r.cfg.EnableAdobeDNGConverter
+
+	if useDNG {
+		var execPath string
+		if r.dngConverterExecutableSet {
+			execPath = r.dngConverterExecutable
+		} else {
+			execPath = dngconverter.GetDefaultExecutablePath()
+		}
+		if _, err := os.Stat(execPath); err != nil {
+			r.logger.Warn("DNG Converter not available, using direct path", "error", err)
+			useDNG = false
+		}
+	}
+
 	var isNonRawFFF bool
 
 	if strings.ToLower(ext) == ".fff" {
@@ -194,7 +217,6 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		useDNG = false
 	}
 
-	// Decode image
 	var img *decodedImage
 	secondSrc := srcPath
 
@@ -235,7 +257,6 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		}
 	}
 
-	// Extract metadata
 	var meta *ExtractedMetadata
 	{
 		var metaErr error
@@ -246,7 +267,6 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		}
 	}
 
-	// Write TIFF with embedded metadata
 	if writeErr := r.writeMemImageToTIFF(tiffIntPath, img, meta); writeErr != nil {
 		returnErr = writeErr
 		return returnErr
@@ -261,14 +281,19 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 }
 
 func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*golibraw.ProcessedImage, error) {
-	dngConv1, err := dngconverter.New(
+	dngOpts1 := []dngconverter.Option{
 		dngconverter.WithUncompressed(true),
 		dngconverter.WithPreviewSize(dngconverter.PreviewNone),
 		dngconverter.WithCameraRawCompat(dngconverter.CameraRaw54),
 		dngconverter.WithOutputDir(env.DstDir),
 		dngconverter.WithOutputFilename(filepath.Base(env.DngIntPrePath)),
 		dngconverter.WithLogger(r.logger),
-	)
+	}
+	if r.dngConverterExecutableSet {
+		dngOpts1 = append(dngOpts1, dngconverter.WithExecutable(r.dngConverterExecutable))
+	}
+
+	dngConv1, err := dngconverter.New(dngOpts1...)
 	if err != nil {
 		return nil, fmt.Errorf("dng converter (raw): %w", err)
 	}
@@ -279,7 +304,7 @@ func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*golibraw.P
 	}
 	r.logger.Info("dng converter (raw)", "time", time.Since(now).Seconds())
 
-	dngConv2, err := dngconverter.New(
+	dngOpts2 := []dngconverter.Option{
 		dngconverter.WithUncompressed(true),
 		dngconverter.WithLinear(true),
 		dngconverter.WithPreviewSize(dngconverter.PreviewNone),
@@ -287,7 +312,12 @@ func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*golibraw.P
 		dngconverter.WithOutputDir(env.DstDir),
 		dngconverter.WithOutputFilename(filepath.Base(env.DngIntPath)),
 		dngconverter.WithLogger(r.logger),
-	)
+	}
+	if r.dngConverterExecutableSet {
+		dngOpts2 = append(dngOpts2, dngconverter.WithExecutable(r.dngConverterExecutable))
+	}
+
+	dngConv2, err := dngconverter.New(dngOpts2...)
 	if err != nil {
 		_ = os.Remove(env.DngIntPrePath)
 		return nil, fmt.Errorf("dng converter (linear): %w", err)

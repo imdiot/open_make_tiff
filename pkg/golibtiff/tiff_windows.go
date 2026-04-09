@@ -14,7 +14,7 @@ import (
 	"unsafe"
 )
 
-func openTiffHandle(path string, mode OpenMode) (*C.TIFF, error) {
+func openTiffHandle(path string, mode OpenMode, opts *C.TIFFOpenOptions) (*C.TIFF, error) {
 	wPath, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
 		return nil, err
@@ -23,5 +23,5 @@ func openTiffHandle(path string, mode OpenMode) (*C.TIFF, error) {
 	cMode := C.CString(string(mode))
 	defer C.free(unsafe.Pointer(cMode))
 
-	return C.TIFFOpenW((*C.wchar_t)(unsafe.Pointer(wPath)), cMode), nil
+	return C.TIFFOpenWExt((*C.wchar_t)(unsafe.Pointer(wPath)), cMode, opts), nil
 }

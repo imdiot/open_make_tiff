@@ -173,3 +173,41 @@ const (
 	FillOrderMSB2LSB = 1
 	FillOrderLSB2MSB = 2
 )
+
+// Pseudo-tags control codec behavior. They are not written to the TIFF file
+// and are passed to SetFieldUint16/SetFieldUint32 before writing data.
+const (
+	PseudoTagJPEGQuality       Tag = 65537
+	PseudoTagJPEGColorMode     Tag = 65538
+	PseudoTagJPEGTablesMode    Tag = 65539
+	PseudoTagZIPQuality        Tag = 65557
+	PseudoTagLZMAPreset        Tag = 65562
+	PseudoTagZSTDLevel         Tag = 65564
+	PseudoTagLERCVersion       Tag = 65565
+	PseudoTagLERCAddCompression Tag = 65566
+	PseudoTagLERCMaxZError     Tag = 65567
+	PseudoTagWebPLevel         Tag = 65568
+	PseudoTagWebPLossless      Tag = 65569
+	PseudoTagDeflateSubCodec   Tag = 65570
+	PseudoTagWebPLosslessExact Tag = 65571
+)
+
+// TIFFDataType constants describe the data type of a tag's values.
+const (
+	DataTypeByte     = 1  // 8-bit unsigned integer
+	DataTypeASCII    = 2  // Null-terminated string
+	DataTypeShort    = 3  // 16-bit unsigned integer
+	DataTypeLong     = 4  // 32-bit unsigned integer
+	DataTypeRational = 5  // Two 32-bit unsigned (numerator/denominator)
+	DataTypeSByte    = 6  // 8-bit signed integer
+	DataTypeUndefined = 7 // 8-bit untyped data
+	DataTypeSShort   = 8  // 16-bit signed integer
+	DataTypeSLong    = 9  // 32-bit signed integer
+	DataTypeSRational = 10 // Two 32-bit signed
+	DataTypeFloat    = 11 // 32-bit IEEE float
+	DataTypeDouble   = 12 // 64-bit IEEE double
+	DataTypeIFD      = 13 // 32-bit IFD offset
+	DataTypeLong8    = 16 // 64-bit unsigned (BigTIFF)
+	DataTypeSLong8   = 17 // 64-bit signed (BigTIFF)
+	DataTypeIFD8     = 18 // 64-bit IFD offset (BigTIFF)
+)

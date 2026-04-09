@@ -11,11 +11,11 @@ import "C"
 
 import "unsafe"
 
-func openTiffHandle(path string, mode OpenMode) (*C.TIFF, error) {
+func openTiffHandle(path string, mode OpenMode, opts *C.TIFFOpenOptions) (*C.TIFF, error) {
 	cPath := C.CString(path)
 	defer C.free(unsafe.Pointer(cPath))
 	cMode := C.CString(string(mode))
 	defer C.free(unsafe.Pointer(cMode))
 
-	return C.TIFFOpen(cPath, cMode), nil
+	return C.TIFFOpenExt(cPath, cMode, opts), nil
 }

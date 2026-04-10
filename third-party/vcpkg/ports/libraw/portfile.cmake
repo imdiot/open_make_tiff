@@ -15,7 +15,6 @@ vcpkg_from_github(
     PATCHES
         dependencies.patch
         dngsdk-support.patch
-        rawspeed-bits.patch
         # Move the non-thread-safe library to manual-link. This is unfortunately needed
         # because otherwise libraries that build on top of libraw have to choose.
         fix-install.patch
@@ -24,6 +23,43 @@ vcpkg_from_github(
 file(COPY "${LIBRAW_CMAKE_SOURCE_PATH}/CMakeLists.txt" DESTINATION "${SOURCE_PATH}")
 file(COPY "${LIBRAW_CMAKE_SOURCE_PATH}/cmake" DESTINATION "${SOURCE_PATH}")
 
+# Add ENABLE_RAWSPEED3 option and support (avoids fragile patch)
+file(READ "${SOURCE_PATH}/CMakeLists.txt" CMAKE_CONTENT)
+string(REPLACE
+    "option(ENABLE_RAWSPEED             \"Build library with extra RawSpeed codec support (default=OFF)\"                OFF)"
+    "option(ENABLE_RAWSPEED             \"Build library with extra RawSpeed codec support (default=OFF)\"                OFF)\noption(ENABLE_RAWSPEED3            \"Build library with RawSpeed v3 codec support  (default=OFF)\"                OFF)"
+    CMAKE_CONTENT "${CMAKE_CONTENT}"
+)
+string(REPLACE
+    "MACRO_BOOL_TO_01(RAWSPEED_SUPPORT_CAN_BE_COMPILED LIBRAW_USE_RAWSPEED)"
+    "MACRO_BOOL_TO_01(RAWSPEED_SUPPORT_CAN_BE_COMPILED LIBRAW_USE_RAWSPEED)\n\n# RawSpeed v3 support\nif(ENABLE_RAWSPEED3)\n    if(NOT TARGET rawspeed3::rawspeed3)\n        find_package(rawspeed3 CONFIG REQUIRED)\n    endif()\n    add_definitions(-DUSE_RAWSPEED3)\n    set(RAWSPEED3_SUPPORT_CAN_BE_COMPILED true)\nendif()\nMACRO_BOOL_TO_01(RAWSPEED3_SUPPORT_CAN_BE_COMPILED LIBRAW_USE_RAWSPEED3)"
+    CMAKE_CONTENT "${CMAKE_CONTENT}"
+)
+# Add rawspeed3 linking to raw and raw_r targets
+string(REPLACE
+    "if(RAWSPEED_SUPPORT_CAN_BE_COMPILED)\n    target_link_libraries(raw PUBLIC ${LIBXML2_LIBRARIES})\nendif()"
+    "if(RAWSPEED_SUPPORT_CAN_BE_COMPILED)\n    target_link_libraries(raw PUBLIC ${LIBXML2_LIBRARIES})\nendif()\n\nif(RAWSPEED3_SUPPORT_CAN_BE_COMPILED)\n    target_link_libraries(raw PUBLIC rawspeed3::rawspeed3)\nendif()"
+    CMAKE_CONTENT "${CMAKE_CONTENT}"
+)
+string(REPLACE
+    "if(RAWSPEED_SUPPORT_CAN_BE_COMPILED)\n    target_link_libraries(raw_r PUBLIC ${LIBXML2_LIBRARIES} Threads::Threads)\nendif()"
+    "if(RAWSPEED_SUPPORT_CAN_BE_COMPILED)\n    target_link_libraries(raw_r PUBLIC ${LIBXML2_LIBRARIES} Threads::Threads)\nendif()\n\nif(RAWSPEED3_SUPPORT_CAN_BE_COMPILED)\n    target_link_libraries(raw_r PUBLIC rawspeed3::rawspeed3)\nendif()"
+    CMAKE_CONTENT "${CMAKE_CONTENT}"
+)
+file(WRITE "${SOURCE_PATH}/CMakeLists.txt" "${CMAKE_CONTENT}")
+
+# Inject LIBRAW_USE_RAWSPEED3 into config header template
+file(READ "${SOURCE_PATH}/cmake/data/libraw_config.h.cmake" CONFIG_H_CONTENT)
+string(REPLACE
+    "#cmakedefine LIBRAW_USE_RAWSPEED 1"
+    "#cmakedefine LIBRAW_USE_RAWSPEED 1
+
+/* Define to 1 if LibRaw have been compiled with RawSpeed v3 codec support */
+#cmakedefine LIBRAW_USE_RAWSPEED3 1"
+    CONFIG_H_CONTENT "${CONFIG_H_CONTENT}"
+)
+file(WRITE "${SOURCE_PATH}/cmake/data/libraw_config.h.cmake" "${CONFIG_H_CONTENT}")
+
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
     FEATURES
         openmp      ENABLE_OPENMP
@@ -31,6 +67,7 @@ vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
         dng-lossy   CMAKE_REQUIRE_FIND_PACKAGE_JPEG
         dngsdk      ENABLE_DNGSDK
         rawspeed   ENABLE_RAWSPEED
+        rawspeed3  ENABLE_RAWSPEED3
         x3ftools   ENABLE_X3FTOOLS
         6by9rpi    ENABLE_6BY9RPI
 )
@@ -72,15 +109,27 @@ file(REMOVE_RECURSE
 
 # Add direct dependency to .pc when dngsdk feature is enabled
 # Transitive deps resolved via dng.pc -> xmp.pc -> libjxl.pc chain
+set(_RAW_CFLAGS "")
 if("dngsdk" IN_LIST FEATURES)
     set(_RAW_DNG_REQUIRE "dng")
+    string(APPEND _RAW_CFLAGS " -DUSE_DNGSDK")
 else()
     set(_RAW_DNG_REQUIRE "")
 endif()
+if("rawspeed3" IN_LIST FEATURES)
+    string(APPEND _RAW_CFLAGS " -DUSE_RAWSPEED3 -DUSE_RAWSPEED_BITS")
+    string(APPEND _RAW_PC_REQUIRE " rawspeed3")
+endif()
 foreach(_pc IN ITEMS libraw libraw_r)
     set(_pc_file "${CURRENT_PACKAGES_DIR}/lib/pkgconfig/${_pc}.pc")
-    if(EXISTS "${_pc_file}" AND _RAW_DNG_REQUIRE)
-        vcpkg_replace_string("${_pc_file}" "Requires:  lcms2 zlib libjpeg" "Requires: ${_RAW_DNG_REQUIRE} lcms2 zlib libjpeg")
+    if(EXISTS "${_pc_file}")
+        if(_RAW_DNG_REQUIRE OR _RAW_PC_REQUIRE)
+            set(_RAW_ALL_REQUIRES "${_RAW_DNG_REQUIRE}${_RAW_PC_REQUIRE} lcms2 zlib libjpeg")
+            vcpkg_replace_string("${_pc_file}" "Requires:  lcms2 zlib libjpeg" "Requires: ${_RAW_ALL_REQUIRES}")
+        endif()
+        if(_RAW_CFLAGS)
+            vcpkg_replace_string("${_pc_file}" "Cflags:" "Cflags:${_RAW_CFLAGS}")
+        endif()
     endif()
 endforeach()
 

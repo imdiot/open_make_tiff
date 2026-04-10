@@ -1,0 +1,30 @@
+#pragma once
+
+static constexpr const auto RAWSPEED_CACHELINESIZE = @RAWSPEED_CACHELINESIZE@ULL;
+static_assert(RAWSPEED_CACHELINESIZE > 0 && ((RAWSPEED_CACHELINESIZE & (RAWSPEED_CACHELINESIZE - 1)) == 0), "Expected to know CPU L1d cache line size.");
+
+static constexpr const auto RAWSPEED_PAGESIZE = @RAWSPEED_PAGESIZE@ULL;
+static_assert(RAWSPEED_PAGESIZE > 0 && ((RAWSPEED_PAGESIZE & (RAWSPEED_PAGESIZE - 1)) == 0), "Expected to know (minimal) CPU page size.");
+
+#define HAVE_PUGIXML
+#define HAVE_ZLIB
+#define HAVE_JPEG
+
+#cmakedefine HAVE_JPEG_MEM_SRC
+
+#cmakedefine HAVE_CXX_THREAD_LOCAL
+#cmakedefine HAVE_GCC_THREAD_LOCAL
+
+#cmakedefine HAVE_ALIGNED_ALLOC
+#cmakedefine HAVE_POSIX_MEMALIGN
+#cmakedefine HAVE_MM_MALLOC
+
+#ifndef __has_feature
+#define __has_feature(x) 0
+#endif
+#ifndef __has_extension
+#define __has_extension __has_feature
+#endif
+
+#define RAWSPEED_UNLIKELY_FUNCTION __attribute__((cold))
+#define RAWSPEED_NOINLINE __attribute__((noinline))

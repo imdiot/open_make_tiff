@@ -47,9 +47,16 @@
       "description": "Build library with OpenMP support"
     },
     "rawspeed": {
-      "description": "Build library with extra RawSpeed codec support",
+      "description": "Build library with legacy RawSpeed v1 codec support",
       "dependencies": [
         "libxml2"
+      ]
+    },
+    "rawspeed3": {
+      "description": "Build library with RawSpeed v3 codec support (faster Huffman decoding)",
+      "dependencies": [
+        { "name": "rawspeed3" },
+        { "name": "libjpeg-turbo", "features": ["jpeg8"] }
       ]
     },
     "x3ftools": {

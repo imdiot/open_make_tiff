@@ -1,0 +1,13 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+exec_prefix=${prefix}
+includedir=${prefix}/include
+libdir=${exec_prefix}/lib
+
+Name: rawspeed3
+Description: RawSpeed v3 library (darktable fork) with C-API wrapper
+URL: https://github.com/darktable-org/rawspeed
+Version: @VERSION@
+
+Libs: "-L${libdir}" -lrawspeed3 -lrawspeed -lpugixml
+Requires: pugixml
+Cflags: "-I${includedir}"

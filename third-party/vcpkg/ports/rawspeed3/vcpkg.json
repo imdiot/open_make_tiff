@@ -1,0 +1,21 @@
+{
+  "name": "rawspeed3",
+  "version-string": "de70ef5f",
+  "description": "RawSpeed v3 library (darktable fork) with C-API wrapper for LibRaw",
+  "homepage": "https://github.com/darktable-org/rawspeed",
+  "license": "LGPL-2.1-only",
+  "supports": "!uwp & !xbox",
+  "dependencies": [
+    "pugixml",
+    "libjpeg-turbo",
+    "zlib",
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    }
+  ]
+}

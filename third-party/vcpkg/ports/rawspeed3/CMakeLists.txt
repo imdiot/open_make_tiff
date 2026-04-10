@@ -125,17 +125,13 @@ endif()
 set(CAMERAS_XML "${CMAKE_CURRENT_SOURCE_DIR}/data/cameras.xml")
 set(CAMERAS_CPP "${CMAKE_CURRENT_BINARY_DIR}/cameras.cpp")
 
-# Replicate rsxml2c.sh logic: embed cameras.xml as a C string literal
+# Embed cameras.xml as a C string literal via rsxml2c.sh
 add_custom_command(
     OUTPUT "${CAMERAS_CPP}"
-    COMMAND ${CMAKE_COMMAND}
-        -DCAMERAS_XML=${CAMERAS_XML}
-        -DCAMERAS_CPP=${CAMERAS_CPP}
-        -DRSXML2C_SH=${CMAKE_CURRENT_SOURCE_DIR}/rawspeed3_c_api/rsxml2c.sh
-        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_cameras.cmake"
+    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/rawspeed3_c_api/rsxml2c.sh"
+        "${CAMERAS_XML}" > "${CAMERAS_CPP}"
     DEPENDS "${CAMERAS_XML}" "${CMAKE_CURRENT_SOURCE_DIR}/rawspeed3_c_api/rsxml2c.sh"
     COMMENT "Generating cameras.cpp from cameras.xml"
-    VERBATIM
 )
 
 # ============================================================================

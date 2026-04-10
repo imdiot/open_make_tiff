@@ -24,6 +24,19 @@ import (
 
 var ErrDstFileExists = errors.New("destination file already exists")
 
+// baseRawOpts contains shared LibRaw processing options for consistent RAW decoding.
+var baseRawOpts = []golibraw.Option{
+	golibraw.WithUserMul(1, 1, 1, 1),
+	golibraw.WithOutputColorSpace(golibraw.ColorSpaceRaw),
+	golibraw.WithFlip(golibraw.FlipNone),
+	golibraw.WithHighlightMode(golibraw.HighlightUnclip),
+	golibraw.With16BitOutput(),
+	golibraw.WithNoAutoBrightness(),
+	golibraw.WithGamma(1.0, 1.0),
+	golibraw.WithAdjustMaxThreshold(0),
+	golibraw.WithEmbeddedColorMatrix(false),
+}
+
 // decodedImage holds pixel data decoded from a TIFF source.
 // Unlike golibraw.ProcessedImage (whose Width/Height are uint16 per LibRaw C API),
 // decodedImage uses uint32 for dimensions to support arbitrarily large TIFF images.
@@ -333,17 +346,7 @@ func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*golibraw.P
 		_ = os.Remove(env.DngIntPrePath)
 	}
 
-	rp, err := golibraw.New(
-		golibraw.WithUserMul(1, 1, 1, 1),
-		golibraw.WithOutputColorSpace(golibraw.ColorSpaceRaw),
-		golibraw.WithFlip(golibraw.FlipNone),
-		golibraw.WithHighlightMode(golibraw.HighlightUnclip),
-		golibraw.With16BitOutput(),
-		golibraw.WithNoAutoBrightness(),
-		golibraw.WithGamma(1.0, 1.0),
-		golibraw.WithAdjustMaxThreshold(0),
-		golibraw.WithEmbeddedColorMatrix(false),
-	)
+	rp, err := golibraw.New(baseRawOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -384,16 +387,7 @@ func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*golibraw.P
 }
 
 func (r *Runner) decodeDirect(ctx context.Context, env ConvertEnv) (*golibraw.ProcessedImage, error) {
-	rp, err := golibraw.New(
-		golibraw.WithUserMul(1, 1, 1, 1),
-		golibraw.WithOutputColorSpace(golibraw.ColorSpaceRaw),
-		golibraw.WithFlip(golibraw.FlipNone),
-		golibraw.WithHighlightMode(golibraw.HighlightUnclip),
-		golibraw.With16BitOutput(),
-		golibraw.WithNoAutoBrightness(),
-		golibraw.WithGamma(1.0, 1.0),
-		golibraw.WithAdjustMaxThreshold(0),
-		golibraw.WithEmbeddedColorMatrix(false),
+	rp, err := golibraw.New(append(baseRawOpts,
 		golibraw.WithDNGSDK(golibraw.DNGSDKDefault|golibraw.DNGSDKXTrans),
 		golibraw.WithUseRawSpeed(golibraw.RawSpeedV3Use),
 		golibraw.WithRawOptions(
@@ -403,7 +397,7 @@ func (r *Runner) decodeDirect(ctx context.Context, env ConvertEnv) (*golibraw.Pr
 				golibraw.RawOptDNGStage2IfPresent|
 				golibraw.RawOptDNGStage3IfPresent,
 		),
-	)
+	)...)
 	if err != nil {
 		return nil, err
 	}

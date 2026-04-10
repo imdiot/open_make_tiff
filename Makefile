@@ -29,7 +29,7 @@ endif
 
 # Package configuration
 VCPKG_PACKAGES = \
-	libraw[6by9rpi,dng-lossy,dngsdk,rawspeed,x3ftools] \
+	libraw[6by9rpi,dng-lossy,dngsdk,rawspeed3,x3ftools] \
 	tiff[cxx,jpeg,lerc,libdeflate,lzma,webp,zip,zstd]
 
 # ExifTool configuration
@@ -121,8 +121,8 @@ vcpkg-install-macos-universal: vcpkg-install-macos-arm64 vcpkg-install-macos-x64
 		$(INSTALLED_UNIVERSAL)/lib/pkgconfig/
 
 vcpkg-clean-macos:
-	$(VCPKG) remove libraw tiff adobe-dng-sdk --triplet=$(TRIPLET_ARM64) --recurse
-	$(VCPKG) remove libraw tiff adobe-dng-sdk --triplet=$(TRIPLET_X64_MAC) --recurse
+	$(VCPKG) remove libraw tiff adobe-dng-sdk rawspeed3 --triplet=$(TRIPLET_ARM64) --recurse
+	$(VCPKG) remove libraw tiff adobe-dng-sdk rawspeed3 --triplet=$(TRIPLET_X64_MAC) --recurse
 	rm -rf $(INSTALLED_UNIVERSAL)
 
 vcpkg-rebuild-macos: vcpkg-clean-macos vcpkg-install-macos-universal
@@ -137,7 +137,7 @@ vcpkg-install-windows:
 		--recurse
 
 vcpkg-clean-windows:
-	$(VCPKG) remove libraw tiff adobe-dng-sdk --triplet=$(TRIPLET_WINDOWS) --recurse
+	$(VCPKG) remove libraw tiff adobe-dng-sdk rawspeed3 --triplet=$(TRIPLET_WINDOWS) --recurse
 
 vcpkg-rebuild-windows: vcpkg-clean-windows vcpkg-install-windows
 

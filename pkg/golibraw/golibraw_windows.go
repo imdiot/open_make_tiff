@@ -8,6 +8,7 @@ package golibraw
 import "C"
 
 import (
+	"runtime"
 	"syscall"
 	"unsafe"
 )
@@ -23,9 +24,10 @@ func (rp *RawProcessor) OpenFile(path string) error {
 
 	wPath, err := syscall.UTF16PtrFromString(path)
 	if err != nil {
-		return librawError(-1, ErrFileOpenFailed)
+		return checkError(-1, ErrFileOpenFailed)
 	}
 
 	rc := C.libraw_open_wfile(rp.handle, (*C.wchar_t)(unsafe.Pointer(wPath)))
-	return librawError(rc, ErrFileOpenFailed)
+	runtime.KeepAlive(wPath)
+	return checkError(rc, ErrFileOpenFailed)
 }

@@ -21,5 +21,5 @@ func (rp *RawProcessor) OpenFile(path string) error {
 	defer C.free(unsafe.Pointer(cPath))
 
 	rc := C.libraw_open_file(rp.handle, cPath)
-	return librawError(rc, ErrFileOpenFailed)
+	return checkError(rc, ErrFileOpenFailed)
 }

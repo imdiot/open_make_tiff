@@ -97,6 +97,26 @@ type options struct {
 	useRawSpeedSet bool
 	rawOptions   RawOptions
 	rawOptionsSet bool
+
+	greybox              [4]uint
+	greyboxSet           bool
+	userCBlack           [4]int
+	userCBlackSet        bool
+	autoBrightThreshold  float32
+	autoBrightThresholdSet bool
+	phaseOneCorrection   bool
+	phaseOneCorrectionSet bool
+	outputFlags          int
+	outputFlagsSet       bool
+
+	rawSpecials              uint
+	rawSpecialsSet           bool
+	maxRawMemory             uint
+	maxRawMemorySet          bool
+	sonyARW2Posterization     int
+	sonyARW2PosterizationSet  bool
+	coolScanNEFGamma          float32
+	coolScanNEFGammaSet       bool
 }
 
 // ApplyOptions applies functional options to the processor output params.
@@ -286,6 +306,48 @@ func applyConfigToHandle(handle *C.libraw_data_t, cfg *options, alloc func(strin
 
 	if cfg.rawOptionsSet {
 		handle.rawparams.options = C.uint(cfg.rawOptions)
+	}
+
+	if cfg.greyboxSet {
+		params.greybox[0] = C.uint(cfg.greybox[0])
+		params.greybox[1] = C.uint(cfg.greybox[1])
+		params.greybox[2] = C.uint(cfg.greybox[2])
+		params.greybox[3] = C.uint(cfg.greybox[3])
+	}
+
+	if cfg.userCBlackSet {
+		params.user_cblack[0] = C.int(cfg.userCBlack[0])
+		params.user_cblack[1] = C.int(cfg.userCBlack[1])
+		params.user_cblack[2] = C.int(cfg.userCBlack[2])
+		params.user_cblack[3] = C.int(cfg.userCBlack[3])
+	}
+
+	if cfg.autoBrightThresholdSet {
+		params.auto_bright_thr = C.float(cfg.autoBrightThreshold)
+	}
+
+	if cfg.phaseOneCorrectionSet {
+		params.use_p1_correction = boolToCInt(cfg.phaseOneCorrection)
+	}
+
+	if cfg.outputFlagsSet {
+		params.output_flags = C.int(cfg.outputFlags)
+	}
+
+	if cfg.rawSpecialsSet {
+		handle.rawparams.specials = C.uint(cfg.rawSpecials)
+	}
+
+	if cfg.maxRawMemorySet {
+		handle.rawparams.max_raw_memory_mb = C.uint(cfg.maxRawMemory)
+	}
+
+	if cfg.sonyARW2PosterizationSet {
+		handle.rawparams.sony_arw2_posterization_thr = C.int(cfg.sonyARW2Posterization)
+	}
+
+	if cfg.coolScanNEFGammaSet {
+		handle.rawparams.coolscan_nef_gamma = C.float(cfg.coolScanNEFGamma)
 	}
 }
 
@@ -566,5 +628,70 @@ func WithRawOptions(opts RawOptions) Option {
 	return func(o *options) {
 		o.rawOptions = opts
 		o.rawOptionsSet = true
+	}
+}
+
+// WithGreyBox sets params.greybox (x1, y1, x2, y2).
+func WithGreyBox(x1, y1, x2, y2 uint) Option {
+	return func(o *options) {
+		o.greybox = [4]uint{x1, y1, x2, y2}
+		o.greyboxSet = true
+	}
+}
+
+// WithUserCBlack sets params.user_cblack (r, g, b, g2).
+func WithUserCBlack(r, g, b, g2 int) Option {
+	return func(o *options) {
+		o.userCBlack = [4]int{r, g, b, g2}
+		o.userCBlackSet = true
+	}
+}
+
+func WithAutoBrightThreshold(thr float32) Option {
+	return func(o *options) {
+		o.autoBrightThreshold = thr
+		o.autoBrightThresholdSet = true
+	}
+}
+
+func WithPhaseOneCorrection() Option {
+	return func(o *options) {
+		o.phaseOneCorrection = true
+		o.phaseOneCorrectionSet = true
+	}
+}
+
+func WithOutputFlags(flags int) Option {
+	return func(o *options) {
+		o.outputFlags = flags
+		o.outputFlagsSet = true
+	}
+}
+
+func WithRawSpecials(flags uint) Option {
+	return func(o *options) {
+		o.rawSpecials = flags
+		o.rawSpecialsSet = true
+	}
+}
+
+func WithMaxRawMemory(mb uint) Option {
+	return func(o *options) {
+		o.maxRawMemory = mb
+		o.maxRawMemorySet = true
+	}
+}
+
+func WithSonyARW2Posterization(thr int) Option {
+	return func(o *options) {
+		o.sonyARW2Posterization = thr
+		o.sonyARW2PosterizationSet = true
+	}
+}
+
+func WithCoolScanNEFGamma(gamma float32) Option {
+	return func(o *options) {
+		o.coolScanNEFGamma = gamma
+		o.coolScanNEFGammaSet = true
 	}
 }

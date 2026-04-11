@@ -118,9 +118,8 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	}
 	name := filepath.Base(srcPath)
 	ext := filepath.Ext(srcPath)
-	base := name[:len(name)-len(ext)]
 
-	dstPath := filepath.Join(dstDir, fmt.Sprintf("%s.tiff", base))
+	dstPath := filepath.Join(dstDir, fmt.Sprintf("%s.tiff", name))
 	if _, err := os.Stat(dstPath); err == nil {
 		return fmt.Errorf("%w: %s", ErrDstFileExists, dstPath)
 	}
@@ -155,10 +154,10 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		u := uuid.New()
 		token = hex.EncodeToString(u[:])
 
-		logPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.log", base, token))
-		dngIntPrePath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int_pre.dng", base, token))
-		dngIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.dng", base, token))
-		tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.tiff", base, token))
+		logPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.log", name, token))
+		dngIntPrePath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int_pre.dng", name, token))
+		dngIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.dng", name, token))
+		tiffIntPath = filepath.Join(dstDir, fmt.Sprintf("%s_%s.int.tiff", name, token))
 
 		conflict := slices.ContainsFunc(
 			[]string{logPath, dngIntPrePath, dngIntPath, tiffIntPath},
@@ -591,7 +590,6 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *Extra
 	r.logger.Info("write TIFF", "time", time.Since(now).Seconds())
 	return nil
 }
-
 
 func writeIFD0Tags(tf *golibtiff.TIFF, meta *ExtractedMetadata, cfg Config) error {
 	writeGroup(tf, meta.IFD0, skipIFD0IDs)

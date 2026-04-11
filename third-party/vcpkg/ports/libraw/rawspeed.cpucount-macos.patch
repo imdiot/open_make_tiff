@@ -1,0 +1,14 @@
+diff --git a/RawSpeed/Common.cpp b/RawSpeed/Common.cpp
+--- a/RawSpeed/Common.cpp
++++ b/RawSpeed/Common.cpp
+@@ -46,5 +46,10 @@ void* _aligned_malloc(size_t bytes, size_t alignment) {
+   } 
+   return malloc(bytes); // Mac OS X malloc is usually aligned to 16 bytes
+ }
++#include <unistd.h>
++int rawspeed_get_number_of_processor_cores()
++{
++  return sysconf( _SC_NPROCESSORS_ONLN );
++}
+ 
+ #elif defined(__unix__)

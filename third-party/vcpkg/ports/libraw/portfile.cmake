@@ -30,6 +30,7 @@ if("rawspeed" IN_LIST FEATURES)
         HEAD_REF master
         PATCHES
             rawspeed.cpucount-unix.patch
+            rawspeed.cpucount-macos.patch
             rawspeed.samsung-decoder.patch
             rawspeed.mingw-compat.patch
     )

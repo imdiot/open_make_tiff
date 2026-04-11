@@ -188,6 +188,11 @@ func parseFileMetadata(obj map[string]any) *fileMetadata {
 			continue
 		}
 		ti := parseTagInfo(raw)
+		// Tags from non-standard tables (e.g. PanasonicRaw::Main) may reuse
+		// standard tag IDs for different purposes — filter them out early.
+		if !standardTables[ti.Table] {
+			continue
+		}
 		switch group {
 		case "IFD0", "SubIFD":
 			fm.IFD0[name] = ti
@@ -213,7 +218,11 @@ func parseTagInfo(v any) TagInfo {
 		for k, v := range val {
 			switch k {
 			case "val":
-				ti.Val = fmt.Sprintf("%v", v)
+				if n, ok := v.(float64); ok {
+					ti.Val = strconv.FormatFloat(n, 'f', -1, 64)
+				} else {
+					ti.Val = fmt.Sprintf("%v", v)
+				}
 			case "num":
 				ti.Num = v
 			case "rat":
@@ -416,6 +425,16 @@ func decodeHex(hexStr string) []byte {
 
 // --- Auto-type writing ---
 
+// standardTables lists exiftool source tables whose tag semantics align with
+// libtiff's standard TIFF/EXIF field definitions. Tags from other tables
+// (e.g. PanasonicRaw::Main) may reuse standard tag IDs for different meanings
+// and are filtered out during metadata parsing.
+// Source: exiftool ExifTool.pm:8922 — SHORT_NAME = package minus "Image::ExifTool::"
+var standardTables = map[string]bool{
+	"Exif::Main": true, // IFD0 + ExifIFD + InteropIFD + SubIFD
+	"GPS::Main":  true, // GPS
+}
+
 // writeTag writes a single tag to the TIFF based on libtiff field_type and writecount.
 func writeTag(tf *golibtiff.TIFF, ti TagInfo, skipIDs map[uint32]bool) {
 	id := parseTagID(ti.ID)
@@ -465,7 +484,11 @@ func writeTag(tf *golibtiff.TIFF, ti TagInfo, skipIDs map[uint32]bool) {
 			}
 		}
 	case 7: // UNDEFINED
-		if data := decodeBinary(ti); len(data) > 0 {
+		if wc == 1 {
+			if data := decodeBinary(ti); len(data) > 0 {
+				tf.SetFieldUint8(tag, data[0])
+			}
+		} else if data := decodeBinary(ti); len(data) > 0 {
 			if !tf.FieldPassCount(tag) {
 				tf.SetFieldC0ByteSlice(tag, data)
 			} else {
@@ -501,10 +524,19 @@ func writeRationalTag(tf *golibtiff.TIFF, tag golibtiff.Tag, ti TagInfo) {
 	case 1:
 		tf.SetFieldDouble(tag, vals[0])
 	default:
+		sz := tf.FieldSetGetSize(tag)
 		if !tf.FieldPassCount(tag) {
-			tf.SetFieldC0DoubleSlice(tag, vals)
+			if sz == 4 {
+				tf.SetFieldC0FloatSlice(tag, vals)
+			} else {
+				tf.SetFieldC0DoubleSlice(tag, vals)
+			}
 		} else {
-			tf.SetFieldDoubleSlice(tag, vals)
+			if sz == 4 {
+				tf.SetFieldFloatSlice(tag, vals)
+			} else {
+				tf.SetFieldDoubleSlice(tag, vals)
+			}
 		}
 	}
 }

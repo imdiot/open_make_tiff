@@ -109,6 +109,11 @@ static int tiffFieldWriteCount(TIFF *t, uint32_t tag) {
     const TIFFField *f = TIFFFieldWithTag(t, tag);
     return f ? (int)TIFFFieldWriteCount(f) : 0;
 }
+// Get the internal storage size for a tag's values (4=float, 8=double).
+static int tiffFieldSetGetSize(TIFF *t, uint32_t tag) {
+    const TIFFField *f = TIFFFieldWithTag(t, tag);
+    return f ? TIFFFieldSetGetSize(f) : -1;
+}
 // Byte-slice getter (count + data for UNDEFINED/BYTE arrays like ICC, XMP).
 static int tiffGetFieldByteSlice(TIFF *t, uint32_t tag, uint8_t **v, uint32_t *c) {
     return TIFFGetField(t, tag, c, v);
@@ -1263,6 +1268,15 @@ func (t *TIFF) FieldWriteCount(tag Tag) int {
 		return 0
 	}
 	return int(C.tiffFieldWriteCount(t.tif, C.uint32_t(tag)))
+}
+
+// FieldSetGetSize returns the per-element storage size in bytes for the tag.
+// Returns 4 for SETGET_*_FLOAT tags, 8 for SETGET_*_DOUBLE tags, -1 if unknown.
+func (t *TIFF) FieldSetGetSize(tag Tag) int {
+	if err := t.checkOpen(); err != nil {
+		return -1
+	}
+	return int(C.tiffFieldSetGetSize(t.tif, C.uint32_t(tag)))
 }
 
 // --- Directory/IFD operations ---

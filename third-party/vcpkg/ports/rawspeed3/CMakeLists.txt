@@ -35,6 +35,13 @@ endif()
 if(NOT HAVE_POSIX_MEMALIGN)
   check_symbol_exists(_mm_malloc "xmmintrin.h" HAVE_MM_MALLOC)
 endif()
+check_symbol_exists(_aligned_malloc "malloc.h" HAVE_ALIGNED_MALLOC)
+if(HAVE_ALIGNED_MALLOC)
+  check_symbol_exists(_aligned_free "malloc.h" HAVE_ALIGNED_FREE)
+  if(NOT HAVE_ALIGNED_FREE)
+    unset(HAVE_ALIGNED_MALLOC CACHE)
+  endif()
+endif()
 
 # Check thread_local support
 check_cxx_source_compiles("
@@ -125,12 +132,14 @@ endif()
 set(CAMERAS_XML "${CMAKE_CURRENT_SOURCE_DIR}/data/cameras.xml")
 set(CAMERAS_CPP "${CMAKE_CURRENT_BINARY_DIR}/cameras.cpp")
 
-# Embed cameras.xml as a C string literal via rsxml2c.sh
+# Embed cameras.xml as a C string literal
 add_custom_command(
     OUTPUT "${CAMERAS_CPP}"
-    COMMAND bash "${CMAKE_CURRENT_SOURCE_DIR}/rawspeed3_c_api/rsxml2c.sh"
-        "${CAMERAS_XML}" > "${CAMERAS_CPP}"
-    DEPENDS "${CAMERAS_XML}" "${CMAKE_CURRENT_SOURCE_DIR}/rawspeed3_c_api/rsxml2c.sh"
+    COMMAND "${CMAKE_COMMAND}"
+        -DINPUT="${CAMERAS_XML}"
+        -DOUTPUT="${CAMERAS_CPP}"
+        -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_cameras_cpp.cmake"
+    DEPENDS "${CAMERAS_XML}" "${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_cameras_cpp.cmake"
     COMMENT "Generating cameras.cpp from cameras.xml"
 )
 

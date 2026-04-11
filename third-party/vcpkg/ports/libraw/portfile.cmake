@@ -20,8 +20,36 @@ vcpkg_from_github(
         fix-install.patch
 )
 
+# Download RawSpeed v1 source (legacy, from rawspeed master branch)
+if("rawspeed" IN_LIST FEATURES)
+    vcpkg_from_github(
+        OUT_SOURCE_PATH RAWSPEED_V1_SOURCE_PATH
+        REPO darktable-org/rawspeed
+        REF 0f1d601c3cf6245ba60a7e05ea11cb62c501b3f1
+        SHA512 3f9d34b174622daac0066c234cacce400e81efdba28acc4939a3d51ce410c5a1e597f07e7c471d7b672e94c22c10aa540fbb1eb30b725ff29c8db19a268be2c5
+        HEAD_REF master
+        PATCHES
+            rawspeed.cpucount-unix.patch
+            rawspeed.samsung-decoder.patch
+            rawspeed.mingw-compat.patch
+    )
+endif()
+
 file(COPY "${LIBRAW_CMAKE_SOURCE_PATH}/CMakeLists.txt" DESTINATION "${SOURCE_PATH}")
 file(COPY "${LIBRAW_CMAKE_SOURCE_PATH}/cmake" DESTINATION "${SOURCE_PATH}")
+
+# Copy patched RawSpeed v1 sources into LibRaw source tree
+if("rawspeed" IN_LIST FEATURES)
+    file(GLOB RAWSPEED_V1_SOURCES
+        "${RAWSPEED_V1_SOURCE_PATH}/RawSpeed/*.cpp"
+        "${RAWSPEED_V1_SOURCE_PATH}/RawSpeed/*.h"
+    )
+    file(COPY ${RAWSPEED_V1_SOURCES} DESTINATION "${SOURCE_PATH}/RawSpeed")
+
+    # Create minimal dlldef.h for static builds (win32-dll.patch not needed)
+    file(WRITE "${SOURCE_PATH}/RawSpeed/dlldef.h"
+        "#ifndef DLLDEF_H\n#define DLLDEF_H\n#define DllDef\n#endif\n")
+endif()
 
 # Add ENABLE_RAWSPEED3 option and support (avoids fragile patch)
 file(READ "${SOURCE_PATH}/CMakeLists.txt" CMAKE_CONTENT)
@@ -47,6 +75,24 @@ string(REPLACE
     CMAKE_CONTENT "${CMAKE_CONTENT}"
 )
 file(WRITE "${SOURCE_PATH}/CMakeLists.txt" "${CMAKE_CONTENT}")
+
+# Fix PTHREADS_FOUND bug: find_package(Threads) sets Threads_FOUND, not PTHREADS_FOUND
+if("rawspeed" IN_LIST FEATURES)
+    file(READ "${SOURCE_PATH}/CMakeLists.txt" CMAKE_CONTENT)
+    string(REPLACE "AND PTHREADS_FOUND)" "AND Threads_FOUND)" CMAKE_CONTENT "${CMAKE_CONTENT}")
+    string(REPLACE "if(NOT PTHREADS_FOUND)" "if(NOT Threads_FOUND)" CMAKE_CONTENT "${CMAKE_CONTENT}")
+    string(REPLACE "include_directories(\${LIBXML2_INCLUDE_DIR} \${PTHREADS_INCLUDE_DIR})"
+                   "include_directories(\${LIBXML2_INCLUDE_DIR})" CMAKE_CONTENT "${CMAKE_CONTENT}")
+    string(REPLACE "add_definitions(\${LIBXML2_DEFINITIONS} \${PTHREADS_DEFINITIONS})"
+                   "add_definitions(\${LIBXML2_DEFINITIONS})" CMAKE_CONTENT "${CMAKE_CONTENT}")
+    # Add rawspeed_xmldata.cpp to build (contains embedded cameras.xml)
+    string(REPLACE
+        "\${RAWSPEED_PATH}/TiffParserOlympus.cpp\n    )"
+        "\${RAWSPEED_PATH}/TiffParserOlympus.cpp\n                             \${RAWSPEED_PATH}/rawspeed_xmldata.cpp\n    )"
+        CMAKE_CONTENT "${CMAKE_CONTENT}"
+    )
+    file(WRITE "${SOURCE_PATH}/CMakeLists.txt" "${CMAKE_CONTENT}")
+endif()
 
 # Inject LIBRAW_USE_RAWSPEED3 into config header template
 file(READ "${SOURCE_PATH}/cmake/data/libraw_config.h.cmake" CONFIG_H_CONTENT)
@@ -119,6 +165,10 @@ endif()
 if("rawspeed3" IN_LIST FEATURES)
     string(APPEND _RAW_CFLAGS " -DUSE_RAWSPEED3 -DUSE_RAWSPEED_BITS")
     string(APPEND _RAW_PC_REQUIRE " rawspeed3")
+endif()
+if("rawspeed" IN_LIST FEATURES)
+    string(APPEND _RAW_CFLAGS " -DUSE_RAWSPEED")
+    string(APPEND _RAW_PC_REQUIRE " libxml2")
 endif()
 foreach(_pc IN ITEMS libraw libraw_r)
     set(_pc_file "${CURRENT_PACKAGES_DIR}/lib/pkgconfig/${_pc}.pc")

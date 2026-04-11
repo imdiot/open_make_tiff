@@ -1,0 +1,29 @@
+diff --git a/RawSpeed/Common.h b/RawSpeed/Common.h
+--- a/RawSpeed/Common.h
++++ b/RawSpeed/Common.h
+@@ -102,7 +102,7 @@ inline int lmax(int p0, int p1) {
+
+ inline uint32 getThreadCount()
+ {
+-#ifdef WIN32
++#if defined(WIN32) && !defined(__MINGW32__)
+   return pthread_num_processors_np();
+ #else
+   return rawspeed_get_number_of_processor_cores();
+diff --git a/RawSpeed/Common.cpp b/RawSpeed/Common.cpp
+--- a/RawSpeed/Common.cpp
++++ b/RawSpeed/Common.cpp
+@@ -36,5 +36,13 @@ int rawspeed_get_number_of_processor_cores()
+ {
+   return sysconf( _SC_NPROCESSORS_ONLN );
+ }
++#elif defined(__MINGW32__)
++#include <windows.h>
++int rawspeed_get_number_of_processor_cores()
++{
++  SYSTEM_INFO si;
++  GetSystemInfo(&si);
++  return si.dwNumberOfProcessors;
++}
+
+ #endif

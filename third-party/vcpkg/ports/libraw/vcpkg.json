@@ -49,7 +49,11 @@
     "rawspeed": {
       "description": "Build library with legacy RawSpeed v1 codec support",
       "dependencies": [
-        "libxml2"
+        "libxml2",
+        {
+          "name": "libjpeg-turbo",
+          "features": ["jpeg8"]
+        }
       ]
     },
     "rawspeed3": {

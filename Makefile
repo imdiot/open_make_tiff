@@ -29,7 +29,7 @@ endif
 
 # Package configuration
 VCPKG_PACKAGES = \
-	libraw[6by9rpi,dng-lossy,dngsdk,rawspeed3,x3ftools] \
+	libraw[6by9rpi,dng-lossy,dngsdk,rawspeed,rawspeed3,x3ftools] \
 	tiff[cxx,jpeg,lerc,libdeflate,lzma,webp,zip,zstd]
 
 # ExifTool configuration

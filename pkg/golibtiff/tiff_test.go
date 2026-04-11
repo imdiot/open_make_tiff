@@ -1327,7 +1327,7 @@ func TestReadRGBAStrip(t *testing.T) {
 		t.Fatalf("ReadRGBAStrip: %v", err)
 	}
 
-	// 验证至少有非零像素（非全黑图片）
+	// verify at least some non-zero pixels (not all-black)
 	hasNonZero := false
 	for _, px := range strip {
 		if px != 0 {

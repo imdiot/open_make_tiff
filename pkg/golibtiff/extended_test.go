@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// --- Phase 1: Pseudo-Tag 常量 ---
+// --- Phase 1: Pseudo-Tag constants ---
 
 func TestPseudoTagConstants(t *testing.T) {
 	tests := []struct {
@@ -438,7 +438,7 @@ func TestFieldIntrospection(t *testing.T) {
 	}
 }
 
-// --- ReadRGBAImage 缓冲区校验 ---
+// --- ReadRGBAImage buffer validation ---
 
 func TestReadRGBAImageBufferTooSmall(t *testing.T) {
 	path := filepath.Join("testdata", "rgb-3c-8b.tiff")
@@ -451,14 +451,14 @@ func TestReadRGBAImageBufferTooSmall(t *testing.T) {
 	w, _ := tif.Width()
 	h, _ := tif.Height()
 
-	// 缓冲区比需要的小
+	// buffer smaller than required
 	smallBuf := make([]uint32, int(w)*int(h)-1)
 	err = tif.ReadRGBAImage(smallBuf)
 	if err == nil {
 		t.Fatal("expected error for too-small buffer")
 	}
 
-	// 刚好大小的缓冲区应正常工作
+	// exact-size buffer should work
 	okBuf := make([]uint32, int(w)*int(h))
 	if err := tif.ReadRGBAImage(okBuf); err != nil {
 		t.Fatalf("ReadRGBAImage with correct buffer: %v", err)
@@ -484,7 +484,7 @@ func TestGetFieldByteSliceRoundTrip(t *testing.T) {
 	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
 	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
 
-	// 写入自定义 XMP 数据
+	// write custom XMP data
 	xmpData := []byte("<?xpacket?><x:xmpmeta>test</x:xmpmeta><?xpacket?>")
 	tif.SetFieldByteSlice(TagXMP, xmpData)
 
@@ -499,7 +499,7 @@ func TestGetFieldByteSliceRoundTrip(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	// 验证读回 XMP 数据
+	// verify XMP data round-trip
 	readTif, err := Open(path, OpenRead)
 	if err != nil {
 		t.Fatalf("Open for read: %v", err)
@@ -534,10 +534,10 @@ func TestUnsetField(t *testing.T) {
 	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
 	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
 
-	// 设置 Artist 标签
+	// set Artist tag
 	tif.SetFieldString(TagArtist, "test author")
 
-	// 写入像素数据
+	// write pixel data
 	for row := range h {
 		scanline := make([]byte, w)
 		if err := tif.WriteScanline(scanline, row); err != nil {
@@ -545,7 +545,7 @@ func TestUnsetField(t *testing.T) {
 		}
 	}
 
-	// 删除 Artist 标签
+	// remove Artist tag
 	if err := tif.UnsetField(TagArtist); err != nil {
 		t.Fatalf("UnsetField: %v", err)
 	}
@@ -554,7 +554,7 @@ func TestUnsetField(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	// 验证文件可读且 Artist 已不存在
+	// verify file is readable and Artist is gone
 	readTif, err := Open(path, OpenRead)
 	if err != nil {
 		t.Fatalf("Open for read: %v", err)
@@ -579,7 +579,7 @@ func isTiled(tif *TIFF) bool {
 	return err == nil && tileWidth > 0
 }
 
-// --- Close 并发安全 ---
+// --- Close concurrency safety ---
 
 func TestCloseConcurrent(t *testing.T) {
 	path := filepath.Join("testdata", "rgb-3c-8b.tiff")
@@ -597,7 +597,7 @@ func TestCloseConcurrent(t *testing.T) {
 	wg.Wait()
 }
 
-// --- C2: ClientIO GC 安全 ---
+// --- C2: ClientIO GC safety ---
 
 func TestClientIOGC(t *testing.T) {
 	path := filepath.Join("testdata", "rgb-3c-8b.tiff")
@@ -611,7 +611,7 @@ func TestClientIOGC(t *testing.T) {
 		t.Fatalf("OpenFromBuffer: %v", err)
 	}
 
-	// 强制 GC，验证 MapFileProc 返回的 buffer 不被回收
+	// force GC to verify MapFileProc buffer is not collected
 	runtime.GC()
 
 	scanline := make([]byte, tif.ScanlineSize())

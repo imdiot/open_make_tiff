@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -117,7 +116,6 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		dstDir = filepath.Join(dstDir, "make_tiff")
 	}
 	name := filepath.Base(srcPath)
-	ext := filepath.Ext(srcPath)
 
 	dstPath := filepath.Join(dstDir, fmt.Sprintf("%s.tiff", name))
 	if _, err := os.Stat(dstPath); err == nil {
@@ -210,36 +208,26 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		}
 	}
 
-	var isNonRawFFF bool
-
-	if strings.ToLower(ext) == ".fff" {
-		rp, err := golibraw.New()
-		if err != nil {
-			returnErr = fmt.Errorf("golibraw init failed: %w", err)
-			return returnErr
-		}
-		isNonRawFFF = rp.OpenFile(srcPath) != nil
-		rp.Close()
-
-		if isNonRawFFF {
-			r.logger.Info("fff file is TIFF-based, using direct TIFF read", "path", srcPath)
-		} else {
-			r.logger.Info("fff file is RAW, using golibraw", "path", srcPath)
-		}
+	isTIFF, probeErr := r.probeFile(srcPath)
+	if probeErr != nil {
+		returnErr = probeErr
+		return returnErr
+	}
+	if isTIFF {
 		useDNG = false
 	}
 
 	var img *decodedImage
 	secondSrc := srcPath
 
-	if isNonRawFFF {
+	if isTIFF {
 		now := time.Now()
 		img, err = decodeTIFF(srcPath)
 		if err != nil {
 			returnErr = err
 			return returnErr
 		}
-		r.logger.Info("read TIFF as mem image (TIFF-based fff)", "time", time.Since(now).Seconds())
+		r.logger.Info("read TIFF as mem image", "time", time.Since(now).Seconds())
 	} else {
 		usedDNG := false
 		var rawImg *golibraw.ProcessedImage
@@ -290,6 +278,42 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	}
 
 	return nil
+}
+
+// probeFile detects whether srcPath is a readable TIFF that LibRaw cannot handle.
+// Returns (false, nil) if the file appears to be RAW (LibRaw can open it).
+// Returns (true, nil) if LibRaw cannot open it but libtiff can (plain TIFF).
+// Returns (false, err) only if LibRaw init itself fails — a fatal condition.
+//
+// When both LibRaw and libtiff fail to open the file, it returns (false, nil)
+// and logs a warning, allowing the caller to fall through to decodeDirect
+// for a final attempt with full options (DNG SDK, RawSpeed, etc.).
+//
+// LibRaw is probed first because many RAW formats (CR2, NEF, ARW, DNG, etc.)
+// are TIFF containers — only LibRaw can distinguish them from plain TIFF.
+func (r *Runner) probeFile(srcPath string) (isTIFF bool, err error) {
+	rp, probeErr := golibraw.New()
+	if probeErr != nil {
+		return false, fmt.Errorf("golibraw init failed: %w", probeErr)
+	}
+	librawOK := rp.OpenFile(srcPath) == nil
+	rp.Close()
+
+	if librawOK {
+		r.logger.Info("detected RAW format", "path", srcPath)
+		return false, nil
+	}
+
+	// LibRaw cannot open it — check if it is a readable TIFF.
+	tf, tiffErr := golibtiff.Open(srcPath, golibtiff.OpenRead)
+	if tiffErr != nil {
+		r.logger.Warn("file not recognized as RAW or TIFF by probe, will attempt direct decode", "path", srcPath)
+		return false, nil
+	}
+	tf.Close()
+
+	r.logger.Info("detected TIFF format", "path", srcPath)
+	return true, nil
 }
 
 func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*golibraw.ProcessedImage, error) {

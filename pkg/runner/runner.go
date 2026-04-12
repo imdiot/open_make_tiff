@@ -4,12 +4,14 @@ import (
 	"cmp"
 	"context"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -34,17 +36,6 @@ var baseRawOpts = []golibraw.Option{
 	golibraw.WithGamma(1.0, 1.0),
 	golibraw.WithAdjustMaxThreshold(0),
 	golibraw.WithEmbeddedColorMatrix(false),
-}
-
-// decodedImage holds pixel data decoded from a TIFF source.
-// Unlike golibraw.ProcessedImage (whose Width/Height are uint16 per LibRaw C API),
-// decodedImage uses uint32 for dimensions to support arbitrarily large TIFF images.
-type decodedImage struct {
-	Width  uint32
-	Height uint32
-	Colors uint16
-	Bits   uint16
-	Data   []byte
 }
 
 type Config struct {
@@ -91,6 +82,17 @@ type ConvertEnv struct {
 	DngIntPrePath string
 	DngIntPath    string
 	TiffIntPath   string
+}
+
+// decodedImage holds decoded pixel data.
+// Unlike golibraw.ProcessedImage (whose Width/Height are uint16 per LibRaw C API),
+// decodedImage uses uint32 for dimensions to support arbitrarily large TIFF images.
+type decodedImage struct {
+	Width  uint32
+	Height uint32
+	Colors uint16
+	Bits   uint16
+	Data   []byte
 }
 
 func New(cfg Config, opts ...Option) *Runner {
@@ -222,7 +224,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 
 	if isTIFF {
 		now := time.Now()
-		img, err = decodeTIFF(srcPath)
+		img, err = r.decodeTIFF(srcPath)
 		if err != nil {
 			returnErr = err
 			return returnErr
@@ -230,9 +232,8 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		r.logger.Info("read TIFF as mem image", "time", time.Since(now).Seconds())
 	} else {
 		usedDNG := false
-		var rawImg *golibraw.ProcessedImage
 		if useDNG {
-			rawImg, err = r.decodeWithDNG(ctx, env)
+			img, err = r.decodeWithDNG(ctx, env)
 			if err == nil {
 				usedDNG = true
 			} else {
@@ -240,20 +241,13 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 			}
 		}
 		if !usedDNG {
-			rawImg, err = r.decodeDirect(ctx, env)
+			img, err = r.decodeDirect(ctx, env)
 			if err != nil {
 				returnErr = err
 				return returnErr
 			}
 		} else {
 			secondSrc = env.DngIntPath
-		}
-		img = &decodedImage{
-			Width:  uint32(rawImg.Width),
-			Height: uint32(rawImg.Height),
-			Colors: rawImg.Colors,
-			Bits:   rawImg.Bits,
-			Data:   rawImg.Data,
 		}
 	}
 
@@ -316,7 +310,7 @@ func (r *Runner) probeFile(srcPath string) (isTIFF bool, err error) {
 	return true, nil
 }
 
-func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*golibraw.ProcessedImage, error) {
+func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*decodedImage, error) {
 	dngOpts1 := []dngconverter.Option{
 		dngconverter.WithUncompressed(true),
 		dngconverter.WithPreviewSize(dngconverter.PreviewNone),
@@ -400,16 +394,20 @@ func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*golibraw.P
 	if err := rp.Process(); err != nil {
 		return nil, err
 	}
-	img, err := rp.MakeMemImage()
+	raw, err := rp.MakeMemImage()
 	if err != nil {
 		return nil, err
 	}
 	r.logger.Info("run golibraw (with DNG)", "time", time.Since(now).Seconds())
 
-	return img, nil
+	return &decodedImage{
+		Width: uint32(raw.Width), Height: uint32(raw.Height),
+		Colors: uint16(raw.Colors), Bits: uint16(raw.Bits),
+		Data: raw.Data,
+	}, nil
 }
 
-func (r *Runner) decodeDirect(ctx context.Context, env ConvertEnv) (*golibraw.ProcessedImage, error) {
+func (r *Runner) decodeDirect(ctx context.Context, env ConvertEnv) (*decodedImage, error) {
 	rp, err := golibraw.New(append(baseRawOpts,
 		golibraw.WithDNGSDK(golibraw.DNGSDKDefault|golibraw.DNGSDKXTrans),
 		golibraw.WithUseRawSpeed(golibraw.RawSpeedV3Use),
@@ -450,16 +448,22 @@ func (r *Runner) decodeDirect(ctx context.Context, env ConvertEnv) (*golibraw.Pr
 	if err := rp.Process(); err != nil {
 		return nil, err
 	}
-	img, err := rp.MakeMemImage()
+	raw, err := rp.MakeMemImage()
 	if err != nil {
 		return nil, err
 	}
 	r.logger.Info("run golibraw (direct)", "time", time.Since(now).Seconds())
 
-	return img, nil
+	return &decodedImage{
+		Width: uint32(raw.Width), Height: uint32(raw.Height),
+		Colors: uint16(raw.Colors), Bits: uint16(raw.Bits),
+		Data: raw.Data,
+	}, nil
 }
 
-func decodeTIFF(srcPath string) (*decodedImage, error) {
+// decodeTIFF reads all pixel data from a TIFF file into a contiguous buffer.
+// Supports both tiled and stripped layouts.
+func (r *Runner) decodeTIFF(srcPath string) (*decodedImage, error) {
 	src, err := golibtiff.Open(srcPath, golibtiff.OpenRead)
 	if err != nil {
 		return nil, fmt.Errorf("decodeTIFF: open: %w", err)
@@ -529,11 +533,9 @@ func decodeTIFF(srcPath string) (*decodedImage, error) {
 	}
 
 	return &decodedImage{
-		Width:  width,
-		Height: height,
-		Colors: colors,
-		Bits:   bits,
-		Data:   data,
+		Width: width, Height: height,
+		Colors: colors, Bits: bits,
+		Data: data,
 	}, nil
 }
 
@@ -546,12 +548,9 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *Extra
 	}
 	defer tf.Close()
 
-	w := img.Width
-	h := img.Height
-	colors := img.Colors
-	bits := img.Bits
-	scanline := int64(w) * int64(colors) * int64(bits/8)
-
+	// Phase 1: Set image dimension and format tags.
+	w, h := img.Width, img.Height
+	colors, bits := img.Colors, img.Bits
 	if err := tf.SetFieldUint32(golibtiff.TagImageWidth, w); err != nil {
 		return fmt.Errorf("set ImageWidth: %w", err)
 	}
@@ -582,25 +581,31 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *Extra
 		return fmt.Errorf("set RowsPerStrip: %w", err)
 	}
 
+	// Phase 2: Write IFD0 metadata and config overrides.
 	if meta != nil {
-		if err := writeIFD0Tags(tf, meta, r.cfg, r.logger); err != nil {
-			return fmt.Errorf("write IFD0 tags: %w", err)
+		meta.WriteIFD0(tf)
+
+		dpi := cmp.Or(float64(r.cfg.DPI), 300.0)
+		if err := tf.SetFieldDouble(golibtiff.TagXResolution, dpi); err != nil {
+			return fmt.Errorf("set XResolution: %w", err)
 		}
-		// Reserve dummy offsets for Sub-IFD pointers in the main IFD.
-		// This prevents libtiff from rewriting the main IFD to a new location
-		// when we later set the real offsets (per libtiff official docs).
-		if len(meta.EXIF) > 0 {
-			if err := tf.SetFieldUint64(golibtiff.TagEXIFIFD, 0); err != nil {
-				return fmt.Errorf("set EXIF IFD offset: %w", err)
+		if err := tf.SetFieldDouble(golibtiff.TagYResolution, dpi); err != nil {
+			return fmt.Errorf("set YResolution: %w", err)
+		}
+		_ = tf.SetFieldUint16(golibtiff.TagResolutionUnit, golibtiff.ResolutionUnitInch)
+		if profile, ok := icc.Profiles[r.cfg.Profile]; ok {
+			if err := tf.SetFieldByteSlice(golibtiff.TagIccProfile, profile.Data()); err != nil {
+				return fmt.Errorf("set ICC profile: %w", err)
 			}
 		}
-		if len(meta.GPS) > 0 {
-			if err := tf.SetFieldUint64(golibtiff.TagGPSIFD, 0); err != nil {
-				return fmt.Errorf("set GPS IFD offset: %w", err)
-			}
+
+		if err := meta.ReserveSubIFDs(tf); err != nil {
+			return err
 		}
 	}
 
+	// Phase 3: Write pixel scanlines.
+	scanline := int64(w) * int64(colors) * int64(bits/8)
 	for row := uint32(0); row < h; row++ {
 		off := int64(row) * scanline
 		if err := tf.WriteScanline(img.Data[off:off+scanline], row); err != nil {
@@ -608,99 +613,92 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *Extra
 		}
 	}
 
-	if err := writeIFDWithOptionalSubIFDs(tf, meta, r.logger); err != nil {
-		return err
+	// Phase 4: Write Sub-IFDs (EXIF, GPS).
+	if meta != nil {
+		if err := meta.WriteSubIFDs(tf); err != nil {
+			return err
+		}
+	} else {
+		if err := tf.WriteDirectory(); err != nil {
+			return fmt.Errorf("write directory: %w", err)
+		}
 	}
+
 	r.logger.Info("write TIFF", "time", time.Since(now).Seconds())
 	return nil
 }
 
-func writeIFD0Tags(tf *golibtiff.TIFF, meta *ExtractedMetadata, cfg Config, log *slog.Logger) error {
-	writeGroup(tf, meta.IFD0, skipIFD0IDs, log)
-
-	dpi := cmp.Or(float64(cfg.DPI), 300.0)
-	if err := tf.SetFieldDouble(golibtiff.TagXResolution, dpi); err != nil {
-		return fmt.Errorf("set XResolution: %w", err)
-	}
-	if err := tf.SetFieldDouble(golibtiff.TagYResolution, dpi); err != nil {
-		return fmt.Errorf("set YResolution: %w", err)
-	}
-	_ = tf.SetFieldUint16(golibtiff.TagResolutionUnit, golibtiff.ResolutionUnitInch)
-
-	if profile, ok := icc.Profiles[cfg.Profile]; ok {
-		if err := tf.SetFieldByteSlice(golibtiff.TagIccProfile, profile.Data()); err != nil {
-			return fmt.Errorf("set ICC profile: %w", err)
-		}
-	}
-	if len(meta.XMPPacket) > 0 {
-		if err := tf.SetFieldByteSlice(golibtiff.TagXMP, meta.XMPPacket); err != nil {
-			return fmt.Errorf("set XMP: %w", err)
-		}
-	}
-	return nil
-}
-
-func writeIFDWithOptionalSubIFDs(tf *golibtiff.TIFF, meta *ExtractedMetadata, log *slog.Logger) error {
-	if meta == nil {
-		return tf.WriteDirectory()
-	}
-	hasEXIF := len(meta.EXIF) > 0
-	hasGPS := len(meta.GPS) > 0
-
-	// Step 1: Write main IFD (IFD0) to disk.
-	if err := tf.WriteDirectory(); err != nil {
-		return fmt.Errorf("write IFD0: %w", err)
+func (r *Runner) extractMetadata(rawPath, secondSrcPath string, excludeKeys ...string) (*ExtractedMetadata, error) {
+	if r.et == nil {
+		return nil, nil
 	}
 
-	// Step 2: Write EXIF Sub-IFD (if present).
-	if hasEXIF {
-		if err := tf.SetDirectory(0); err != nil {
-			return fmt.Errorf("set dir 0 for EXIF: %w", err)
-		}
-		if err := tf.CreateEXIFDirectory(); err != nil {
-			return fmt.Errorf("create EXIF directory: %w", err)
-		}
-		writeGroup(tf, meta.EXIF, nil, log)
-		exifOffset, err := tf.WriteCustomDirectory()
-		if err != nil {
-			return fmt.Errorf("write EXIF custom directory: %w", err)
-		}
+	samePath := strings.EqualFold(filepath.Clean(rawPath), filepath.Clean(secondSrcPath))
 
-		// Update EXIF pointer in IFD0.
-		if err := tf.SetDirectory(0); err != nil {
-			return fmt.Errorf("set dir 0 after EXIF: %w", err)
-		}
-		if err := tf.SetFieldUint64(golibtiff.TagEXIFIFD, exifOffset); err != nil {
-			return fmt.Errorf("set EXIF IFD pointer: %w", err)
-		}
-		if err := tf.WriteDirectory(); err != nil {
-			return fmt.Errorf("write IFD0 with EXIF pointer: %w", err)
+	args := []string{
+		"-json", "-G1", "-l", "-t", "-b", "-a", "-U", "-ee",
+		"-api", "SaveBin=1", "-api", "SaveFormat=1", "-api", "MakerNotes=2",
+		"-IFD0:All", "-ExifIFD:All", "-GPS:All",
+		"-XMP-aux:All", "-XMP-exifEX:All",
+		"-XMP-dc:Subject", "-XMP-lr:HierarchicalSubject", "-XMP-mwg-kw:All",
+	}
+	args = append(args, rawPath)
+	if !samePath {
+		args = append(args, secondSrcPath)
+	}
+
+	resp, err := r.et.Execute(args...)
+	if err != nil {
+		return nil, fmt.Errorf("exiftool extract metadata: %w", err)
+	}
+
+	var objects []map[string]any
+	if err := json.Unmarshal([]byte(resp), &objects); err != nil {
+		return nil, fmt.Errorf("json parse: %w", err)
+	}
+	if len(objects) == 0 {
+		return nil, nil
+	}
+
+	var rawEM, dngEM *ExtractedMetadata
+	if samePath {
+		rawEM = NewExtractedMetadata(r.logger)
+		rawEM.Parse(objects[0])
+		dngEM = rawEM
+	} else {
+		for _, obj := range objects {
+			src, _ := obj["SourceFile"].(string)
+			em := NewExtractedMetadata(r.logger)
+			em.Parse(obj)
+			if strings.EqualFold(filepath.Clean(src), filepath.Clean(rawPath)) {
+				rawEM = em
+			} else {
+				dngEM = em
+			}
 		}
 	}
 
-	// Step 3: Write GPS Sub-IFD (if present).
-	if hasGPS {
-		if err := tf.SetDirectory(0); err != nil {
-			return fmt.Errorf("set dir 0 for GPS: %w", err)
-		}
-		if err := tf.CreateGPSDirectory(); err != nil {
-			return fmt.Errorf("create GPS directory: %w", err)
-		}
-		writeGroup(tf, meta.GPS, nil, log)
-		gpsOffset, err := tf.WriteCustomDirectory()
-		if err != nil {
-			return fmt.Errorf("write GPS custom directory: %w", err)
-		}
-		if err := tf.SetDirectory(0); err != nil {
-			return fmt.Errorf("set dir 0 after GPS: %w", err)
-		}
-		if err := tf.SetFieldUint64(golibtiff.TagGPSIFD, gpsOffset); err != nil {
-			return fmt.Errorf("set GPS IFD pointer: %w", err)
-		}
-		if err := tf.WriteDirectory(); err != nil {
-			return fmt.Errorf("write IFD0 with GPS pointer: %w", err)
-		}
+	if rawEM == nil {
+		return nil, nil
 	}
 
-	return nil
+	if dngEM != nil {
+		for name, ti := range dngEM.IFD0 {
+			if dngOverrideIDs[ti.tagID()] {
+				rawEM.IFD0[name] = ti
+			}
+		}
+		if len(dngEM.XMP) > 0 {
+			rawEM.XMP = dngEM.XMP
+		}
+	}
+	rawEM.XMP["XMP-crs:RAWFileName"] = TagInfo{Val: filepath.Base(rawPath)}
+
+	for _, key := range excludeKeys {
+		delete(rawEM.IFD0, key)
+		delete(rawEM.EXIF, key)
+		delete(rawEM.GPS, key)
+	}
+
+	return rawEM, nil
 }

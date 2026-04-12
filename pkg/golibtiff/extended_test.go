@@ -629,9 +629,9 @@ func TestClientIOGC(t *testing.T) {
 	}
 }
 
-// --- ReadCustomDirectory ---
+// --- ReadEXIFDirectory ---
 
-func TestReadCustomDirectory(t *testing.T) {
+func TestReadEXIFDirectory(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "custom_dir_test.tiff")
 	tif, err := Open(path, OpenWrite)
 	if err != nil {
@@ -668,15 +668,15 @@ func TestReadCustomDirectory(t *testing.T) {
 		t.Fatalf("Close: %v", err)
 	}
 
-	// Read back using ReadCustomDirectory
+	// Read back using ReadEXIFDirectory
 	readTif, err := Open(path, OpenRead)
 	if err != nil {
 		t.Fatalf("Open for read: %v", err)
 	}
 	defer readTif.Close()
 
-	if err := readTif.ReadCustomDirectory(subOffset); err != nil {
-		t.Fatalf("ReadCustomDirectory: %v", err)
+	if err := readTif.ReadEXIFDirectory(subOffset); err != nil {
+		t.Fatalf("ReadEXIFDirectory: %v", err)
 	}
 	dt, err := readTif.GetFieldString(TagExifDateTimeOriginal)
 	if err != nil {

@@ -6,9 +6,11 @@ package golibtiff
 #include "libtiff_bridge.h"
 
 // Forward-declare internal libtiff functions not exposed in tiffio.h.
-extern const TIFFFieldArray *_TIFFGetFields(void);
-extern const TIFFFieldArray *_TIFFGetExifFields(void);
-extern const TIFFFieldArray *_TIFFGetGpsFields(void);
+// Note: _TIFFGetFields/_TIFFGetExifFields/_TIFFGetGpsFields are internal
+// symbols not exported by vcpkg's static libtiff. Use public APIs instead:
+//   TIFFCreateDirectory instead of TIFFCreateCustomDirectory(tif, _TIFFGetFields())
+//   TIFFReadEXIFDirectory instead of TIFFReadCustomDirectory(tif, off, _TIFFGetExifFields())
+//   TIFFReadGPSDirectory instead of TIFFReadCustomDirectory(tif, off, _TIFFGetGpsFields())
 
 // Typed getters (avoid variadic TIFFGetField from Go).
 static int tiffGetFieldU16(TIFF *t, uint32_t tag, uint16_t *v) { return TIFFGetField(t, tag, v); }
@@ -136,16 +138,10 @@ static int tiffReadRGBATile(TIFF *t, uint32_t tile, uint32_t *buf) {
     return TIFFReadRGBATile(t, tile, 0, buf);
 }
 // Directory/IFD operations.
-static int tiffReadCustomDirectory(TIFF *t, uint64_t off) {
-    return TIFFReadCustomDirectory(t, (toff_t)off, _TIFFGetExifFields());
-}
 static int tiffReadGPSDirectory(TIFF *t, uint64_t off) {
     return TIFFReadGPSDirectory(t, (toff_t)off);
 }
 static int tiffCreateDirectory(TIFF *t) { return TIFFCreateDirectory(t); }
-static int tiffCreateCustomDirectory(TIFF *t) {
-    return TIFFCreateCustomDirectory(t, _TIFFGetFields());
-}
 static int tiffRewriteDirectory(TIFF *t) { return TIFFRewriteDirectory(t); }
 static int tiffUnlinkDirectory(TIFF *t, uint16_t d) {
     return TIFFUnlinkDirectory(t, (tdir_t)d);
@@ -1329,21 +1325,6 @@ func (t *TIFF) FieldSetGetSize(tag Tag) int {
 
 // --- Directory/IFD operations ---
 
-// ReadCustomDirectory reads a custom Sub-IFD at the given byte offset.
-func (t *TIFF) ReadCustomDirectory(offset uint64) error {
-	if err := t.checkOpen(); err != nil {
-		return err
-	}
-	C.clearHandleError(t.tif)
-	if C.tiffReadCustomDirectory(t.tif, C.uint64_t(offset)) == 0 {
-		if err := t.lastError(); err != nil {
-			return err
-		}
-		return errors.New("libtiff: failed to read custom directory")
-	}
-	return nil
-}
-
 // ReadGPSDirectory reads the GPS Sub-IFD at the given byte offset.
 func (t *TIFF) ReadGPSDirectory(offset uint64) error {
 	if err := t.checkOpen(); err != nil {
@@ -1370,21 +1351,6 @@ func (t *TIFF) CreateDirectory() error {
 			return err
 		}
 		return errors.New("libtiff: failed to create directory")
-	}
-	return nil
-}
-
-// CreateCustomDirectory creates a new IFD using libtiff built-in tag definitions.
-func (t *TIFF) CreateCustomDirectory() error {
-	if err := t.checkOpen(); err != nil {
-		return err
-	}
-	C.clearHandleError(t.tif)
-	if C.tiffCreateCustomDirectory(t.tif) != 0 {
-		if err := t.lastError(); err != nil {
-			return err
-		}
-		return errors.New("libtiff: failed to create custom directory")
 	}
 	return nil
 }
@@ -1864,6 +1830,67 @@ func (t *TIFF) DefaultTileSize() (uint32, uint32) {
 	var tw, th C.uint32_t
 	C.tiffDefaultTileSize(t.tif, &tw, &th)
 	return uint32(tw), uint32(th)
+}
+
+// --- Auto-dispatch ---
+
+// SetFieldAny writes a value to a tag, automatically dispatching to the correct
+// SetField* variant based on the Go type of value and the tag's field metadata
+// (pass-count, storage size).
+//
+// Supported value types:
+//   - uint8, uint16, uint32, uint64, float64, string
+//   - []byte, []uint16, []uint32, []float64
+func (t *TIFF) SetFieldAny(tag Tag, value any) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	passCount := t.FieldPassCount(tag)
+	sz := t.FieldSetGetSize(tag)
+
+	switch v := value.(type) {
+	case uint8:
+		return t.SetFieldUint8(tag, v)
+	case uint16:
+		return t.SetFieldUint16(tag, v)
+	case uint32:
+		return t.SetFieldUint32(tag, v)
+	case float64:
+		if sz == 4 {
+			return t.SetFieldFloat(tag, v)
+		}
+		return t.SetFieldDouble(tag, v)
+	case string:
+		return t.SetFieldString(tag, v)
+	case []byte:
+		if passCount {
+			return t.SetFieldByteSlice(tag, v)
+		}
+		return t.SetFieldC0ByteSlice(tag, v)
+	case []uint16:
+		if passCount {
+			return t.SetFieldUint16Slice(tag, v)
+		}
+		return t.SetFieldC0Uint16Slice(tag, v)
+	case []uint32:
+		if passCount {
+			return t.SetFieldUint32Slice(tag, v)
+		}
+		return t.SetFieldC0Uint32Slice(tag, v)
+	case []float64:
+		if passCount {
+			if sz == 4 {
+				return t.SetFieldFloatSlice(tag, v)
+			}
+			return t.SetFieldDoubleSlice(tag, v)
+		}
+		if sz == 4 {
+			return t.SetFieldC0FloatSlice(tag, v)
+		}
+		return t.SetFieldC0DoubleSlice(tag, v)
+	default:
+		return fmt.Errorf("libtiff: unsupported value type %T for tag %d", value, uint32(tag))
+	}
 }
 
 // --- Library info ---

@@ -171,7 +171,7 @@ const handleConfigChange = async () => {
           type="textarea"
           resize="none"
           style="height: 100%"
-          input-style="height: 100%"
+          input-style="height: 100%; word-break: break-all"
       />
     </el-main>
     <el-footer class="auto-height-footer">

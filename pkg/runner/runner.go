@@ -637,7 +637,7 @@ func (r *Runner) extractMetadata(rawPath, secondSrcPath string, excludeKeys ...s
 
 	args := []string{
 		"-json", "-G1", "-l", "-t", "-b", "-a", "-U", "-ee",
-		"-api", "SaveBin=1", "-api", "SaveFormat=1", "-api", "MakerNotes=2",
+		"-api", "SaveBin=1", "-api", "SaveFormat=1", "-api", "MakerNotes=1",
 		"-IFD0:All", "-ExifIFD:All", "-GPS:All",
 		"-XMP-aux:All", "-XMP-exifEX:All",
 		"-XMP-dc:Subject", "-XMP-lr:HierarchicalSubject", "-XMP-mwg-kw:All",

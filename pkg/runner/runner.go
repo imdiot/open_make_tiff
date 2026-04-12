@@ -583,7 +583,7 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *Extra
 	}
 
 	if meta != nil {
-		if err := writeIFD0Tags(tf, meta, r.cfg); err != nil {
+		if err := writeIFD0Tags(tf, meta, r.cfg, r.logger); err != nil {
 			return fmt.Errorf("write IFD0 tags: %w", err)
 		}
 		// Reserve dummy offsets for Sub-IFD pointers in the main IFD.
@@ -608,15 +608,15 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *Extra
 		}
 	}
 
-	if err := writeIFDWithOptionalSubIFDs(tf, meta); err != nil {
+	if err := writeIFDWithOptionalSubIFDs(tf, meta, r.logger); err != nil {
 		return err
 	}
 	r.logger.Info("write TIFF", "time", time.Since(now).Seconds())
 	return nil
 }
 
-func writeIFD0Tags(tf *golibtiff.TIFF, meta *ExtractedMetadata, cfg Config) error {
-	writeGroup(tf, meta.IFD0, skipIFD0IDs)
+func writeIFD0Tags(tf *golibtiff.TIFF, meta *ExtractedMetadata, cfg Config, log *slog.Logger) error {
+	writeGroup(tf, meta.IFD0, skipIFD0IDs, log)
 
 	dpi := cmp.Or(float64(cfg.DPI), 300.0)
 	if err := tf.SetFieldDouble(golibtiff.TagXResolution, dpi); err != nil {
@@ -640,7 +640,7 @@ func writeIFD0Tags(tf *golibtiff.TIFF, meta *ExtractedMetadata, cfg Config) erro
 	return nil
 }
 
-func writeIFDWithOptionalSubIFDs(tf *golibtiff.TIFF, meta *ExtractedMetadata) error {
+func writeIFDWithOptionalSubIFDs(tf *golibtiff.TIFF, meta *ExtractedMetadata, log *slog.Logger) error {
 	if meta == nil {
 		return tf.WriteDirectory()
 	}
@@ -660,7 +660,7 @@ func writeIFDWithOptionalSubIFDs(tf *golibtiff.TIFF, meta *ExtractedMetadata) er
 		if err := tf.CreateEXIFDirectory(); err != nil {
 			return fmt.Errorf("create EXIF directory: %w", err)
 		}
-		writeGroup(tf, meta.EXIF, nil)
+		writeGroup(tf, meta.EXIF, nil, log)
 		exifOffset, err := tf.WriteCustomDirectory()
 		if err != nil {
 			return fmt.Errorf("write EXIF custom directory: %w", err)
@@ -686,7 +686,7 @@ func writeIFDWithOptionalSubIFDs(tf *golibtiff.TIFF, meta *ExtractedMetadata) er
 		if err := tf.CreateGPSDirectory(); err != nil {
 			return fmt.Errorf("create GPS directory: %w", err)
 		}
-		writeGroup(tf, meta.GPS, nil)
+		writeGroup(tf, meta.GPS, nil, log)
 		gpsOffset, err := tf.WriteCustomDirectory()
 		if err != nil {
 			return fmt.Errorf("write GPS custom directory: %w", err)

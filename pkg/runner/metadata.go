@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
+	"log/slog"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -15,13 +16,13 @@ import (
 
 // TagInfo represents a single tag from exiftool's structured JSON output (-l flag).
 type TagInfo struct {
-	Val   string `json:"val"`              // Display value; binary tags become "base64:..."
-	Num   any    `json:"num,omitempty"`     // Numeric value (float64 or string)
-	Rat   string `json:"rat,omitempty"`     // Raw RATIONAL: "1/15", "54/1 5938/100 0/1"
-	Hex   string `json:"hex,omitempty"`     // Raw bytes hex (large data truncated to [...])
-	Fmt   string `json:"fmt,omitempty"`     // exiftool format: int16u/rational64u/string/undef etc.
-	ID    any    `json:"id"`                // Tag ID (int or "0x0112")
-	Table string `json:"table"`             // Source table (Exif::Main, GPS::Main etc.)
+	Val   string `json:"val"`          // Display value; binary tags become "base64:..."
+	Num   any    `json:"num,omitempty"` // Numeric value (float64 or string)
+	Rat   string `json:"rat,omitempty"` // Raw RATIONAL: "1/15", "54/1 5938/100 0/1"
+	Hex   string `json:"hex,omitempty"` // Raw bytes hex (large data truncated to [...])
+	Fmt   string `json:"fmt,omitempty"` // exiftool format: int16u/rational64u/string/undef etc.
+	ID    any    `json:"id"`            // Tag ID (int or "0x0112")
+	Table string `json:"table"`         // Source table (Exif::Main, GPS::Main etc.)
 }
 
 // ExtractedMetadata holds merged metadata ready for TIFF writing.
@@ -56,12 +57,12 @@ var skipIFD0IDs = map[uint32]bool{
 	256: true, 257: true, 258: true, // ImageWidth/Height/BitsPerSample
 	259: true, 262: true, 277: true, // Compression/Photometric/SamplesPerPixel
 	278: true, 279: true, 317: true, // RowsPerStrip/StripOffsets/Predictor
-	339: true, // SampleFormat
+	339: true,                        // SampleFormat
 	282: true, 283: true, 296: true, // XResolution/YResolution/ResolutionUnit → config override
-	34665: true, // ExifIFD pointer
-	34853: true, // GPSInfoIFD pointer
-	34675: true, // ICC Profile → config override
-	700: true,   // XMP → packet logic
+	34665: true,                      // ExifIFD pointer
+	34853: true,                      // GPSInfoIFD pointer
+	34675: true,                      // ICC Profile → config override
+	700: true,                        // XMP → packet logic
 }
 
 // --- Extraction ---
@@ -144,11 +145,15 @@ func (r *Runner) extractMetadata(rawPath, secondSrcPath string, excludeKeys ...s
 	for _, key := range excludeKeys {
 		delete(em.IFD0, key)
 		delete(em.EXIF, key)
+		delete(em.GPS, key)
 	}
 
 	// Build XMP packet from DNG's XMP tags
 	if dngFM != nil && len(dngFM.XMP) > 0 {
-		em.XMPPacket = buildXMPacket(dngFM.XMP, filepath.Base(rawPath))
+		em.XMPPacket, err = buildXMPacket(dngFM.XMP, filepath.Base(rawPath))
+		if err != nil {
+			return nil, fmt.Errorf("build XMP: %w", err)
+		}
 	}
 
 	return em, nil
@@ -202,7 +207,8 @@ func parseFileMetadata(obj map[string]any) *fileMetadata {
 			fm.GPS[name] = ti
 		default:
 			if strings.HasPrefix(group, "XMP") {
-				fm.XMP[name] = ti
+				// Store full key (e.g. "XMP-aux:Lens") to preserve namespace prefix.
+				fm.XMP[key] = ti
 			}
 		}
 	}
@@ -423,6 +429,57 @@ func decodeHex(hexStr string) []byte {
 	return data
 }
 
+// --- Binary-to-slice helpers ---
+
+// decodeBinaryUint16Slice decodes binary data into a []uint16 array (big-endian).
+func decodeBinaryUint16Slice(ti TagInfo) []uint16 {
+	data := decodeBinary(ti)
+	if len(data) < 2 || len(data)%2 != 0 {
+		return nil
+	}
+	n := len(data) / 2
+	result := make([]uint16, n)
+	for i := range result {
+		result[i] = uint16(data[2*i]) | uint16(data[2*i+1])<<8
+	}
+	return result
+}
+
+// decodeBinaryUint32Slice decodes binary data into a []uint32 array (big-endian).
+func decodeBinaryUint32Slice(ti TagInfo) []uint32 {
+	data := decodeBinary(ti)
+	if len(data) < 4 || len(data)%4 != 0 {
+		return nil
+	}
+	n := len(data) / 4
+	result := make([]uint32, n)
+	for i := range result {
+		result[i] = uint32(data[4*i]) | uint32(data[4*i+1])<<8 |
+			uint32(data[4*i+2])<<16 | uint32(data[4*i+3])<<24
+	}
+	return result
+}
+
+// decodeBinaryRationalSlice decodes binary data into a []float64 array.
+// Each RATIONAL is 8 bytes: uint32 numerator + uint32 denominator.
+func decodeBinaryRationalSlice(ti TagInfo) []float64 {
+	data := decodeBinary(ti)
+	if len(data) < 8 || len(data)%8 != 0 {
+		return nil
+	}
+	n := len(data) / 8
+	result := make([]float64, 0, n)
+	for i := 0; i < n; i++ {
+		off := i * 8
+		num := uint32(data[off]) | uint32(data[off+1])<<8 | uint32(data[off+2])<<16 | uint32(data[off+3])<<24
+		den := uint32(data[off+4]) | uint32(data[off+5])<<8 | uint32(data[off+6])<<16 | uint32(data[off+7])<<24
+		if den != 0 {
+			result = append(result, float64(num)/float64(den))
+		}
+	}
+	return result
+}
+
 // --- Auto-type writing ---
 
 // standardTables lists exiftool source tables whose tag semantics align with
@@ -436,25 +493,21 @@ var standardTables = map[string]bool{
 }
 
 // writeTag writes a single tag to the TIFF based on libtiff field_type and writecount.
-func writeTag(tf *golibtiff.TIFF, ti TagInfo, skipIDs map[uint32]bool) {
+func writeTag(tf *golibtiff.TIFF, ti TagInfo, skipIDs map[uint32]bool) error {
 	id := parseTagID(ti.ID)
 	if skipIDs != nil && skipIDs[id] {
-		return
-	}
-	if ti.Rat == "0/0" {
-		return
+		return nil
 	}
 	tag := golibtiff.Tag(id)
 
 	ft := tf.GetFieldType(tag)
 	if ft < 0 {
-		return // unknown tag
+		return nil // unknown tag
 	}
 
 	// RATIONAL via rat field takes priority
 	if ti.Rat != "" {
-		writeRationalTag(tf, tag, ti)
-		return
+		return writeRationalTag(tf, tag, ti)
 	}
 
 	wc := tf.FieldWriteCount(tag)
@@ -462,90 +515,115 @@ func writeTag(tf *golibtiff.TIFF, ti TagInfo, skipIDs map[uint32]bool) {
 	switch ft {
 	case 3, 8: // SHORT, SSHORT
 		if wc == 1 {
-			tf.SetFieldUint16(tag, tagUint16(ti))
-		} else if wc < 0 {
-			// Variable-count SHORT array (e.g. ISO tag 34855: SETGET_C16_UINT16)
-			if v := tagUint16(ti); v != 0 {
-				tf.SetFieldUint16Slice(tag, []uint16{v})
+			return wrapTagErr(tag, tf.SetFieldUint16(tag, tagUint16(ti)))
+		}
+		if data := decodeBinaryUint16Slice(ti); len(data) > 0 {
+			if !tf.FieldPassCount(tag) {
+				return wrapTagErr(tag, tf.SetFieldC0Uint16Slice(tag, data))
 			}
+			return wrapTagErr(tag, tf.SetFieldUint16Slice(tag, data))
 		}
 	case 4, 9: // LONG, SLONG
 		if wc == 1 {
-			tf.SetFieldUint32(tag, tagUint32(ti))
+			return wrapTagErr(tag, tf.SetFieldUint32(tag, tagUint32(ti)))
+		}
+		if data := decodeBinaryUint32Slice(ti); len(data) > 0 {
+			if !tf.FieldPassCount(tag) {
+				return wrapTagErr(tag, tf.SetFieldC0Uint32Slice(tag, data))
+			}
+			return wrapTagErr(tag, tf.SetFieldUint32Slice(tag, data))
 		}
 	case 1, 6: // BYTE, SBYTE
 		if wc == 1 {
-			tf.SetFieldUint8(tag, tagUint8(ti))
-		} else if data := decodeBinary(ti); len(data) > 0 {
+			return wrapTagErr(tag, tf.SetFieldUint8(tag, tagUint8(ti)))
+		}
+		if data := decodeBinary(ti); len(data) > 0 {
 			if !tf.FieldPassCount(tag) {
-				tf.SetFieldC0ByteSlice(tag, data)
-			} else {
-				tf.SetFieldByteSlice(tag, data)
+				return wrapTagErr(tag, tf.SetFieldC0ByteSlice(tag, data))
 			}
+			return wrapTagErr(tag, tf.SetFieldByteSlice(tag, data))
 		}
 	case 7: // UNDEFINED
 		if wc == 1 {
 			if data := decodeBinary(ti); len(data) > 0 {
-				tf.SetFieldUint8(tag, data[0])
+				return wrapTagErr(tag, tf.SetFieldUint8(tag, data[0]))
 			}
 		} else if data := decodeBinary(ti); len(data) > 0 {
 			if !tf.FieldPassCount(tag) {
-				tf.SetFieldC0ByteSlice(tag, data)
-			} else {
-				tf.SetFieldByteSlice(tag, data)
+				return wrapTagErr(tag, tf.SetFieldC0ByteSlice(tag, data))
 			}
+			return wrapTagErr(tag, tf.SetFieldByteSlice(tag, data))
 		}
 	case 2: // ASCII
 		// Prefer ti.Num (raw value) over ti.Val (display value).
 		// GPS Ref tags: Num="N", Val="North" — EXIF spec requires the raw form.
 		if s, ok := ti.Num.(string); ok && s != "" {
-			tf.SetFieldString(tag, s)
-		} else if ti.Val != "" {
-			tf.SetFieldString(tag, ti.Val)
+			return wrapTagErr(tag, tf.SetFieldString(tag, s))
 		}
-	case 5, 10: // RATIONAL, SRATIONAL (no rat field — single value only)
+		if ti.Val != "" {
+			return wrapTagErr(tag, tf.SetFieldString(tag, ti.Val))
+		}
+	case 5, 10: // RATIONAL, SRATIONAL
 		if wc == 1 {
-			tf.SetFieldDouble(tag, tagFloat(ti))
+			return wrapTagErr(tag, tf.SetFieldDouble(tag, tagFloat(ti)))
+		}
+		if vals := decodeBinaryRationalSlice(ti); len(vals) > 0 {
+			return writeRationalValues(tf, tag, vals)
 		}
 	case 11, 12: // FLOAT, DOUBLE
 		if wc == 1 {
-			tf.SetFieldDouble(tag, tagFloat(ti))
+			return wrapTagErr(tag, tf.SetFieldDouble(tag, tagFloat(ti)))
 		}
 	case 13: // IFD
 	}
+	return nil
 }
 
 // writeRationalTag writes a RATIONAL/SRATIONAL tag using double-precision.
-func writeRationalTag(tf *golibtiff.TIFF, tag golibtiff.Tag, ti TagInfo) {
-	vals := parseRational(ti.Rat)
+func writeRationalTag(tf *golibtiff.TIFF, tag golibtiff.Tag, ti TagInfo) error {
+	return writeRationalValues(tf, tag, parseRational(ti.Rat))
+}
+
+// writeRationalValues writes one or more RATIONAL values using the correct
+// libtiff setter (float or double precision, pass-count or C0).
+func writeRationalValues(tf *golibtiff.TIFF, tag golibtiff.Tag, vals []float64) error {
 	switch len(vals) {
 	case 0:
-		return
+		return nil
 	case 1:
-		tf.SetFieldDouble(tag, vals[0])
+		return wrapTagErr(tag, tf.SetFieldDouble(tag, vals[0]))
 	default:
 		sz := tf.FieldSetGetSize(tag)
 		if !tf.FieldPassCount(tag) {
 			if sz == 4 {
-				tf.SetFieldC0FloatSlice(tag, vals)
-			} else {
-				tf.SetFieldC0DoubleSlice(tag, vals)
+				return wrapTagErr(tag, tf.SetFieldC0FloatSlice(tag, vals))
 			}
-		} else {
-			if sz == 4 {
-				tf.SetFieldFloatSlice(tag, vals)
-			} else {
-				tf.SetFieldDoubleSlice(tag, vals)
-			}
+			return wrapTagErr(tag, tf.SetFieldC0DoubleSlice(tag, vals))
 		}
+		if sz == 4 {
+			return wrapTagErr(tag, tf.SetFieldFloatSlice(tag, vals))
+		}
+		return wrapTagErr(tag, tf.SetFieldDoubleSlice(tag, vals))
 	}
 }
 
 // writeGroup writes all tags in a group to the current TIFF directory.
-func writeGroup(tf *golibtiff.TIFF, tags map[string]TagInfo, skip map[uint32]bool) {
+// Errors from individual tags are logged but do not interrupt the group write.
+func writeGroup(tf *golibtiff.TIFF, tags map[string]TagInfo, skip map[uint32]bool, log *slog.Logger) {
 	for _, ti := range tags {
-		writeTag(tf, ti, skip)
+		if err := writeTag(tf, ti, skip); err != nil {
+			id := parseTagID(ti.ID)
+			log.Debug("write tag failed", "id", id, "err", err)
+		}
 	}
+}
+
+// wrapTagErr formats a tag error with the tag ID.
+func wrapTagErr(tag golibtiff.Tag, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("tag %d: %w", uint32(tag), err)
 }
 
 // --- XMP packet construction ---
@@ -560,30 +638,15 @@ var xmpNS = map[string]string{
 	"crs":    "http://ns.adobe.com/camera-raw-settings/1.0/",
 }
 
-// xmpTagMap maps ExifTool JSON tag names to XMP prefix and array flag.
-var xmpTagMap = map[string]struct {
-	prefix  string
-	isArray bool
-}{
-	"Lens":                    {"aux", false},
-	"LensID":                  {"aux", false},
-	"LensInfo":                {"aux", false},
-	"SerialNumber":            {"aux", false},
-	"ImageNumber":             {"aux", false},
-	"FlashCompensation":       {"aux", false},
-	"ApproximateFocusDistance": {"aux", false},
-	"Firmware":                {"aux", false},
-	"LensModel":               {"exifEX", false},
-	"LensMake":                {"exifEX", false},
-	"LensSerialNumber":        {"exifEX", false},
-	"LensSpecification":       {"exifEX", false},
-	"CameraSerialNumber":      {"exifEX", false},
-	"Subject":                 {"dc", true},
-	"HierarchicalSubject":     {"lr", true},
-	"Keywords":                {"mwg-kw", true},
+// knownArrayTags lists XMP tag names that should be serialized as rdf:Bag arrays.
+// All other tags are treated as scalar values.
+var knownArrayTags = map[string]bool{
+	"Subject":             true, // dc:Subject
+	"HierarchicalSubject": true, // lr:HierarchicalSubject
+	"Keywords":            true, // mwg-kw:Keywords
 }
 
-func buildXMPacket(xmpValues map[string]TagInfo, rawFileName string) []byte {
+func buildXMPacket(xmpValues map[string]TagInfo, rawFileName string) ([]byte, error) {
 	type elem struct {
 		prefix  string
 		key     string
@@ -593,19 +656,21 @@ func buildXMPacket(xmpValues map[string]TagInfo, rawFileName string) []byte {
 
 	var elements []elem
 	usedNS := make(map[string]string)
-	for name, ti := range xmpValues {
-		info, ok := xmpTagMap[name]
+	for key, ti := range xmpValues {
+		group, name := splitGroupKey(key)
+		prefix := strings.TrimPrefix(group, "XMP-")
+		uri, ok := xmpNS[prefix]
 		if !ok || ti.Val == "" {
 			continue
 		}
 		elements = append(elements, elem{
-			prefix: info.prefix, key: name,
-			value: ti.Val, isArray: info.isArray,
+			prefix: prefix, key: name,
+			value: ti.Val, isArray: knownArrayTags[name],
 		})
-		usedNS[info.prefix] = xmpNS[info.prefix]
+		usedNS[prefix] = uri
 	}
 	if len(elements) == 0 && rawFileName == "" {
-		return nil
+		return nil, nil
 	}
 	if rawFileName != "" {
 		usedNS["crs"] = xmpNS["crs"]
@@ -614,22 +679,34 @@ func buildXMPacket(xmpValues map[string]TagInfo, rawFileName string) []byte {
 	var buf bytes.Buffer
 	enc := xml.NewEncoder(&buf)
 
-	enc.EncodeToken(xml.ProcInst{Target: "xpacket", Inst: []byte("begin=\"\xEF\xBB\xBF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"")})
-	enc.EncodeToken(xml.CharData("\n"))
+	if err := enc.EncodeToken(xml.ProcInst{Target: "xpacket", Inst: []byte("begin=\"\xEF\xBB\xBF\" id=\"W5M0MpCehiHzreSzNTczkc9d\"")}); err != nil {
+		return nil, fmt.Errorf("xmp: %w", err)
+	}
+	if err := enc.EncodeToken(xml.CharData("\n")); err != nil {
+		return nil, fmt.Errorf("xmp: %w", err)
+	}
 
 	meta := xml.StartElement{
 		Name: xml.Name{Local: "x:xmpmeta"},
 		Attr: []xml.Attr{{Name: xml.Name{Local: "xmlns:x"}, Value: "adobe:ns:meta/"}},
 	}
-	enc.EncodeToken(meta)
-	enc.EncodeToken(xml.CharData("\n "))
+	if err := enc.EncodeToken(meta); err != nil {
+		return nil, fmt.Errorf("xmp: %w", err)
+	}
+	if err := enc.EncodeToken(xml.CharData("\n ")); err != nil {
+		return nil, fmt.Errorf("xmp: %w", err)
+	}
 
 	rdf := xml.StartElement{
 		Name: xml.Name{Local: "rdf:RDF"},
 		Attr: []xml.Attr{{Name: xml.Name{Local: "xmlns:rdf"}, Value: "http://www.w3.org/1999/02/22-rdf-syntax-ns#"}},
 	}
-	enc.EncodeToken(rdf)
-	enc.EncodeToken(xml.CharData("\n  "))
+	if err := enc.EncodeToken(rdf); err != nil {
+		return nil, fmt.Errorf("xmp: %w", err)
+	}
+	if err := enc.EncodeToken(xml.CharData("\n  ")); err != nil {
+		return nil, fmt.Errorf("xmp: %w", err)
+	}
 
 	desc := xml.StartElement{
 		Name: xml.Name{Local: "rdf:Description"},
@@ -638,40 +715,57 @@ func buildXMPacket(xmpValues map[string]TagInfo, rawFileName string) []byte {
 	for prefix, uri := range usedNS {
 		desc.Attr = append(desc.Attr, xml.Attr{Name: xml.Name{Local: "xmlns:" + prefix}, Value: uri})
 	}
-	enc.EncodeToken(desc)
+	if err := enc.EncodeToken(desc); err != nil {
+		return nil, fmt.Errorf("xmp: %w", err)
+	}
 
 	for _, e := range elements {
 		name := e.prefix + ":" + e.key
+		var err error
 		if e.isArray {
-			writeXMPArray(enc, name, e.value)
+			err = writeXMPArray(enc, name, e.value)
 		} else {
-			writeXMLElement(enc, name, e.value)
+			err = writeXMLElement(enc, name, e.value)
+		}
+		if err != nil {
+			return nil, fmt.Errorf("xmp element %s: %w", name, err)
 		}
 	}
 	if rawFileName != "" {
-		writeXMLElement(enc, "crs:RAWFileName", rawFileName)
+		if err := writeXMLElement(enc, "crs:RAWFileName", rawFileName); err != nil {
+			return nil, fmt.Errorf("xmp element crs:RAWFileName: %w", err)
+		}
 	}
 
-	enc.EncodeToken(desc.End())
-	enc.EncodeToken(xml.CharData("\n  "))
-	enc.EncodeToken(rdf.End())
-	enc.EncodeToken(xml.CharData("\n "))
-	enc.EncodeToken(meta.End())
-	enc.EncodeToken(xml.CharData("\n"))
-	enc.EncodeToken(xml.ProcInst{Target: "xpacket", Inst: []byte("end=\"w\"")})
-	enc.EncodeToken(xml.CharData("\n"))
-	enc.Flush()
-	return buf.Bytes()
+	for _, tok := range []xml.Token{desc.End(), xml.CharData("\n  "), rdf.End(), xml.CharData("\n "), meta.End(), xml.CharData("\n")} {
+		if err := enc.EncodeToken(tok); err != nil {
+			return nil, fmt.Errorf("xmp: %w", err)
+		}
+	}
+	if err := enc.EncodeToken(xml.ProcInst{Target: "xpacket", Inst: []byte("end=\"w\"")}); err != nil {
+		return nil, fmt.Errorf("xmp: %w", err)
+	}
+	if err := enc.EncodeToken(xml.CharData("\n")); err != nil {
+		return nil, fmt.Errorf("xmp: %w", err)
+	}
+	if err := enc.Flush(); err != nil {
+		return nil, fmt.Errorf("xmp flush: %w", err)
+	}
+	return buf.Bytes(), nil
 }
 
-func writeXMLElement(enc *xml.Encoder, name, text string) {
+func writeXMLElement(enc *xml.Encoder, name, text string) error {
 	start := xml.StartElement{Name: xml.Name{Local: name}}
-	enc.EncodeToken(start)
-	enc.EncodeToken(xml.CharData(text))
-	enc.EncodeToken(start.End())
+	if err := enc.EncodeToken(start); err != nil {
+		return err
+	}
+	if err := enc.EncodeToken(xml.CharData(text)); err != nil {
+		return err
+	}
+	return enc.EncodeToken(start.End())
 }
 
-func writeXMPArray(enc *xml.Encoder, name, value string) {
+func writeXMPArray(enc *xml.Encoder, name, value string) error {
 	var items []string
 	for part := range strings.SplitSeq(value, ", ") {
 		if part != "" {
@@ -679,15 +773,23 @@ func writeXMPArray(enc *xml.Encoder, name, value string) {
 		}
 	}
 	if len(items) == 0 {
-		return
+		return nil
 	}
 	tag := xml.StartElement{Name: xml.Name{Local: name}}
 	bag := xml.StartElement{Name: xml.Name{Local: "rdf:Bag"}}
-	enc.EncodeToken(tag)
-	enc.EncodeToken(bag)
-	for _, item := range items {
-		writeXMLElement(enc, "rdf:li", item)
+	if err := enc.EncodeToken(tag); err != nil {
+		return err
 	}
-	enc.EncodeToken(bag.End())
-	enc.EncodeToken(tag.End())
+	if err := enc.EncodeToken(bag); err != nil {
+		return err
+	}
+	for _, item := range items {
+		if err := writeXMLElement(enc, "rdf:li", item); err != nil {
+			return err
+		}
+	}
+	if err := enc.EncodeToken(bag.End()); err != nil {
+		return err
+	}
+	return enc.EncodeToken(tag.End())
 }

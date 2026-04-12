@@ -49,6 +49,14 @@ static int tiffSetFieldByteSlice(TIFF *t, uint32_t tag, uint32_t c, uint8_t *v) 
 static int tiffSetFieldC0ByteSlice(TIFF *t, uint32_t tag, uint8_t *v) {
     return TIFFSetField(t, tag, v);
 }
+// C0 uint16-slice setter (no count arg, for fixed-count SHORT arrays like SubjectLocation).
+static int tiffSetFieldC0U16(TIFF *t, uint32_t tag, uint16_t *v) {
+    return TIFFSetField(t, tag, v);
+}
+// C0 uint32-slice setter (no count arg, for fixed-count LONG arrays).
+static int tiffSetFieldC0U32(TIFF *t, uint32_t tag, uint32_t *v) {
+    return TIFFSetField(t, tag, v);
+}
 // EXIF Sub-IFD creation and writing.
 static int tiffCreateEXIFDirectory(TIFF *t) {
     return TIFFCreateEXIFDirectory(t);
@@ -982,6 +990,46 @@ func (t *TIFF) SetFieldC0ByteSlice(tag Tag, v []byte) error {
 	}
 	C.clearHandleError(t.tif)
 	if C.tiffSetFieldC0ByteSlice(t.tif, C.uint32_t(tag), (*C.uint8_t)(unsafe.Pointer(&v[0]))) == 0 {
+		runtime.KeepAlive(v)
+		if err := t.lastError(); err != nil {
+			return &FieldError{Tag: tag, Op: "set", Msg: err.Error()}
+		}
+		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
+	}
+	runtime.KeepAlive(v)
+	return nil
+}
+
+// SetFieldC0Uint16Slice sets a fixed-count uint16-array field (no count argument).
+func (t *TIFF) SetFieldC0Uint16Slice(tag Tag, v []uint16) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	if len(v) == 0 {
+		return nil
+	}
+	C.clearHandleError(t.tif)
+	if C.tiffSetFieldC0U16(t.tif, C.uint32_t(tag), (*C.uint16_t)(unsafe.Pointer(&v[0]))) == 0 {
+		runtime.KeepAlive(v)
+		if err := t.lastError(); err != nil {
+			return &FieldError{Tag: tag, Op: "set", Msg: err.Error()}
+		}
+		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
+	}
+	runtime.KeepAlive(v)
+	return nil
+}
+
+// SetFieldC0Uint32Slice sets a fixed-count uint32-array field (no count argument).
+func (t *TIFF) SetFieldC0Uint32Slice(tag Tag, v []uint32) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	if len(v) == 0 {
+		return nil
+	}
+	C.clearHandleError(t.tif)
+	if C.tiffSetFieldC0U32(t.tif, C.uint32_t(tag), (*C.uint32_t)(unsafe.Pointer(&v[0]))) == 0 {
 		runtime.KeepAlive(v)
 		if err := t.lastError(); err != nil {
 			return &FieldError{Tag: tag, Op: "set", Msg: err.Error()}

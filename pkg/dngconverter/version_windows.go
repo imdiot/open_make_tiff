@@ -58,7 +58,7 @@ func readExecutableVersion(path string) (string, error) {
 	//   [2] dwFileVersionMS    [3] dwFileVersionLS
 	//   [4] dwProductVersionMS [5] dwProductVersionLS
 	// FileVersionMS = (major << 16) | minor
-	info := (*[6]uint32)(unsafe.Pointer(ptr))
+	info := (*[6]uint32)(unsafe.Pointer(&ptr))
 	major := info[2] >> 16
 	minor := info[2] & 0xFFFF
 	return fmt.Sprintf("%d.%d", major, minor), nil

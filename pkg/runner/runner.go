@@ -563,18 +563,18 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *Extra
 	if err := tf.SetFieldUint16(golibtiff.TagSamplesPerPixel, colors); err != nil {
 		return fmt.Errorf("set SamplesPerPixel: %w", err)
 	}
-	if err := tf.SetFieldUint16(golibtiff.TagPhotometric, golibtiff.PhotometricRGB); err != nil {
+	if err := tf.SetFieldUint16(golibtiff.TagPhotometric, uint16(golibtiff.PhotometricRGB)); err != nil {
 		return fmt.Errorf("set Photometric: %w", err)
 	}
 	if r.cfg.EnableCompression {
-		if err := tf.SetFieldUint16(golibtiff.TagCompression, golibtiff.CompressionLZW); err != nil {
+		if err := tf.SetFieldUint16(golibtiff.TagCompression, uint16(golibtiff.CompressionLZW)); err != nil {
 			return fmt.Errorf("set Compression: %w", err)
 		}
-		if err := tf.SetFieldUint16(golibtiff.TagPredictor, golibtiff.PredictorHorizontal); err != nil {
+		if err := tf.SetFieldUint16(golibtiff.TagPredictor, uint16(golibtiff.PredictorHorizontal)); err != nil {
 			return fmt.Errorf("set Predictor: %w", err)
 		}
 	}
-	if err := tf.SetFieldUint16(golibtiff.TagPlanarConfig, golibtiff.PlanarConfigContig); err != nil {
+	if err := tf.SetFieldUint16(golibtiff.TagPlanarConfig, uint16(golibtiff.PlanarConfigContig)); err != nil {
 		return fmt.Errorf("set PlanarConfig: %w", err)
 	}
 	if err := tf.SetFieldUint32(golibtiff.TagRowsPerStrip, h); err != nil {
@@ -592,7 +592,7 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *Extra
 		if err := tf.SetFieldDouble(golibtiff.TagYResolution, dpi); err != nil {
 			return fmt.Errorf("set YResolution: %w", err)
 		}
-		_ = tf.SetFieldUint16(golibtiff.TagResolutionUnit, golibtiff.ResolutionUnitInch)
+		_ = tf.SetFieldUint16(golibtiff.TagResolutionUnit, uint16(golibtiff.ResolutionUnitInch))
 		if profile, ok := icc.Profiles[r.cfg.Profile]; ok {
 			if err := tf.SetFieldByteSlice(golibtiff.TagIccProfile, profile.Data()); err != nil {
 				return fmt.Errorf("set ICC profile: %w", err)

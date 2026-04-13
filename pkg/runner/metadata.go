@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+
+	"open-make-tiff/pkg/golibtiff"
 )
 
 var dngOverrideIDs = map[uint32]bool{
@@ -139,9 +141,24 @@ func (ti TagInfo) Float() float64 {
 	return f
 }
 
-func (ti TagInfo) ExtractValue(ft, wc int) any {
-	// RATIONAL
-	if ft == 5 || ft == 10 {
+func (ti TagInfo) ExtractValue(ft golibtiff.DataType, wc int) any {
+	if ft == golibtiff.DataTypeRational || ft == golibtiff.DataTypeSRational {
+		if wc == 1 {
+			if ti.Rat != "" {
+				for part := range strings.FieldsSeq(ti.Rat) {
+					numStr, denStr, ok := strings.Cut(part, "/")
+					if !ok {
+						continue
+					}
+					num, errN := strconv.ParseInt(numStr, 10, 64)
+					den, errD := strconv.ParseInt(denStr, 10, 64)
+					if errN == nil && errD == nil && den != 0 {
+						return float64(num) / float64(den)
+					}
+				}
+			}
+			return ti.Float()
+		}
 		if ti.Rat != "" {
 			var vals []float64
 			for part := range strings.FieldsSeq(ti.Rat) {
@@ -160,16 +177,13 @@ func (ti TagInfo) ExtractValue(ft, wc int) any {
 				return vals
 			}
 		}
-		if wc == 1 {
-			return ti.Float()
-		}
 		if vals := ti.BinaryRationalSlice(); len(vals) > 0 {
 			return vals
 		}
 		return nil
 	}
 	switch ft {
-	case 3, 8: // SHORT, SSHORT
+	case golibtiff.DataTypeShort, golibtiff.DataTypeSShort:
 		if wc == 1 {
 			return ti.Uint16()
 		}
@@ -177,7 +191,7 @@ func (ti TagInfo) ExtractValue(ft, wc int) any {
 			return data
 		}
 		return nil
-	case 4, 9: // LONG, SLONG
+	case golibtiff.DataTypeLong, golibtiff.DataTypeSLong:
 		if wc == 1 {
 			return ti.Uint32()
 		}
@@ -185,7 +199,7 @@ func (ti TagInfo) ExtractValue(ft, wc int) any {
 			return data
 		}
 		return nil
-	case 1, 6: // BYTE, SBYTE
+	case golibtiff.DataTypeByte, golibtiff.DataTypeSByte:
 		if wc == 1 {
 			return ti.Uint8()
 		}
@@ -193,7 +207,7 @@ func (ti TagInfo) ExtractValue(ft, wc int) any {
 			return data
 		}
 		return nil
-	case 7: // UNDEFINED
+	case golibtiff.DataTypeUndefined:
 		if wc == 1 {
 			if data := ti.Binary(); len(data) > 0 {
 				return data[0]
@@ -204,7 +218,7 @@ func (ti TagInfo) ExtractValue(ft, wc int) any {
 			return data
 		}
 		return nil
-	case 2: // ASCII
+	case golibtiff.DataTypeASCII:
 		if s, ok := ti.Num.(string); ok && s != "" {
 			return s
 		}
@@ -212,7 +226,7 @@ func (ti TagInfo) ExtractValue(ft, wc int) any {
 			return ti.Val
 		}
 		return nil
-	case 11, 12: // FLOAT, DOUBLE
+	case golibtiff.DataTypeFloat, golibtiff.DataTypeDouble:
 		return ti.Float()
 	}
 	return nil

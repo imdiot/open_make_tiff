@@ -48,22 +48,22 @@ func TestDataTypeConstants(t *testing.T) {
 		got  int
 		want int
 	}{
-		{"Byte", DataTypeByte, 1},
-		{"ASCII", DataTypeASCII, 2},
-		{"Short", DataTypeShort, 3},
-		{"Long", DataTypeLong, 4},
-		{"Rational", DataTypeRational, 5},
-		{"SByte", DataTypeSByte, 6},
-		{"Undefined", DataTypeUndefined, 7},
-		{"SShort", DataTypeSShort, 8},
-		{"SLong", DataTypeSLong, 9},
-		{"SRational", DataTypeSRational, 10},
-		{"Float", DataTypeFloat, 11},
-		{"Double", DataTypeDouble, 12},
-		{"IFD", DataTypeIFD, 13},
-		{"Long8", DataTypeLong8, 16},
-		{"SLong8", DataTypeSLong8, 17},
-		{"IFD8", DataTypeIFD8, 18},
+		{"Byte", int(DataTypeByte), 1},
+		{"ASCII", int(DataTypeASCII), 2},
+		{"Short", int(DataTypeShort), 3},
+		{"Long", int(DataTypeLong), 4},
+		{"Rational", int(DataTypeRational), 5},
+		{"SByte", int(DataTypeSByte), 6},
+		{"Undefined", int(DataTypeUndefined), 7},
+		{"SShort", int(DataTypeSShort), 8},
+		{"SLong", int(DataTypeSLong), 9},
+		{"SRational", int(DataTypeSRational), 10},
+		{"Float", int(DataTypeFloat), 11},
+		{"Double", int(DataTypeDouble), 12},
+		{"IFD", int(DataTypeIFD), 13},
+		{"Long8", int(DataTypeLong8), 16},
+		{"SLong8", int(DataTypeSLong8), 17},
+		{"IFD8", int(DataTypeIFD8), 18},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -89,9 +89,9 @@ func TestGetFieldDouble(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, 1)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 
 	// RATIONAL tags are read as float (32-bit) by libtiff, not double.
 	testXRes := 300.0
@@ -203,9 +203,9 @@ func TestAppendMode(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, 2)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 	tif.WriteScanline([]byte{1, 2}, 0)
 	tif.WriteScanline([]byte{3, 4}, 1)
 	tif.Close()
@@ -225,9 +225,9 @@ func TestAppendMode(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, 2)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 
 	if err := tif.WriteScanline([]byte{99, 99}, 0); err != nil {
 		t.Fatalf("WriteScanline: %v", err)
@@ -266,9 +266,9 @@ func TestSetFieldByteSliceRoundTrip(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, 1)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 
 	if err := tif.SetFieldByteSlice(TagXMP, testXMP); err != nil {
 		t.Fatalf("SetFieldByteSlice XMP: %v", err)
@@ -308,9 +308,9 @@ func TestRationalPrecision(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, 1)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 	tif.SetFieldDouble(TagXResolution, res1)
 	tif.SetFieldDouble(TagYResolution, res2)
 
@@ -363,9 +363,9 @@ func TestStringTagRoundTrip(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, 1)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 	tif.SetFieldString(TagDateTime, testDate)
 	tif.SetFieldString(TagImageDescription, testDesc)
 	tif.SetFieldString(TagCopyright, testCopyright)
@@ -480,9 +480,9 @@ func TestGetFieldByteSliceRoundTrip(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, h)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 
 	// write custom XMP data
 	xmpData := []byte("<?xpacket?><x:xmpmeta>test</x:xmpmeta><?xpacket?>")
@@ -530,9 +530,9 @@ func TestUnsetField(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, h)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 
 	// set Artist tag
 	tif.SetFieldString(TagArtist, "test author")
@@ -641,9 +641,9 @@ func TestReadEXIFDirectory(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, 8)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 	for row := range uint32(8) {
 		if err := tif.WriteScanline(make([]byte, 8), row); err != nil {
 			t.Fatalf("WriteScanline %d: %v", row, err)
@@ -699,9 +699,9 @@ func TestReadGPSDirectory(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, 4)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 	for row := range uint32(4) {
 		scanline := make([]byte, 4)
 		if err := tif.WriteScanline(scanline, row); err != nil {
@@ -767,9 +767,9 @@ func TestCreateDirectory(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, 4)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 	for row := range uint32(4) {
 		if err := tif.WriteScanline(make([]byte, 4), row); err != nil {
 			t.Fatalf("WriteScanline p1 %d: %v", row, err)
@@ -786,9 +786,9 @@ func TestCreateDirectory(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, 2)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 	for row := range uint32(2) {
 		if err := tif.WriteScanline(make([]byte, 2), row); err != nil {
 			t.Fatalf("WriteScanline p2 %d: %v", row, err)
@@ -823,9 +823,9 @@ func TestRewriteDirectory(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, 4)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 	for row := range uint32(4) {
 		if err := tif.WriteScanline(make([]byte, 4), row); err != nil {
 			t.Fatalf("WriteScanline %d: %v", row, err)
@@ -874,9 +874,9 @@ func TestUnlinkDirectory(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, 4)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 	for row := range uint32(4) {
 		if err := tif.WriteScanline(make([]byte, 4), row); err != nil {
 			t.Fatalf("WriteScanline p1 %d: %v", row, err)
@@ -890,9 +890,9 @@ func TestUnlinkDirectory(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, 4)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 	for row := range uint32(4) {
 		if err := tif.WriteScanline(make([]byte, 4), row); err != nil {
 			t.Fatalf("WriteScanline p2 %d: %v", row, err)
@@ -966,7 +966,7 @@ func TestGetFieldDefaulted(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetFieldDefaultedUint16 Compression: %v", err)
 	}
-	if comp != CompressionNone {
+	if comp != uint16(CompressionNone) {
 		t.Errorf("Compression = %d, want %d", comp, CompressionNone)
 	}
 }
@@ -1090,7 +1090,7 @@ func TestReadRGBAImageOriented(t *testing.T) {
 	h, _ := tif.Height()
 	buf := make([]uint32, int(w)*int(h))
 
-	if err := tif.ReadRGBAImageOriented(buf, OrientationTopLeft, false); err != nil {
+	if err := tif.ReadRGBAImageOriented(buf, int(OrientationTopLeft), false); err != nil {
 		t.Fatalf("ReadRGBAImageOriented: %v", err)
 	}
 
@@ -1161,9 +1161,9 @@ func TestFlushData(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, 4)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 	for row := range uint32(4) {
 		if err := tif.WriteScanline(make([]byte, 4), row); err != nil {
 			t.Fatalf("WriteScanline %d: %v", row, err)
@@ -1294,9 +1294,9 @@ func TestReadTileWriteTile(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, imgH)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 	tif.SetFieldUint32(TagTileWidth, tileW)
 	tif.SetFieldUint32(TagTileLength, tileH)
 

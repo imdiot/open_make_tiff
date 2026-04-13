@@ -1291,11 +1291,11 @@ func (t *TIFF) IsFieldKnown(tag Tag) bool {
 
 // GetFieldType returns the libtiff-registered TIFFDataType for a tag.
 // Returns -1 if the tag is not registered.
-func (t *TIFF) GetFieldType(tag Tag) int {
+func (t *TIFF) GetFieldType(tag Tag) DataType {
 	if err := t.checkOpen(); err != nil {
 		return -1
 	}
-	return int(C.tiffGetFieldType(t.tif, C.uint32_t(tag)))
+	return DataType(C.tiffGetFieldType(t.tif, C.uint32_t(tag)))
 }
 
 // FieldPassCount reports whether a tag requires a count argument in TIFFSetField.

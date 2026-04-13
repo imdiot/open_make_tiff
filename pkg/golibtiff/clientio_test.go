@@ -127,9 +127,9 @@ func TestWriteToBuffer(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, h)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionNone)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
 
 	for row := uint32(0); row < h; row++ {
 		scanline := []byte{byte(row), byte(row), byte(row), byte(row)}
@@ -197,10 +197,10 @@ func TestWriteToBufferWithCompression(t *testing.T) {
 	tif.SetFieldUint32(TagImageLength, h)
 	tif.SetFieldUint16(TagBitsPerSample, 8)
 	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, CompressionDeflate)
-	tif.SetFieldUint16(TagPhotometric, PhotometricMinIsBlack)
-	tif.SetFieldUint16(TagPlanarConfig, PlanarConfigContig)
-	tif.SetFieldUint16(TagPredictor, PredictorHorizontal)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionDeflate))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
+	tif.SetFieldUint16(TagPredictor, uint16(PredictorHorizontal))
 
 	for row := uint32(0); row < h; row++ {
 		scanline := make([]byte, w)
@@ -235,7 +235,7 @@ func TestWriteToBufferWithCompression(t *testing.T) {
 	}
 
 	comp, _ := readTif.Compression()
-	if comp != CompressionDeflate {
+	if comp != uint16(CompressionDeflate) {
 		t.Errorf("Compression = %d, want %d", comp, CompressionDeflate)
 	}
 }

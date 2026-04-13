@@ -94,84 +94,100 @@ const (
 )
 
 // Photometric interpretation constants.
+type Photometric uint16
+
 const (
-	PhotometricMinIsWhite = 0
-	PhotometricMinIsBlack = 1
-	PhotometricRGB        = 2
-	PhotometricPalette    = 3
-	PhotometricMask       = 4
-	PhotometricSeparated  = 5
-	PhotometricYCbCr      = 6
-	PhotometricCIELab     = 8
-	PhotometricICCLab     = 9
-	PhotometricITULab     = 10
-	PhotometricLogL       = 32844
-	PhotometricLogLUV     = 32845
+	PhotometricMinIsWhite Photometric = 0
+	PhotometricMinIsBlack Photometric = 1
+	PhotometricRGB        Photometric = 2
+	PhotometricPalette    Photometric = 3
+	PhotometricMask       Photometric = 4
+	PhotometricSeparated  Photometric = 5
+	PhotometricYCbCr      Photometric = 6
+	PhotometricCIELab     Photometric = 8
+	PhotometricICCLab     Photometric = 9
+	PhotometricITULab     Photometric = 10
+	PhotometricLogL       Photometric = 32844
+	PhotometricLogLUV     Photometric = 32845
 )
 
 // Compression constants.
+type Compression uint16
+
 const (
-	CompressionNone       = 1
-	CompressionCCITTRLE   = 2
-	CompressionCCITTFax3  = 3
-	CompressionCCITTFax4  = 4
-	CompressionLZW        = 5
-	CompressionJPEG       = 7
-	CompressionDeflate    = 8     // Adobe deflate
-	CompressionPackBits   = 32773
-	CompressionDeflateOld = 32946 // Deprecated
-	CompressionLERC       = 34887
-	CompressionLZMA       = 34925
-	CompressionZSTD       = 50000
-	CompressionWebP       = 50001
+	CompressionNone       Compression = 1
+	CompressionCCITTRLE   Compression = 2
+	CompressionCCITTFax3  Compression = 3
+	CompressionCCITTFax4  Compression = 4
+	CompressionLZW        Compression = 5
+	CompressionJPEG       Compression = 7
+	CompressionDeflate    Compression = 8     // Adobe deflate
+	CompressionPackBits   Compression = 32773
+	CompressionDeflateOld Compression = 32946 // Deprecated
+	CompressionLERC       Compression = 34887
+	CompressionLZMA       Compression = 34925
+	CompressionZSTD       Compression = 50000
+	CompressionWebP       Compression = 50001
 )
 
 // Predictor constants.
+type Predictor uint16
+
 const (
-	PredictorNone          = 1
-	PredictorHorizontal    = 2
-	PredictorFloatingPoint = 3
+	PredictorNone          Predictor = 1
+	PredictorHorizontal    Predictor = 2
+	PredictorFloatingPoint Predictor = 3
 )
 
 // Planar configuration constants.
+type PlanarConfig uint16
+
 const (
-	PlanarConfigContig   = 1
-	PlanarConfigSeparate = 2
+	PlanarConfigContig   PlanarConfig = 1
+	PlanarConfigSeparate PlanarConfig = 2
 )
 
 // Sample format constants.
+type SampleFormat uint16
+
 const (
-	SampleFormatUInt          = 1
-	SampleFormatInt           = 2
-	SampleFormatIEEEFP        = 3
-	SampleFormatVoid          = 4
-	SampleFormatComplexInt    = 5
-	SampleFormatComplexIEEEFP = 6
+	SampleFormatUInt          SampleFormat = 1
+	SampleFormatInt           SampleFormat = 2
+	SampleFormatIEEEFP        SampleFormat = 3
+	SampleFormatVoid          SampleFormat = 4
+	SampleFormatComplexInt    SampleFormat = 5
+	SampleFormatComplexIEEEFP SampleFormat = 6
 )
 
 // Orientation constants.
+type Orientation uint16
+
 const (
-	OrientationTopLeft     = 1
-	OrientationTopRight    = 2
-	OrientationBotRight    = 3
-	OrientationBotLeft     = 4
-	OrientationLeftTop     = 5
-	OrientationRightTop    = 6
-	OrientationRightBot    = 7
-	OrientationLeftBot     = 8
+	OrientationTopLeft  Orientation = 1
+	OrientationTopRight Orientation = 2
+	OrientationBotRight Orientation = 3
+	OrientationBotLeft  Orientation = 4
+	OrientationLeftTop  Orientation = 5
+	OrientationRightTop Orientation = 6
+	OrientationRightBot Orientation = 7
+	OrientationLeftBot  Orientation = 8
 )
 
 // Resolution unit constants.
+type ResolutionUnit uint16
+
 const (
-	ResolutionUnitNone       = 1
-	ResolutionUnitInch       = 2
-	ResolutionUnitCentimeter = 3
+	ResolutionUnitNone       ResolutionUnit = 1
+	ResolutionUnitInch       ResolutionUnit = 2
+	ResolutionUnitCentimeter ResolutionUnit = 3
 )
 
 // Fill order constants.
+type FillOrder uint16
+
 const (
-	FillOrderMSB2LSB = 1
-	FillOrderLSB2MSB = 2
+	FillOrderMSB2LSB FillOrder = 1
+	FillOrderLSB2MSB FillOrder = 2
 )
 
 // Pseudo-tags control codec behavior. They are not written to the TIFF file
@@ -192,22 +208,24 @@ const (
 	PseudoTagWebPLosslessExact Tag = 65571
 )
 
-// TIFFDataType constants describe the data type of a tag's values.
+// DataType describes the data type of a tag's values.
+type DataType int
+
 const (
-	DataTypeByte     = 1  // 8-bit unsigned integer
-	DataTypeASCII    = 2  // Null-terminated string
-	DataTypeShort    = 3  // 16-bit unsigned integer
-	DataTypeLong     = 4  // 32-bit unsigned integer
-	DataTypeRational = 5  // Two 32-bit unsigned (numerator/denominator)
-	DataTypeSByte    = 6  // 8-bit signed integer
-	DataTypeUndefined = 7 // 8-bit untyped data
-	DataTypeSShort   = 8  // 16-bit signed integer
-	DataTypeSLong    = 9  // 32-bit signed integer
-	DataTypeSRational = 10 // Two 32-bit signed
-	DataTypeFloat    = 11 // 32-bit IEEE float
-	DataTypeDouble   = 12 // 64-bit IEEE double
-	DataTypeIFD      = 13 // 32-bit IFD offset
-	DataTypeLong8    = 16 // 64-bit unsigned (BigTIFF)
-	DataTypeSLong8   = 17 // 64-bit signed (BigTIFF)
-	DataTypeIFD8     = 18 // 64-bit IFD offset (BigTIFF)
+	DataTypeByte      DataType = 1  // 8-bit unsigned integer
+	DataTypeASCII     DataType = 2  // Null-terminated string
+	DataTypeShort     DataType = 3  // 16-bit unsigned integer
+	DataTypeLong      DataType = 4  // 32-bit unsigned integer
+	DataTypeRational  DataType = 5  // Two 32-bit unsigned (numerator/denominator)
+	DataTypeSByte     DataType = 6  // 8-bit signed integer
+	DataTypeUndefined DataType = 7  // 8-bit untyped data
+	DataTypeSShort    DataType = 8  // 16-bit signed integer
+	DataTypeSLong     DataType = 9  // 32-bit signed integer
+	DataTypeSRational DataType = 10 // Two 32-bit signed
+	DataTypeFloat     DataType = 11 // 32-bit IEEE float
+	DataTypeDouble    DataType = 12 // 64-bit IEEE double
+	DataTypeIFD       DataType = 13 // 32-bit IFD offset
+	DataTypeLong8     DataType = 16 // 64-bit unsigned (BigTIFF)
+	DataTypeSLong8    DataType = 17 // 64-bit signed (BigTIFF)
+	DataTypeIFD8      DataType = 18 // 64-bit IFD offset (BigTIFF)
 )

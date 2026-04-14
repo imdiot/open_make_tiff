@@ -20,9 +20,16 @@ var xmpNS = map[string]string{
 // knownArrayTags lists XMP tag names that should be serialized as rdf:Bag arrays.
 // All other tags are treated as scalar values.
 var knownArrayTags = map[string]bool{
-	"Subject":             true, // dc:Subject
-	"HierarchicalSubject": true, // lr:HierarchicalSubject
-	"Keywords":            true, // mwg-kw:Keywords
+	"dc:Subject":             true,
+	"lr:HierarchicalSubject": true,
+	"mwg-kw:Keywords":        true,
+}
+
+// knownLangAltTags lists XMP tags (prefix:name) that should be serialized as rdf:Alt.
+// Lang Alt properties are namespace-dependent: the same tag name can be Lang Alt in one
+// namespace but scalar in another (e.g., dc:Description vs other:Description).
+var knownLangAltTags = map[string]bool{
+	"dc:Description": true,
 }
 
 func (em *ExtractedMetadata) BuildXMPacket() ([]byte, error) {
@@ -44,7 +51,7 @@ func (em *ExtractedMetadata) BuildXMPacket() ([]byte, error) {
 		}
 		elements = append(elements, elem{
 			prefix: prefix, key: name,
-			value: ti.Val, isArray: knownArrayTags[name],
+			value: ti.Val, isArray: knownArrayTags[prefix+":"+name],
 		})
 		usedNS[prefix] = uri
 	}
@@ -98,7 +105,11 @@ func (em *ExtractedMetadata) BuildXMPacket() ([]byte, error) {
 	for _, e := range elements {
 		name := e.prefix + ":" + e.key
 		var err error
-		if e.isArray {
+		if knownLangAltTags[e.prefix+":"+e.key] {
+			if err := writeXMPLangAlt(enc, name, e.value); err != nil {
+				return nil, fmt.Errorf("xmp element %s: %w", name, err)
+			}
+		} else if e.isArray {
 			var items []string
 			for part := range strings.SplitSeq(e.value, ", ") {
 				if part != "" {
@@ -161,5 +172,33 @@ func writeXMLElement(enc *xml.Encoder, name, text string) error {
 		return err
 	}
 	return enc.EncodeToken(start.End())
+}
+
+func writeXMPLangAlt(enc *xml.Encoder, name, text string) error {
+	tag := xml.StartElement{Name: xml.Name{Local: name}}
+	alt := xml.StartElement{Name: xml.Name{Local: "rdf:Alt"}}
+	li := xml.StartElement{
+		Name: xml.Name{Local: "rdf:li"},
+		Attr: []xml.Attr{{Name: xml.Name{Local: "xml:lang"}, Value: "x-default"}},
+	}
+	if err := enc.EncodeToken(tag); err != nil {
+		return err
+	}
+	if err := enc.EncodeToken(alt); err != nil {
+		return err
+	}
+	if err := enc.EncodeToken(li); err != nil {
+		return err
+	}
+	if err := enc.EncodeToken(xml.CharData(text)); err != nil {
+		return err
+	}
+	if err := enc.EncodeToken(li.End()); err != nil {
+		return err
+	}
+	if err := enc.EncodeToken(alt.End()); err != nil {
+		return err
+	}
+	return enc.EncodeToken(tag.End())
 }
 

@@ -93,6 +93,7 @@ type decodedImage struct {
 	Colors uint16
 	Bits   uint16
 	Data   []byte
+	CamMul [4]float32
 }
 
 func New(cfg Config, opts ...Option) *Runner {
@@ -221,6 +222,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 
 	var img *decodedImage
 	secondSrc := srcPath
+	usedDNG := false
 
 	if isTIFF {
 		now := time.Now()
@@ -231,7 +233,6 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		}
 		r.logger.Info("read TIFF as mem image", "time", time.Since(now).Seconds())
 	} else {
-		usedDNG := false
 		if useDNG {
 			img, err = r.decodeWithDNG(ctx, env)
 			if err == nil {
@@ -258,6 +259,23 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		if metaErr != nil {
 			returnErr = fmt.Errorf("extract metadata: %w", metaErr)
 			return returnErr
+		}
+	}
+
+	// WB comment: compatible with MakeTiff 2.01 / ColorPerfect workflow.
+	// The decode pipeline skips WB correction (WithUserMul 1,1,1,1),
+	// so write the original camera WB to XMP dc:Description as "raw-wb: R G B".
+	if meta != nil {
+		if usedDNG {
+			if ti, ok := meta.IFD0["AsShotNeutral"]; ok && ti.Val != "" {
+				meta.XMP["XMP-dc:Description"] = TagInfo{
+					Val: "raw-wb: " + ti.Val,
+				}
+			}
+		} else if img.CamMul != [4]float32{} {
+			meta.XMP["XMP-dc:Description"] = TagInfo{
+				Val: fmt.Sprintf("raw-wb: %g %g %g", img.CamMul[0], img.CamMul[1], img.CamMul[2]),
+			}
 		}
 	}
 
@@ -400,10 +418,18 @@ func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*decodedIma
 	}
 	r.logger.Info("run golibraw (with DNG)", "time", time.Since(now).Seconds())
 
+	cd, cdErr := rp.GetColorData()
+	var camMul [4]float32
+	if cdErr == nil {
+		camMul = cd.CamMul
+	} else {
+		r.logger.Debug("GetColorData failed in decodeWithDNG", "err", cdErr)
+	}
+
 	return &decodedImage{
 		Width: uint32(raw.Width), Height: uint32(raw.Height),
 		Colors: uint16(raw.Colors), Bits: uint16(raw.Bits),
-		Data: raw.Data,
+		Data: raw.Data, CamMul: camMul,
 	}, nil
 }
 
@@ -454,10 +480,18 @@ func (r *Runner) decodeDirect(ctx context.Context, env ConvertEnv) (*decodedImag
 	}
 	r.logger.Info("run golibraw (direct)", "time", time.Since(now).Seconds())
 
+	cd, cdErr := rp.GetColorData()
+	var camMul [4]float32
+	if cdErr == nil {
+		camMul = cd.CamMul
+	} else {
+		r.logger.Debug("GetColorData failed in decodeDirect", "err", cdErr)
+	}
+
 	return &decodedImage{
 		Width: uint32(raw.Width), Height: uint32(raw.Height),
 		Colors: uint16(raw.Colors), Bits: uint16(raw.Bits),
-		Data: raw.Data,
+		Data: raw.Data, CamMul: camMul,
 	}, nil
 }
 

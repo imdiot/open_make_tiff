@@ -70,7 +70,7 @@ func (em *ExtractedMetadata) writeSubIFD(tf *golibtiff.TIFF, createFn func() err
 	return tf.WriteDirectory()
 }
 
-func (em *ExtractedMetadata) writeGroup(tf *golibtiff.TIFF, tags map[string]TagInfo, skip map[uint32]bool) {
+func (em *ExtractedMetadata) writeGroup(tf *golibtiff.TIFF, tags map[string]TagInfo, skip map[golibtiff.Tag]bool) {
 	for _, ti := range tags {
 		if err := em.writeTag(tf, ti, skip); err != nil {
 			id := ti.tagID()
@@ -79,7 +79,7 @@ func (em *ExtractedMetadata) writeGroup(tf *golibtiff.TIFF, tags map[string]TagI
 	}
 }
 
-func (em *ExtractedMetadata) writeTag(tf *golibtiff.TIFF, ti TagInfo, skipIDs map[uint32]bool) error {
+func (em *ExtractedMetadata) writeTag(tf *golibtiff.TIFF, ti TagInfo, skipIDs map[golibtiff.Tag]bool) error {
 	id := ti.tagID()
 	if skipIDs != nil && skipIDs[id] {
 		return nil

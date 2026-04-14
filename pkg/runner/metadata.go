@@ -10,23 +10,31 @@ import (
 	"open-make-tiff/pkg/golibtiff"
 )
 
-var dngOverrideIDs = map[uint32]bool{
-	50708: true, // UniqueCameraModel
-	50709: true, // LocalizedCameraModel
-	50728: true, // AsShotNeutral
+var dngOverrideIDs = map[golibtiff.Tag]bool{
+	golibtiff.TagUniqueCameraModel:    true,
+	golibtiff.TagLocalizedCameraModel: true,
+	golibtiff.TagAsShotNeutral:        true,
 }
 
-var skipIFD0IDs = map[uint32]bool{
-	254: true,                        // NewSubfileType
-	256: true, 257: true, 258: true, // ImageWidth/Height/BitsPerSample
-	259: true, 262: true, 277: true, // Compression/Photometric/SamplesPerPixel
-	278: true, 279: true, 317: true, // RowsPerStrip/StripOffsets/Predictor
-	339: true,                        // SampleFormat
-	282: true, 283: true, 296: true, // XResolution/YResolution/ResolutionUnit
-	34665: true,                      // ExifIFD pointer
-	34853: true,                      // GPSInfoIFD pointer
-	34675: true,                      // ICC Profile
-	700: true,                        // XMP
+var skipIFD0IDs = map[golibtiff.Tag]bool{
+	golibtiff.TagNewSubfileType:  true,
+	golibtiff.TagImageWidth:      true,
+	golibtiff.TagImageLength:     true,
+	golibtiff.TagBitsPerSample:   true,
+	golibtiff.TagSampleFormat:    true,
+	golibtiff.TagCompression:     true,
+	golibtiff.TagPhotometric:     true,
+	golibtiff.TagSamplesPerPixel: true,
+	golibtiff.TagPredictor:       true,
+	golibtiff.TagRowsPerStrip:    true,
+	golibtiff.TagStripByteCounts: true,
+	golibtiff.TagXResolution:     true,
+	golibtiff.TagYResolution:     true,
+	golibtiff.TagResolutionUnit:  true,
+	golibtiff.TagEXIFIFD:         true,
+	golibtiff.TagGPSIFD:          true,
+	golibtiff.TagXMP:             true,
+	golibtiff.TagIccProfile:      true,
 }
 
 var standardTables = map[string]bool{
@@ -44,18 +52,18 @@ type TagInfo struct {
 	Table string `json:"table"`
 }
 
-func (ti TagInfo) tagID() uint32 {
+func (ti TagInfo) tagID() golibtiff.Tag {
 	switch val := ti.ID.(type) {
 	case float64:
-		return uint32(val)
+		return golibtiff.Tag(val)
 	case string:
 		if strings.HasPrefix(val, "0x") || strings.HasPrefix(val, "0X") {
 			if u, err := strconv.ParseUint(val[2:], 16, 32); err == nil {
-				return uint32(u)
+				return golibtiff.Tag(u)
 			}
 		}
 		if u, err := strconv.ParseUint(val, 10, 32); err == nil {
-			return uint32(u)
+			return golibtiff.Tag(u)
 		}
 	}
 	return 0

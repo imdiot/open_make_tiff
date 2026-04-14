@@ -1,4 +1,4 @@
-package runner
+package metadata
 
 import (
 	"bytes"
@@ -201,4 +201,3 @@ func writeXMPLangAlt(enc *xml.Encoder, name, text string) error {
 	}
 	return enc.EncodeToken(tag.End())
 }
-

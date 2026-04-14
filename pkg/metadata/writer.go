@@ -1,4 +1,4 @@
-package runner
+package metadata
 
 import (
 	"fmt"
@@ -73,14 +73,14 @@ func (em *ExtractedMetadata) writeSubIFD(tf *golibtiff.TIFF, createFn func() err
 func (em *ExtractedMetadata) writeGroup(tf *golibtiff.TIFF, tags map[string]TagInfo, skip map[golibtiff.Tag]bool) {
 	for _, ti := range tags {
 		if err := em.writeTag(tf, ti, skip); err != nil {
-			id := ti.tagID()
+			id := ti.TagID()
 			em.logger.Debug("write tag failed", "id", id, "err", err)
 		}
 	}
 }
 
 func (em *ExtractedMetadata) writeTag(tf *golibtiff.TIFF, ti TagInfo, skipIDs map[golibtiff.Tag]bool) error {
-	id := ti.tagID()
+	id := ti.TagID()
 	if skipIDs != nil && skipIDs[id] {
 		return nil
 	}

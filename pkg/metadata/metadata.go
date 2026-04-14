@@ -1,4 +1,4 @@
-package runner
+package metadata
 
 import (
 	"encoding/base64"
@@ -10,7 +10,7 @@ import (
 	"open-make-tiff/pkg/golibtiff"
 )
 
-var dngOverrideIDs = map[golibtiff.Tag]bool{
+var DNGOverrideIDs = map[golibtiff.Tag]bool{
 	golibtiff.TagUniqueCameraModel:    true,
 	golibtiff.TagLocalizedCameraModel: true,
 	golibtiff.TagAsShotNeutral:        true,
@@ -52,7 +52,7 @@ type TagInfo struct {
 	Table string `json:"table"`
 }
 
-func (ti TagInfo) tagID() golibtiff.Tag {
+func (ti TagInfo) TagID() golibtiff.Tag {
 	switch val := ti.ID.(type) {
 	case float64:
 		return golibtiff.Tag(val)

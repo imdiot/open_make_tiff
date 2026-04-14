@@ -21,6 +21,7 @@ import (
 	"open-make-tiff/pkg/golibraw"
 	"open-make-tiff/pkg/golibtiff"
 	"open-make-tiff/pkg/icc"
+	"open-make-tiff/pkg/metadata"
 )
 
 var ErrDstFileExists = errors.New("destination file already exists")
@@ -216,7 +217,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		secondSrc = env.DngIntPath
 	}
 
-	var meta *ExtractedMetadata
+	var meta *metadata.ExtractedMetadata
 	{
 		var metaErr error
 		meta, metaErr = r.extractMetadata(srcPath, secondSrc, "ColorSpace")
@@ -232,12 +233,12 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	if meta != nil {
 		if img.DecodeType == DecodeDNG {
 			if ti, ok := meta.IFD0["AsShotNeutral"]; ok && ti.Val != "" {
-				meta.XMP["XMP-dc:Description"] = TagInfo{
+				meta.XMP["XMP-dc:Description"] = metadata.TagInfo{
 					Val: "raw-wb: " + ti.Val,
 				}
 			}
 		} else if img.CamMul != [4]float32{} {
-			meta.XMP["XMP-dc:Description"] = TagInfo{
+			meta.XMP["XMP-dc:Description"] = metadata.TagInfo{
 				Val: fmt.Sprintf("raw-wb: %g %g %g", img.CamMul[0], img.CamMul[1], img.CamMul[2]),
 			}
 		}
@@ -589,7 +590,7 @@ func (r *Runner) decodeTIFF(srcPath string) (*decodedImage, error) {
 	}, nil
 }
 
-func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *ExtractedMetadata) error {
+func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *metadata.ExtractedMetadata) error {
 	now := time.Now()
 
 	tf, err := golibtiff.Open(path, golibtiff.OpenWrite)
@@ -678,7 +679,7 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *Extra
 	return nil
 }
 
-func (r *Runner) extractMetadata(rawPath, secondSrcPath string, excludeKeys ...string) (*ExtractedMetadata, error) {
+func (r *Runner) extractMetadata(rawPath, secondSrcPath string, excludeKeys ...string) (*metadata.ExtractedMetadata, error) {
 	if r.et == nil {
 		return nil, nil
 	}
@@ -710,15 +711,15 @@ func (r *Runner) extractMetadata(rawPath, secondSrcPath string, excludeKeys ...s
 		return nil, nil
 	}
 
-	var rawEM, dngEM *ExtractedMetadata
+	var rawEM, dngEM *metadata.ExtractedMetadata
 	if samePath {
-		rawEM = NewExtractedMetadata(r.logger)
+		rawEM = metadata.NewExtractedMetadata(r.logger)
 		rawEM.Parse(objects[0])
 		dngEM = rawEM
 	} else {
 		for _, obj := range objects {
 			src, _ := obj["SourceFile"].(string)
-			em := NewExtractedMetadata(r.logger)
+			em := metadata.NewExtractedMetadata(r.logger)
 			em.Parse(obj)
 			if strings.EqualFold(filepath.Clean(src), filepath.Clean(rawPath)) {
 				rawEM = em
@@ -734,7 +735,7 @@ func (r *Runner) extractMetadata(rawPath, secondSrcPath string, excludeKeys ...s
 
 	if dngEM != nil {
 		for name, ti := range dngEM.IFD0 {
-			if dngOverrideIDs[ti.tagID()] {
+			if metadata.DNGOverrideIDs[ti.TagID()] {
 				rawEM.IFD0[name] = ti
 			}
 		}
@@ -742,7 +743,7 @@ func (r *Runner) extractMetadata(rawPath, secondSrcPath string, excludeKeys ...s
 			rawEM.XMP = dngEM.XMP
 		}
 	}
-	rawEM.XMP["XMP-crs:RAWFileName"] = TagInfo{Val: filepath.Base(rawPath)}
+	rawEM.XMP["XMP-crs:RAWFileName"] = metadata.TagInfo{Val: filepath.Base(rawPath)}
 
 	for _, key := range excludeKeys {
 		delete(rawEM.IFD0, key)

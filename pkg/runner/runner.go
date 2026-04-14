@@ -84,16 +84,25 @@ type ConvertEnv struct {
 	TiffIntPath   string
 }
 
+type DecodeType int
+
+const (
+	DecodeDirect DecodeType = iota
+	DecodeDNG
+	DecodeTIFF
+)
+
 // decodedImage holds decoded pixel data.
 // Unlike golibraw.ProcessedImage (whose Width/Height are uint16 per LibRaw C API),
 // decodedImage uses uint32 for dimensions to support arbitrarily large TIFF images.
 type decodedImage struct {
-	Width  uint32
-	Height uint32
-	Colors uint16
-	Bits   uint16
-	Data   []byte
-	CamMul [4]float32
+	DecodeType DecodeType
+	Width      uint32
+	Height     uint32
+	Colors     uint16
+	Bits       uint16
+	Data       []byte
+	CamMul     [4]float32
 }
 
 func New(cfg Config, opts ...Option) *Runner {
@@ -196,60 +205,15 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		TiffIntPath:   tiffIntPath,
 	}
 
-	useDNG := r.cfg.EnableAdobeDNGConverter
-
-	if useDNG {
-		var execPath string
-		if r.dngConverterExecutableSet {
-			execPath = r.dngConverterExecutable
-		} else {
-			execPath = dngconverter.GetDefaultExecutablePath()
-		}
-		if _, err := os.Stat(execPath); err != nil {
-			r.logger.Warn("DNG Converter not available, using direct path", "error", err)
-			useDNG = false
-		}
-	}
-
-	isTIFF, probeErr := r.probeFile(srcPath)
-	if probeErr != nil {
-		returnErr = probeErr
+	img, err := r.decode(ctx, env)
+	if err != nil {
+		returnErr = err
 		return returnErr
 	}
-	if isTIFF {
-		useDNG = false
-	}
 
-	var img *decodedImage
-	secondSrc := srcPath
-	usedDNG := false
-
-	if isTIFF {
-		now := time.Now()
-		img, err = r.decodeTIFF(srcPath)
-		if err != nil {
-			returnErr = err
-			return returnErr
-		}
-		r.logger.Info("read TIFF as mem image", "time", time.Since(now).Seconds())
-	} else {
-		if useDNG {
-			img, err = r.decodeWithDNG(ctx, env)
-			if err == nil {
-				usedDNG = true
-			} else {
-				r.logger.Warn("DNG converter path failed, falling back to direct: " + err.Error())
-			}
-		}
-		if !usedDNG {
-			img, err = r.decodeDirect(ctx, env)
-			if err != nil {
-				returnErr = err
-				return returnErr
-			}
-		} else {
-			secondSrc = env.DngIntPath
-		}
+	secondSrc := env.SrcPath
+	if img.DecodeType == DecodeDNG {
+		secondSrc = env.DngIntPath
 	}
 
 	var meta *ExtractedMetadata
@@ -266,7 +230,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	// The decode pipeline skips WB correction (WithUserMul 1,1,1,1),
 	// so write the original camera WB to XMP dc:Description as "raw-wb: R G B".
 	if meta != nil {
-		if usedDNG {
+		if img.DecodeType == DecodeDNG {
 			if ti, ok := meta.IFD0["AsShotNeutral"]; ok && ti.Val != "" {
 				meta.XMP["XMP-dc:Description"] = TagInfo{
 					Val: "raw-wb: " + ti.Val,
@@ -279,7 +243,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		}
 	}
 
-	if writeErr := r.writeMemImageToTIFF(tiffIntPath, img, meta); writeErr != nil {
+	if writeErr := r.writeMemImageToTIFF(env.TiffIntPath, img, meta); writeErr != nil {
 		returnErr = writeErr
 		return returnErr
 	}
@@ -290,6 +254,51 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	}
 
 	return nil
+}
+
+func (r *Runner) decode(ctx context.Context, env ConvertEnv) (*decodedImage, error) {
+	isTIFF, probeErr := r.probeFile(env.SrcPath)
+	if probeErr != nil {
+		return nil, probeErr
+	}
+	if isTIFF {
+		img, err := r.decodeTIFF(env.SrcPath)
+		if err != nil {
+			return nil, err
+		}
+		img.DecodeType = DecodeTIFF
+		return img, nil
+	}
+
+	useDNG := r.cfg.EnableAdobeDNGConverter
+	if useDNG {
+		var execPath string
+		if r.dngConverterExecutableSet {
+			execPath = r.dngConverterExecutable
+		} else {
+			execPath = dngconverter.GetDefaultExecutablePath()
+		}
+		if _, err := os.Stat(execPath); err != nil {
+			r.logger.Warn("DNG Converter not available, using direct path", "error", err)
+			useDNG = false
+		}
+	}
+
+	if useDNG {
+		img, err := r.decodeWithDNG(ctx, env)
+		if err == nil {
+			img.DecodeType = DecodeDNG
+			return img, nil
+		}
+		r.logger.Warn("DNG converter path failed, falling back to direct: " + err.Error())
+	}
+
+	img, err := r.decodeDirect(ctx, env)
+	if err != nil {
+		return nil, err
+	}
+	img.DecodeType = DecodeDirect
+	return img, nil
 }
 
 // probeFile detects whether srcPath is a readable TIFF that LibRaw cannot handle.
@@ -329,6 +338,9 @@ func (r *Runner) probeFile(srcPath string) (isTIFF bool, err error) {
 }
 
 func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*decodedImage, error) {
+	start := time.Now()
+	defer func() { r.logger.Info("decode DNG", "time", time.Since(start).Seconds()) }()
+
 	dngOpts1 := []dngconverter.Option{
 		dngconverter.WithUncompressed(true),
 		dngconverter.WithPreviewSize(dngconverter.PreviewNone),
@@ -416,7 +428,7 @@ func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*decodedIma
 	if err != nil {
 		return nil, err
 	}
-	r.logger.Info("run golibraw (with DNG)", "time", time.Since(now).Seconds())
+		r.logger.Info("golibraw (DNG)", "time", time.Since(now).Seconds())
 
 	cd, cdErr := rp.GetColorData()
 	var camMul [4]float32
@@ -434,6 +446,9 @@ func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*decodedIma
 }
 
 func (r *Runner) decodeDirect(ctx context.Context, env ConvertEnv) (*decodedImage, error) {
+	now := time.Now()
+	defer func() { r.logger.Info("decode direct", "time", time.Since(now).Seconds()) }()
+
 	rp, err := golibraw.New(append(baseRawOpts,
 		golibraw.WithDNGSDK(golibraw.DNGSDKDefault|golibraw.DNGSDKXTrans),
 		golibraw.WithUseRawSpeed(golibraw.RawSpeedV3Use),
@@ -464,7 +479,6 @@ func (r *Runner) decodeDirect(ctx context.Context, env ConvertEnv) (*decodedImag
 		return nil, err
 	}
 
-	now := time.Now()
 	if err := rp.OpenFile(env.SrcPath); err != nil {
 		return nil, err
 	}
@@ -478,7 +492,6 @@ func (r *Runner) decodeDirect(ctx context.Context, env ConvertEnv) (*decodedImag
 	if err != nil {
 		return nil, err
 	}
-	r.logger.Info("run golibraw (direct)", "time", time.Since(now).Seconds())
 
 	cd, cdErr := rp.GetColorData()
 	var camMul [4]float32
@@ -498,6 +511,9 @@ func (r *Runner) decodeDirect(ctx context.Context, env ConvertEnv) (*decodedImag
 // decodeTIFF reads all pixel data from a TIFF file into a contiguous buffer.
 // Supports both tiled and stripped layouts.
 func (r *Runner) decodeTIFF(srcPath string) (*decodedImage, error) {
+	now := time.Now()
+	defer func() { r.logger.Info("decode tiff", "time", time.Since(now).Seconds()) }()
+
 	src, err := golibtiff.Open(srcPath, golibtiff.OpenRead)
 	if err != nil {
 		return nil, fmt.Errorf("decodeTIFF: open: %w", err)

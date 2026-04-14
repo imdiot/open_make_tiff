@@ -2,6 +2,7 @@ package metadata
 
 import (
 	"encoding/base64"
+	"encoding/binary"
 	"fmt"
 	"log/slog"
 	"strconv"
@@ -313,12 +314,23 @@ func (ti TagInfo) BinaryRationalSlice() []float64 {
 	return result
 }
 
+// MakerNoteFixup holds offset correction data for absolute-offset MakerNotes.
+// Set by ExtractedMetadata.AnalyzeMakerNote; nil for relative-offset, self-contained, or absent MakerNotes.
+type MakerNoteFixup struct {
+	BaseOld   uint32           // Inferred original base offset in source file
+	BO        binary.ByteOrder // Byte order of MakerNote IFD content
+	Pointers  []int            // Byte positions of offset pointers (relative to MakerNote start)
+	DataLen   int              // Length of MakerNote binary data
+	HasFooter bool             // Whether Canon-style TIFF footer exists
+}
+
 type ExtractedMetadata struct {
-	logger *slog.Logger
-	IFD0   map[string]TagInfo
-	EXIF   map[string]TagInfo
-	GPS    map[string]TagInfo
-	XMP    map[string]TagInfo
+	logger         *slog.Logger
+	IFD0           map[string]TagInfo
+	EXIF           map[string]TagInfo
+	GPS            map[string]TagInfo
+	XMP            map[string]TagInfo
+	MakerNoteFixup *MakerNoteFixup // nil when no fixup needed
 }
 
 func NewExtractedMetadata(logger *slog.Logger) *ExtractedMetadata {
@@ -405,4 +417,6 @@ func (em *ExtractedMetadata) Parse(obj map[string]any) {
 			}
 		}
 	}
+
+	em.analyzeMakerNote()
 }

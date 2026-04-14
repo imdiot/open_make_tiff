@@ -249,6 +249,12 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		return returnErr
 	}
 
+	if meta != nil {
+		if err := meta.PatchMakerNoteOffsets(env.TiffIntPath); err != nil {
+			r.logger.Warn("patch MakerNote offsets failed (non-fatal)", "err", err)
+		}
+	}
+
 	if err := os.Rename(tiffIntPath, dstPath); err != nil {
 		returnErr = err
 		return returnErr

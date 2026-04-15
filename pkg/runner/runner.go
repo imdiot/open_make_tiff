@@ -227,6 +227,17 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		}
 	}
 
+	// Analyze MakerNote for absolute offset fixup.
+	// Parse source file to get correct baseOld; fall back to inference on error.
+	if meta != nil {
+		srcOff, _, err := metadata.FindMakerNoteFileOffset(srcPath)
+		if err == nil {
+			meta.AnalyzeMakerNote(srcOff)
+		} else {
+			meta.AnalyzeMakerNote(0)
+		}
+	}
+
 	// WB comment: compatible with MakeTiff 2.01 / ColorPerfect workflow.
 	// The decode pipeline skips WB correction (WithUserMul 1,1,1,1),
 	// so write the original camera WB to XMP dc:Description as "raw-wb: R G B".

@@ -11,12 +11,23 @@ import (
 )
 
 // newEMWithMakerNote creates an ExtractedMetadata with MakerNote binary data
-// and calls AnalyzeMakerNote, returning the populated em.
+// and calls AnalyzeMakerNote(0), returning the populated em.
 func newEMWithMakerNote(t *testing.T, data []byte) *ExtractedMetadata {
 	t.Helper()
 	em := NewExtractedMetadata(nil)
-	em.EXIF["MakerNote"] = TagInfo{Val: "base64:" + base64.StdEncoding.EncodeToString(data)}
-	em.analyzeMakerNote()
+	em.EXIF["MakerNote"] = TagInfo{ID: "37500", Val: "base64:" + base64.StdEncoding.EncodeToString(data)}
+	em.AnalyzeMakerNote(0)
+	return em
+}
+
+// newEMWithMakerNoteAndMake creates an ExtractedMetadata with MakerNote binary data
+// and a Make tag in IFD0, then calls AnalyzeMakerNote(baseOld).
+func newEMWithMakerNoteAndMake(t *testing.T, data []byte, makeVal string, baseOld uint32) *ExtractedMetadata {
+	t.Helper()
+	em := NewExtractedMetadata(nil)
+	em.IFD0["Make"] = TagInfo{ID: "271", Val: makeVal}
+	em.EXIF["MakerNote"] = TagInfo{ID: "37500", Val: "base64:" + base64.StdEncoding.EncodeToString(data)}
+	em.AnalyzeMakerNote(baseOld)
 	return em
 }
 
@@ -79,6 +90,45 @@ func TestDetectMakerNoteKind_ByteOrder(t *testing.T) {
 	}
 }
 
+func TestDetectMakerNoteKind_Panasonic(t *testing.T) {
+	le := append([]byte("Panasonic\x00II"), make([]byte, 100)...)
+	info := detectMakerNoteKind(le)
+	if info.kind != makerNoteAnalyze {
+		t.Fatalf("got %v, want makerNoteAnalyze", info.kind)
+	}
+	if info.bo != binary.LittleEndian {
+		t.Errorf("Panasonic LE: got %v, want LittleEndian", info.bo)
+	}
+	if info.ifdStart != 12 {
+		t.Errorf("Panasonic ifdStart: got %d, want 12", info.ifdStart)
+	}
+}
+
+func TestDetectMakerNoteKind_PentaxAOC(t *testing.T) {
+	le := append([]byte("AOC\x00II"), make([]byte, 100)...)
+	info := detectMakerNoteKind(le)
+	if info.kind != makerNoteAnalyze {
+		t.Fatalf("got %v, want makerNoteAnalyze", info.kind)
+	}
+	if info.bo != binary.LittleEndian {
+		t.Errorf("Pentax AOC LE: got %v, want LittleEndian", info.bo)
+	}
+	if info.ifdStart != 4 {
+		t.Errorf("Pentax AOC ifdStart: got %d, want 4", info.ifdStart)
+	}
+}
+
+func TestDetectMakerNoteKind_OldOlympus(t *testing.T) {
+	data := append([]byte("OLYMP\x00MM"), make([]byte, 100)...)
+	info := detectMakerNoteKind(data)
+	if info.kind != makerNoteAnalyze {
+		t.Fatalf("got %v, want makerNoteAnalyze", info.kind)
+	}
+	if info.ifdStart != 8 {
+		t.Errorf("Old Olympus ifdStart: got %d, want 8", info.ifdStart)
+	}
+}
+
 // --- AnalyzeMakerNote tests ---
 
 func TestAnalyzeAbsoluteIFD(t *testing.T) {
@@ -98,6 +148,20 @@ func TestAnalyzeAbsoluteIFD(t *testing.T) {
 	}
 	if len(em.MakerNoteFixup.Pointers) == 0 {
 		t.Error("expected at least one pointer")
+	}
+}
+
+func TestAnalyzeAbsoluteIFD_ExternalBaseOld(t *testing.T) {
+	entries := [][4]uint32{{1, 4, 10, 5310}}
+	data := buildSonyMakerNote(entries, 0, 50)
+
+	// Simulate correct baseOld from source file parsing
+	em := newEMWithMakerNoteAndMake(t, data, "SONY", 5310)
+	if em.MakerNoteFixup == nil {
+		t.Fatal("expected non-nil fixup")
+	}
+	if em.MakerNoteFixup.BaseOld != 5310 {
+		t.Errorf("BaseOld = %d, want 5310", em.MakerNoteFixup.BaseOld)
 	}
 }
 
@@ -146,26 +210,32 @@ func TestAnalyzeInvalidType(t *testing.T) {
 
 func TestAnalyzeSubIFD(t *testing.T) {
 	bo := binary.LittleEndian
-	subIFD := buildIFD(bo, [][4]uint32{{10, 4, 2, 0}}, 0)
-	subIFDRelStart := 60
-
 	baseOld := uint32(5000)
 	ifdEnd := 12 + 2 + 2*12 + 4 // = 42
+	subIFDRelStart := uint32(60)
+
+	// Sub-IFD with an entry whose dataSize > 4 and a valid pointer
+	subEntries := [][4]uint32{
+		{10, 4, 2, baseOld + subIFDRelStart + 2 + 1*12 + 4 + 10},
+	}
+	subIFD := buildIFD(bo, subEntries, 0)
 
 	mainEntries := [][4]uint32{
 		{1, 4, 10, baseOld + uint32(ifdEnd) + 20},
-		{2, 4, 1, baseOld + uint32(subIFDRelStart)},
+		{2, 4, 1, 0}, // dummy
 	}
-	extraBytes := subIFDRelStart + len(subIFD) + 40
-	data := buildSonyMakerNote(mainEntries, 0, extraBytes)
+	extraBytes := int(subIFDRelStart) + len(subIFD) + 40
+	// next-IFD pointer points to sub-IFD location
+	data := buildSonyMakerNote(mainEntries, baseOld+subIFDRelStart, extraBytes)
 	copy(data[subIFDRelStart:], subIFD)
 
 	em := newEMWithMakerNote(t, data)
 	if em.MakerNoteFixup == nil {
 		t.Fatal("expected non-nil fixup with sub-IFD")
 	}
+	// Main IFD entry 0 pointer + sub-IFD entry 0 pointer + next-IFD pointer = 3 unique pointers
 	if len(em.MakerNoteFixup.Pointers) < 2 {
-		t.Errorf("expected at least 2 pointers, got %d", len(em.MakerNoteFixup.Pointers))
+		t.Errorf("expected at least 2 unique pointers, got %d", len(em.MakerNoteFixup.Pointers))
 	}
 }
 
@@ -190,7 +260,7 @@ func TestAnalyzeCanonFooter(t *testing.T) {
 	data[footerOff+3] = 0x00
 	bo.PutUint32(data[footerOff+4:footerOff+8], 9999)
 
-	em := newEMWithMakerNote(t, data)
+	em := newEMWithMakerNoteAndMake(t, data, "Canon", 0)
 	if em.MakerNoteFixup == nil {
 		t.Fatal("expected non-nil fixup with Canon footer")
 	}
@@ -199,13 +269,106 @@ func TestAnalyzeCanonFooter(t *testing.T) {
 	}
 }
 
-func TestAnalyzeOffsetOutOfBounds(t *testing.T) {
+func TestAnalyzeCanonFooter_NonCanonIgnored(t *testing.T) {
+	bo := binary.LittleEndian
+	tiffHeader := make([]byte, 8)
+	tiffHeader[0] = 'I'
+	tiffHeader[1] = 'I'
+	bo.PutUint16(tiffHeader[2:4], 0x002a)
+	bo.PutUint32(tiffHeader[4:8], 8)
+
+	entries := [][4]uint32{{1, 4, 10, 5000}}
+	ifd := buildIFD(bo, entries, 0)
+
+	data := make([]byte, 8+len(ifd)+40+8)
+	copy(data, tiffHeader)
+	copy(data[8:], ifd)
+	footerOff := len(data) - 8
+	data[footerOff] = 'I'
+	data[footerOff+1] = 'I'
+	data[footerOff+2] = 0x2a
+	data[footerOff+3] = 0x00
+	bo.PutUint32(data[footerOff+4:footerOff+8], 9999)
+
+	// Sony Make — footer should NOT be detected
+	em := newEMWithMakerNoteAndMake(t, data, "SONY", 0)
+	if em.MakerNoteFixup == nil {
+		t.Fatal("expected non-nil fixup (pointer data exists)")
+	}
+	if em.MakerNoteFixup.HasFooter {
+		t.Error("expected HasFooter = false for non-Canon Make")
+	}
+}
+
+func TestAnalyzeOffsetOutOfBounds_Skipped(t *testing.T) {
+	// Two entries: one valid, one out-of-bounds. Valid should be kept.
+	entries := [][4]uint32{
+		{1, 4, 10, 5000},
+		{2, 4, 10, 20000}, // out of bounds
+	}
+	data := buildSonyMakerNote(entries, 0, 50)
+
+	em := newEMWithMakerNote(t, data)
+	if em.MakerNoteFixup == nil {
+		t.Fatal("expected non-nil fixup (one valid pointer)")
+	}
+	if len(em.MakerNoteFixup.Pointers) == 0 {
+		t.Error("expected at least one valid pointer to be kept")
+	}
+}
+
+func TestAnalyzeOffsetOutOfBounds_AllSkipped(t *testing.T) {
 	entries := [][4]uint32{{1, 4, 10, 20000}}
 	data := buildSonyMakerNote(entries, 0, 0)
 
 	em := newEMWithMakerNote(t, data)
 	if em.MakerNoteFixup != nil {
-		t.Error("expected nil MakerNoteFixup for offset outside bounds")
+		t.Error("expected nil MakerNoteFixup when all pointers are out of bounds")
+	}
+}
+
+// --- Cross-vendor analyze tests ---
+
+func TestAnalyzePanasonic(t *testing.T) {
+	entries := [][4]uint32{{1, 4, 10, 5000}}
+	data := buildPanasonicMakerNote(entries, 0, 50)
+
+	em := newEMWithMakerNote(t, data)
+	if em.MakerNoteFixup == nil {
+		t.Fatal("expected non-nil fixup for Panasonic absolute offsets")
+	}
+	if em.MakerNoteFixup.BO != binary.LittleEndian {
+		t.Errorf("BO = %v, want LittleEndian", em.MakerNoteFixup.BO)
+	}
+	if len(em.MakerNoteFixup.Pointers) == 0 {
+		t.Error("expected at least one pointer")
+	}
+}
+
+func TestAnalyzePentaxAOC(t *testing.T) {
+	entries := [][4]uint32{{1, 4, 10, 5000}}
+	data := buildPentaxAOCMakerNote(entries, 0, 50)
+
+	em := newEMWithMakerNote(t, data)
+	if em.MakerNoteFixup == nil {
+		t.Fatal("expected non-nil fixup for Pentax AOC absolute offsets")
+	}
+	if len(em.MakerNoteFixup.Pointers) == 0 {
+		t.Error("expected at least one pointer")
+	}
+}
+
+func TestAnalyzeOldOlympus(t *testing.T) {
+	bo := binary.LittleEndian
+	entries := [][4]uint32{{1, 4, 10, 5000}}
+	data := buildOldOlympusMakerNote(bo, entries, 0, 50)
+
+	em := newEMWithMakerNote(t, data)
+	if em.MakerNoteFixup == nil {
+		t.Fatal("expected non-nil fixup for Old Olympus absolute offsets")
+	}
+	if len(em.MakerNoteFixup.Pointers) == 0 {
+		t.Error("expected at least one pointer")
 	}
 }
 
@@ -233,6 +396,25 @@ func TestFindMakerNoteOffset(t *testing.T) {
 	}
 	if loc.dataLen != uint32(len(makerNote)) {
 		t.Errorf("dataLen = %d, want %d", loc.dataLen, len(makerNote))
+	}
+}
+
+func TestFindMakerNoteFileOffset(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.tiff")
+
+	makerNote := []byte("SONY DSC \x00\x00\x00" + "TEST_MAKER_NOTE_DATA")
+	writeTIFFWithMakerNote(t, path, makerNote)
+
+	offset, dataLen, err := FindMakerNoteFileOffset(path)
+	if err != nil {
+		t.Fatalf("FindMakerNoteFileOffset: %v", err)
+	}
+	if offset == 0 {
+		t.Error("offset should not be 0")
+	}
+	if dataLen != uint32(len(makerNote)) {
+		t.Errorf("dataLen = %d, want %d", dataLen, len(makerNote))
 	}
 }
 
@@ -376,6 +558,81 @@ func TestPatchWithFooter(t *testing.T) {
 	}
 }
 
+func TestPatchPanasonicRoundTrip(t *testing.T) {
+	bo := binary.LittleEndian
+	baseOld := uint32(10000)
+
+	entries := [][4]uint32{
+		{1, 4, 10, baseOld + 32},
+	}
+	data := buildPanasonicMakerNote(entries, 0, 80)
+
+	ifdStart := 12
+	ptrPos1 := ifdStart + 2 + 0*12 + 8
+
+	em := NewExtractedMetadata(nil)
+	em.MakerNoteFixup = &MakerNoteFixup{
+		BaseOld:  baseOld,
+		BO:       bo,
+		Pointers: []int{ptrPos1},
+		DataLen:  len(data),
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "panasonic_patch.tiff")
+	writeTIFFWithMakerNote(t, path, data)
+
+	if err := em.PatchMakerNoteOffsets(path); err != nil {
+		t.Fatalf("PatchMakerNoteOffsets: %v", err)
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer f.Close()
+
+	loc, err := findMakerNoteOffset(f)
+	if err != nil {
+		t.Fatalf("findMakerNoteOffset: %v", err)
+	}
+
+	buf := make([]byte, 4)
+	if _, err := f.Seek(int64(loc.offset)+int64(ptrPos1), 0); err != nil {
+		t.Fatalf("Seek: %v", err)
+	}
+	if _, err := f.Read(buf); err != nil {
+		t.Fatalf("Read: %v", err)
+	}
+	newVal := bo.Uint32(buf)
+	wantVal := uint32(int64(baseOld+32) + int64(loc.offset) - int64(baseOld))
+	if newVal != wantVal {
+		t.Errorf("pointer = %d, want %d", newVal, wantVal)
+	}
+}
+
+// --- isCanonMake tests ---
+
+func TestIsCanonMake(t *testing.T) {
+	tests := []struct {
+		ifd0 map[string]TagInfo
+		want bool
+	}{
+		{map[string]TagInfo{"Make": {Val: "Canon"}}, true},
+		{map[string]TagInfo{"Make": {Val: "Canon Inc."}}, true},
+		{map[string]TagInfo{"Make": {Val: "SONY"}}, false},
+		{map[string]TagInfo{"Make": {Val: "Panasonic"}}, false},
+		{map[string]TagInfo{}, false},
+		{map[string]TagInfo{"Make": {Val: "NIKON"}}, false},
+	}
+	for _, tt := range tests {
+		got := isCanonMake(tt.ifd0)
+		if got != tt.want {
+			t.Errorf("isCanonMake(%v) = %v, want %v", tt.ifd0["Make"].Val, got, tt.want)
+		}
+	}
+}
+
 // --- helpers ---
 
 func writeTIFFWithMakerNote(t *testing.T, path string, makerNote []byte) {
@@ -454,13 +711,41 @@ func setupBasicTIFF(t *testing.T, tf *golibtiff.TIFF) {
 func buildSonyMakerNote(entries [][4]uint32, nextIFD uint32, extraBytes int) []byte {
 	bo := binary.LittleEndian
 	prefix := []byte("SONY DSC \x00II")
+	return buildMakerNoteWithPrefix(bo, prefix, entries, nextIFD, extraBytes, 12)
+}
+
+func buildPanasonicMakerNote(entries [][4]uint32, nextIFD uint32, extraBytes int) []byte {
+	bo := binary.LittleEndian
+	prefix := []byte("Panasonic\x00II")
+	return buildMakerNoteWithPrefix(bo, prefix, entries, nextIFD, extraBytes, 12)
+}
+
+func buildPentaxAOCMakerNote(entries [][4]uint32, nextIFD uint32, extraBytes int) []byte {
+	bo := binary.LittleEndian
+	prefix := []byte("AOC\x00II")
+	return buildMakerNoteWithPrefix(bo, prefix, entries, nextIFD, extraBytes, 4)
+}
+
+func buildOldOlympusMakerNote(bo binary.ByteOrder, entries [][4]uint32, nextIFD uint32, extraBytes int) []byte {
+	prefix := make([]byte, 10)
+	copy(prefix, "OLYMP\x00")
+	if bo == binary.BigEndian {
+		prefix[8] = 'M'
+		prefix[9] = 'M'
+	} else {
+		prefix[8] = 'I'
+		prefix[9] = 'I'
+	}
+	return buildMakerNoteWithPrefix(bo, prefix, entries, nextIFD, extraBytes, 8)
+}
+
+func buildMakerNoteWithPrefix(bo binary.ByteOrder, prefix []byte, entries [][4]uint32, nextIFD uint32, extraBytes int, ifdStart int) []byte {
 	entryCount := len(entries)
 	ifdSize := 2 + entryCount*12 + 4
-	total := len(prefix) + ifdSize + extraBytes
+	total := ifdStart + ifdSize + extraBytes
 	buf := make([]byte, total)
 	copy(buf, prefix)
 
-	ifdStart := len(prefix)
 	bo.PutUint16(buf[ifdStart:ifdStart+2], uint16(entryCount))
 	for i, e := range entries {
 		off := ifdStart + 2 + i*12

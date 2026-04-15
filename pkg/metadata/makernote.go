@@ -6,6 +6,8 @@ import (
 	"io"
 	"math"
 	"os"
+	"sort"
+	"strings"
 
 	"open-make-tiff/pkg/golibtiff"
 )
@@ -178,7 +180,42 @@ func detectMakerNoteKind(data []byte) makerNoteInfo {
 		}
 	}
 
-	// Unknown format, skip
+		// Bare IFD (no signature, no TIFF header) -- Sony5 and similar formats.
+		// Detect by checking if the first 2 bytes form a plausible entry count
+		// and subsequent bytes look like valid IFD entries.
+		// Some vendors have entries that don't strictly ascend, so tolerate
+		// a small fraction of out-of-order tags.
+		if len(data) >= 14 {
+			for _, tryBO := range []binary.ByteOrder{binary.LittleEndian, binary.BigEndian} {
+				entryCount := tryBO.Uint16(data[0:2])
+				if entryCount == 0 || entryCount > 500 {
+					continue
+				}
+				ifdEnd := 2 + int(entryCount)*12 + 4
+				if ifdEnd > len(data) {
+					continue
+				}
+				prevTag := uint16(0)
+				invalidCount := 0
+				for i := uint16(0); i < entryCount; i++ {
+					off := 2 + int(i)*12
+					tag := tryBO.Uint16(data[off : off+2])
+					typ := tryBO.Uint16(data[off+2 : off+4])
+					if typ == 0 || typ > 12 || tag < prevTag {
+						invalidCount++
+					}
+					prevTag = tag
+				}
+				if invalidCount < int(entryCount)/5 {
+					return makerNoteInfo{
+						kind:     makerNoteAnalyze,
+						ifdStart: 0,
+						bo:       tryBO,
+					}
+				}
+			}
+		}
+
 	return makerNoteInfo{kind: makerNoteSkip}
 }
 
@@ -188,8 +225,18 @@ type makerNoteLocation struct {
 	dataLen uint32
 }
 
-// findMakerNoteOffset locates the MakerNote tag within an output TIFF file
+// FindMakerNoteFileOffset locates MakerNote data in a TIFF-structured file
 // by parsing the TIFF/IFD0/EXIF-IFD structure directly (no libtiff dependency).
+func FindMakerNoteFileOffset(path string) (offset uint32, dataLen uint32, err error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return 0, 0, err
+	}
+	defer f.Close()
+	loc, err := findMakerNoteOffset(f)
+	return loc.offset, loc.dataLen, err
+}
+
 func findMakerNoteOffset(f *os.File) (makerNoteLocation, error) {
 	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return makerNoteLocation{}, err
@@ -267,9 +314,18 @@ func findMakerNoteOffset(f *os.File) (makerNoteLocation, error) {
 
 // analyzeMakerNote analyzes the MakerNote binary data for absolute offset fixup.
 // Sets em.MakerNoteFixup if patching is needed; leaves it nil otherwise.
-func (em *ExtractedMetadata) analyzeMakerNote() {
-	ti, ok := em.EXIF["MakerNote"]
-	if !ok {
+// AnalyzeMakerNote analyzes MakerNote binary data for absolute offset fixup.
+// baseOld: MakerNote's file offset in the source RAW (>0 = from source file, 0 = infer as fallback).
+// Sets em.MakerNoteFixup if patching is needed; leaves it nil otherwise.
+func (em *ExtractedMetadata) AnalyzeMakerNote(baseOld uint32) {
+	var ti TagInfo
+	for _, t := range em.EXIF {
+		if t.TagID() == golibtiff.TagExifMakerNote {
+			ti = t
+			break
+		}
+	}
+	if ti.Val == "" {
 		return
 	}
 	data := ti.Binary()
@@ -299,8 +355,8 @@ func (em *ExtractedMetadata) analyzeMakerNote() {
 		return
 	}
 
-	// Pass 1: collect explicit offset pointers from main IFD and infer baseOld
-	var pointers []int
+	// Pass 1: collect explicit offset pointers from main IFD
+	ptrSet := make(map[int]struct{})
 	minOffset := uint32(math.MaxUint32)
 
 	for i := uint16(0); i < entryCount; i++ {
@@ -318,35 +374,43 @@ func (em *ExtractedMetadata) analyzeMakerNote() {
 			if ptrVal == 0 {
 				continue
 			}
-			pointers = append(pointers, ptrPos)
+			ptrSet[ptrPos] = struct{}{}
 			if ptrVal < minOffset {
 				minOffset = ptrVal
 			}
 		}
 	}
 
-	// Pass 1.5: determine if offsets are absolute or relative
 	if minOffset == math.MaxUint32 {
 		return
 	}
 
-	baseOld := minOffset - uint32(ifdEnd)
+	// Use provided baseOld when available; fall back to inference from pointer positions.
+	if baseOld == 0 {
+		baseOld = minOffset - uint32(ifdEnd)
+	}
 	if baseOld < uint32(ifdEnd) {
 		return
 	}
 
-	// Validate consistency: all pointer values must fall within [baseOld, baseOld+dataLen)
+	// Validate: skip out-of-bounds pointers individually, abort only if all are invalid.
 	dataLenU32 := uint32(dataLen)
-	for _, ptrPos := range pointers {
+	validSet := make(map[int]struct{}, len(ptrSet))
+	for ptrPos := range ptrSet {
 		val := bo.Uint32(data[ptrPos : ptrPos+4])
-		if val < baseOld || val >= baseOld+dataLenU32 {
-			em.logger.Debug("MakerNote offset pointer outside bounds",
-				"ptrPos", ptrPos, "val", val, "baseOld", baseOld, "dataLen", dataLen)
-			return
+		if val >= baseOld && val < baseOld+dataLenU32 {
+			validSet[ptrPos] = struct{}{}
+		} else {
+			em.logger.Debug("MakerNote skip out-of-bounds pointer",
+				"ptrPos", ptrPos, "val", val, "baseOld", baseOld)
 		}
 	}
+	ptrSet = validSet
+	if len(ptrSet) == 0 {
+		return
+	}
 
-	// Pass 2: heuristic collection of sub-IFD pointers (recursive)
+	// Pass 2: recursive collection of sub-IFD pointers
 	visited := map[uint32]bool{}
 	var collectIFD func(ifdRelStart uint32)
 	collectIFD = func(ifdRelStart uint32) {
@@ -375,21 +439,7 @@ func (em *ExtractedMetadata) analyzeMakerNote() {
 				ptrPos := entryOff + 8
 				ptrVal := bo.Uint32(data[ptrPos : ptrPos+4])
 				if ptrVal != 0 && ptrVal >= baseOld && ptrVal < baseOld+dataLenU32 {
-					pointers = append(pointers, int(ptrPos))
-				}
-				continue
-			}
-
-			// Heuristic: type=LONG(4)/SLONG(9), count=1 inline value may be a sub-IFD pointer
-			if (typ == 4 || typ == 9) && count == 1 {
-				val := bo.Uint32(data[entryOff+8 : entryOff+12])
-				if val == 0 {
-					continue
-				}
-				relOffset := val - baseOld
-				if relOffset > 0 && relOffset < dataLenU32 {
-					pointers = append(pointers, int(entryOff+8))
-					collectIFD(relOffset)
+					ptrSet[int(ptrPos)] = struct{}{}
 				}
 			}
 		}
@@ -401,7 +451,7 @@ func (em *ExtractedMetadata) analyzeMakerNote() {
 			if nextIFD != 0 {
 				relNext := nextIFD - baseOld
 				if relNext > 0 && relNext < dataLenU32 {
-					pointers = append(pointers, int(nextPtrOff))
+					ptrSet[int(nextPtrOff)] = struct{}{}
 					collectIFD(relNext)
 				}
 			}
@@ -410,21 +460,27 @@ func (em *ExtractedMetadata) analyzeMakerNote() {
 
 	collectIFD(uint32(ifdStart))
 
-	// Pass 3: Canon TIFF footer check
+	// Pass 3: Canon TIFF footer (Canon only — avoids false positives on Sony/Panasonic)
 	hasFooter := false
-	if dataLen >= 8 {
+	if dataLen >= 8 && isCanonMake(em.IFD0) {
 		footerOff := dataLen - 8
 		fb := data[footerOff : footerOff+4]
 		if (fb[0] == 'I' && fb[1] == 'I' && fb[2] == 0x2a && fb[3] == 0x00) ||
 			(fb[0] == 'M' && fb[1] == 'M' && fb[2] == 0x00 && fb[3] == 0x2a) {
 			hasFooter = true
-			pointers = append(pointers, footerOff+4)
+			ptrSet[footerOff+4] = struct{}{}
 		}
 	}
 
-	if len(pointers) == 0 {
+	if len(ptrSet) == 0 {
 		return
 	}
+
+	pointers := make([]int, 0, len(ptrSet))
+	for p := range ptrSet {
+		pointers = append(pointers, p)
+	}
+	sort.Ints(pointers)
 
 	em.MakerNoteFixup = &MakerNoteFixup{
 		BaseOld:   baseOld,
@@ -433,6 +489,13 @@ func (em *ExtractedMetadata) analyzeMakerNote() {
 		DataLen:   dataLen,
 		HasFooter: hasFooter,
 	}
+}
+
+func isCanonMake(ifd0 map[string]TagInfo) bool {
+	if ti, ok := ifd0["Make"]; ok {
+		return strings.HasPrefix(ti.Val, "Canon")
+	}
+	return false
 }
 
 // PatchMakerNoteOffsets patches absolute offset pointers in the output TIFF file.

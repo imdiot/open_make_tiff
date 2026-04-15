@@ -414,9 +414,9 @@ func (em *ExtractedMetadata) Parse(obj map[string]any) {
 		default:
 			if strings.HasPrefix(group, "XMP") {
 				em.XMP[key] = ti
+			} else if ti.TagID() == golibtiff.TagExifMakerNote {
+				em.EXIF[name] = ti
 			}
 		}
 	}
-
-	em.analyzeMakerNote()
 }

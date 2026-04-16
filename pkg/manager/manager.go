@@ -51,14 +51,42 @@ type Config struct {
 	DPI                      int    `json:"dpi,omitempty"`
 }
 
-func maxWorkers() int {
+func MaxWorkers() int {
 	return max(runtime.NumCPU()/2, 1)
+}
+
+type EventEmitter func(event string, data ...any)
+
+type ManagerOption func(*Manager)
+
+func WithEventEmitter(emit EventEmitter) ManagerOption {
+	return func(m *Manager) { m.emit = emit }
+}
+
+func WithContext(ctx context.Context) ManagerOption {
+	return func(m *Manager) {
+		ctx, cancel := context.WithCancel(ctx)
+		m.ctx = ctx
+		m.cancel = cancel
+		if m.et == nil {
+			if execPath, err := util.GetExiftoolExecutable(); err == nil {
+				m.et, err = exiftool.New(
+					exiftool.WithExecutable(execPath),
+					exiftool.WithLazyInit(),
+					exiftool.WithContext(ctx),
+				)
+				if err != nil {
+					slog.Warn("exiftool init failed", "error", err)
+				}
+			}
+		}
+	}
 }
 
 func newConfig() *Config {
 	return &Config{
 		ICCProfile: "",
-		Workers:    maxWorkers(),
+		Workers:    MaxWorkers(),
 	}
 }
 
@@ -71,18 +99,19 @@ type Manager struct {
 	setting *Setting
 	et      *exiftool.Exiftool
 	wg      sync.WaitGroup
+	emit    EventEmitter
 
 	tmpDir                 *util.TempDir
 	dngConverterExecutable string
 }
 
-func New() *Manager {
+func New(opts ...ManagerOption) *Manager {
 	setting := &Setting{
 		WorkerNums:              make([]*WorkerNumOption, 0),
 		Profiles:                make([]*ProfileOption, 0),
 		EnableAdobeDNGConverter: func() bool { _, err := dngconverter.New(); return err == nil }(),
 	}
-	for i := 1; i <= maxWorkers(); i++ {
+	for i := 1; i <= MaxWorkers(); i++ {
 		setting.WorkerNums = append(setting.WorkerNums, &WorkerNumOption{Value: i, Label: fmt.Sprintf("%d", i)})
 	}
 	setting.Profiles = append(setting.Profiles, &ProfileOption{Value: "", Label: "none"})
@@ -94,6 +123,10 @@ func New() *Manager {
 	m := &Manager{
 		config:  newConfig(),
 		setting: setting,
+	}
+
+	for _, opt := range opts {
+		opt(m)
 	}
 
 	if td, err := util.NewTempDir("omt-"); err != nil {
@@ -118,7 +151,14 @@ func (m *Manager) OnStartup(ctx context.Context) {
 	m.cancel = cancel
 
 	m.loadConfig()
-	m.checkConfig()
+	m.validateConfig()
+	wails_runtime.WindowSetAlwaysOnTop(m.ctx, m.config.EnableWindowTop)
+
+	if m.emit == nil {
+		m.emit = func(event string, data ...any) {
+			wails_runtime.EventsEmit(m.ctx, event, data...)
+		}
+	}
 
 	if execPath, err := util.GetExiftoolExecutable(); err == nil {
 		m.et, err = exiftool.New(exiftool.WithExecutable(execPath), exiftool.WithLazyInit(), exiftool.WithContext(ctx))
@@ -141,7 +181,8 @@ func (m *Manager) OnSecondInstanceLaunch(_ options.SecondInstanceData) {
 	defer m.mu.Unlock()
 
 	m.loadConfig()
-	m.checkConfig()
+	m.validateConfig()
+	wails_runtime.WindowSetAlwaysOnTop(m.ctx, m.config.EnableWindowTop)
 }
 
 func (m *Manager) OnShutdown(_ context.Context) {
@@ -226,16 +267,15 @@ func (m *Manager) saveConfig() {
 	}
 }
 
-func (m *Manager) checkConfig() {
-	wails_runtime.WindowSetAlwaysOnTop(m.ctx, m.config.EnableWindowTop)
+func (m *Manager) validateConfig() {
 	if m.config.ICCProfile != "" {
 		_, ok := icc.Profiles[m.config.ICCProfile]
 		if !ok {
 			m.config.ICCProfile = ""
 		}
 	}
-	if m.config.Workers < 1 || m.config.Workers > maxWorkers() {
-		m.config.Workers = maxWorkers()
+	if m.config.Workers < 1 || m.config.Workers > MaxWorkers() {
+		m.config.Workers = MaxWorkers()
 	}
 }
 
@@ -259,7 +299,7 @@ func (m *Manager) SetConfig(cfg *Config) *Config {
 
 	m.config = cfg
 
-	m.checkConfig()
+	m.validateConfig()
 	m.saveConfig()
 	return m.config
 }
@@ -270,11 +310,11 @@ func (m *Manager) Convert(paths []string) {
 	}
 
 	m.wg.Go(func() {
-		wails_runtime.EventsEmit(m.ctx, "omt:convert:started")
+		m.emit("omt:convert:started")
 		defer func() {
 			m.running.Store(false)
 			if m.ctx.Err() == nil {
-				wails_runtime.EventsEmit(m.ctx, "omt:convert:finished")
+				m.emit("omt:convert:finished")
 			}
 		}()
 
@@ -292,7 +332,7 @@ func (m *Manager) Convert(paths []string) {
 						<-semaphoreWorkerCh
 						if r := recover(); r != nil {
 							slog.Warn("panic", "error", r)
-							wails_runtime.EventsEmit(m.ctx, "omt:convert:file:error", path)
+							m.emit("omt:convert:file:error", path)
 						}
 					}()
 
@@ -303,7 +343,7 @@ func (m *Manager) Convert(paths []string) {
 					if f.IsDir() || !f.Mode().IsRegular() {
 						return
 					}
-					wails_runtime.EventsEmit(m.ctx, "omt:convert:file:started", path)
+					m.emit("omt:convert:file:started", path)
 
 					m.mu.RLock()
 					cfg := m.config
@@ -325,13 +365,13 @@ func (m *Manager) Convert(paths []string) {
 						DPI:                     cfg.DPI,
 					}, runnerOpts...).Run(m.ctx, path); err != nil {
 						if errors.Is(err, runner.ErrDstFileExists) {
-							wails_runtime.EventsEmit(m.ctx, "omt:convert:file:skipped", path)
+							m.emit("omt:convert:file:skipped", path)
 						} else {
 							slog.Warn("convert", "error", err)
-							wails_runtime.EventsEmit(m.ctx, "omt:convert:file:error", path)
+							m.emit("omt:convert:file:error", path)
 						}
 					} else {
-						wails_runtime.EventsEmit(m.ctx, "omt:convert:file:success", path)
+						m.emit("omt:convert:file:success", path)
 					}
 				})
 			}

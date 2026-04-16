@@ -4,23 +4,21 @@ import (
 	"context"
 	"embed"
 	"encoding/json"
-	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
 	"sort"
 	"strings"
+	"sync/atomic"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
 	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
 
-	"open-make-tiff/pkg/exiftool"
 	"open-make-tiff/pkg/icc"
 	"open-make-tiff/pkg/manager"
-	"open-make-tiff/pkg/runner"
-	"open-make-tiff/pkg/util"
 )
 
 //go:embed all:frontend/dist
@@ -81,10 +79,11 @@ func runCLI() int {
 	subfolder := fs.Bool("subfolder", false, "output to a \"make_tiff\" subfolder")
 	compress := fs.Bool("compress", false, "enable LZW compression")
 	profile := fs.String("profile", "", "ICC profile: "+profileList())
+	workers := fs.Int("workers", max(runtime.NumCPU()/2, 1), "number of parallel workers")
 
 	fs.Usage = func() {
-		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <input-file>\n\n", fs.Name())
-		fmt.Fprintf(fs.Output(), "Converts a RAW image to linear TIFF.\n\nFlags:\n")
+		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <input-file> [input-file...]\n\n", fs.Name())
+		fmt.Fprintf(fs.Output(), "Converts RAW images to linear TIFF.\n\nFlags:\n")
 		fs.PrintDefaults()
 		fmt.Fprintf(fs.Output(), "\nWithout arguments, launches the GUI.\n")
 	}
@@ -93,13 +92,11 @@ func runCLI() int {
 		return 2
 	}
 
-	if fs.NArg() != 1 {
-		fmt.Fprintln(os.Stderr, "Error: exactly one input file required")
+	if fs.NArg() < 1 {
+		fmt.Fprintln(os.Stderr, "Error: at least one input file required")
 		fs.Usage()
 		return 2
 	}
-
-	inputPath := fs.Arg(0)
 
 	if *profile != "" {
 		if _, ok := icc.Profiles[*profile]; !ok {
@@ -108,46 +105,48 @@ func runCLI() int {
 		}
 	}
 
-	if _, err := os.Stat(inputPath); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		return 1
+	if *workers < 1 {
+		fmt.Fprintln(os.Stderr, "Error: workers must be >= 1")
+		return 2
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	var et *exiftool.Exiftool
-	if execPath, err := util.GetExiftoolExecutable(); err == nil {
-		et, err = exiftool.New(
-			exiftool.WithExecutable(execPath),
-			exiftool.WithLazyInit(),
-			exiftool.WithContext(ctx),
-		)
-		if err != nil {
-			slog.Warn("exiftool init failed", "error", err)
-			et = nil
-		}
-	}
-	if et != nil {
-		defer et.Close()
-	}
+	var failed atomic.Int32
+	done := make(chan struct{})
 
-	r := runner.New(runner.Config{
-		EnableAdobeDNGConverter: !*noDNG,
+	mgr := manager.New(
+		manager.WithContext(ctx),
+		manager.WithEventEmitter(func(event string, data ...any) {
+			switch event {
+			case "omt:convert:file:success":
+				fmt.Fprintf(os.Stderr, "  OK: %s\n", data[0])
+			case "omt:convert:file:skipped":
+				fmt.Fprintf(os.Stderr, "  SKIP: %s\n", data[0])
+			case "omt:convert:file:error":
+				failed.Add(1)
+				fmt.Fprintf(os.Stderr, "  FAIL: %s\n", data[0])
+			case "omt:convert:finished":
+				close(done)
+			}
+		}),
+	)
+
+	mgr.SetConfig(&manager.Config{
+		DisableAdobeDNGConverter: *noDNG,
 		EnableSubfolder:         *subfolder,
 		EnableCompression:       *compress,
-		Profile:                 *profile,
-	}, runner.WithRemoveIntermediate(), runner.WithExiftool(et))
+		ICCProfile:              *profile,
+		Workers:                 *workers,
+	})
 
-	if err := r.Run(ctx, inputPath); err != nil {
-		if errors.Is(err, runner.ErrDstFileExists) {
-			fmt.Fprintf(os.Stderr, "Skipped: %v\n", err)
-			return 2
-		}
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+	mgr.Convert(fs.Args())
+	<-done
+
+	if failed.Load() > 0 {
 		return 1
 	}
-
 	return 0
 }
 

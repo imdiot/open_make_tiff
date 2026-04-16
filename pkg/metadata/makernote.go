@@ -110,17 +110,9 @@ func detectMakerNoteKind(data []byte) makerNoteInfo {
 		}
 	}
 
-	// Panasonic — needs analysis
+	// Panasonic — relative offsets, no fixup needed
 	if len(data) >= 12 && string(data[:10]) == "Panasonic\x00" {
-		minSize := 12 + 2 + 12 + 4
-		if len(data) < minSize {
-			return makerNoteInfo{kind: makerNoteSkip}
-		}
-		return makerNoteInfo{
-			kind:     makerNoteAnalyze,
-			ifdStart: 12,
-			bo:       detectByteOrder(data[10:12]),
-		}
+		return makerNoteInfo{kind: makerNoteSkip}
 	}
 
 	// Pentax AOC — needs analysis
@@ -337,6 +329,12 @@ func (em *ExtractedMetadata) analyzeMakerNote(baseOld uint32) {
 			break
 		}
 	}
+	// CR3 fallback: search by key name (TagID override in Parse handles normal path)
+	if ti.Val == "" {
+		if t, ok := em.EXIF["MakerNoteCanon"]; ok {
+			ti = t
+		}
+	}
 	if ti.Val == "" {
 		return
 	}
@@ -401,10 +399,6 @@ func (em *ExtractedMetadata) analyzeMakerNote(baseOld uint32) {
 	if baseOld == 0 {
 		baseOld = minOffset - uint32(ifdEnd)
 	}
-	if baseOld < uint32(ifdEnd) {
-		return
-	}
-
 	// Validate: skip out-of-bounds pointers individually, abort only if all are invalid.
 	dataLenU32 := uint32(dataLen)
 	validSet := make(map[int]struct{}, len(ptrSet))

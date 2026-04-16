@@ -38,8 +38,9 @@ var skipIFD0IDs = map[golibtiff.Tag]bool{
 }
 
 var standardTables = map[string]bool{
-	"Exif::Main": true,
-	"GPS::Main":  true,
+	"Exif::Main":  true,
+	"GPS::Main":   true,
+	"Canon::uuid": true, // CR3 CMT3 MakerNote binary
 }
 
 type TagInfo struct {
@@ -393,6 +394,12 @@ func (em *ExtractedMetadata) Parse(obj map[string]any) {
 		case "GPS":
 			em.GPS[name] = ti
 		default:
+			// CR3 CMT3 MakerNote: override ID so writeTag() targets TIFF tag 37500
+			if group == "Canon" && name == "MakerNoteCanon" {
+				ti.ID = float64(golibtiff.TagExifMakerNote)
+				em.EXIF[name] = ti
+				continue
+			}
 			if strings.HasPrefix(group, "XMP") {
 				em.XMP[key] = ti
 			} else if ti.TagID() == golibtiff.TagExifMakerNote {

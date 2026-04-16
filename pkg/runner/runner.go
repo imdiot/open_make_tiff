@@ -435,7 +435,7 @@ func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*decodedIma
 	if err != nil {
 		return nil, err
 	}
-		r.logger.Info("golibraw (DNG)", "time", time.Since(now).Seconds())
+	r.logger.Info("golibraw (DNG)", "time", time.Since(now).Seconds())
 
 	cd, cdErr := rp.GetColorData()
 	var camMul [4]float32
@@ -696,6 +696,7 @@ func (r *Runner) extractMetadata(rawPath, secondSrcPath string, excludeKeys ...s
 		"-json", "-G1", "-l", "-t", "-b", "-a", "-U", "-ee",
 		"-api", "SaveBin=1", "-api", "SaveFormat=1", "-api", "MakerNotes=1",
 		"-IFD0:All", "-ExifIFD:All", "-GPS:All",
+		"-MakerNoteCanon",
 		"-XMP-aux:All", "-XMP-exifEX:All",
 		"-XMP-dc:Subject", "-XMP-lr:HierarchicalSubject", "-XMP-mwg-kw:All",
 	}

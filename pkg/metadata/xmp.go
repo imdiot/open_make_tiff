@@ -32,7 +32,7 @@ var knownLangAltTags = map[string]bool{
 	"dc:Description": true,
 }
 
-func (em *ExtractedMetadata) BuildXMPacket() ([]byte, error) {
+func (em *ExtractedMetadata) buildXMPacket() ([]byte, error) {
 	type elem struct {
 		prefix  string
 		key     string
@@ -43,7 +43,7 @@ func (em *ExtractedMetadata) BuildXMPacket() ([]byte, error) {
 	var elements []elem
 	usedNS := make(map[string]string)
 	for key, ti := range em.XMP {
-		group, name := SplitGroupKey(key)
+		group, name := splitGroupKey(key)
 		prefix := strings.TrimPrefix(group, "XMP-")
 		uri, ok := xmpNS[prefix]
 		if !ok || ti.Val == "" {

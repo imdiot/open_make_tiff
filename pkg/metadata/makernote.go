@@ -180,43 +180,53 @@ func detectMakerNoteKind(data []byte) makerNoteInfo {
 		}
 	}
 
-		// Bare IFD (no signature, no TIFF header) -- Sony5 and similar formats.
-		// Detect by checking if the first 2 bytes form a plausible entry count
-		// and subsequent bytes look like valid IFD entries.
-		// Some vendors have entries that don't strictly ascend, so tolerate
-		// a small fraction of out-of-order tags.
-		if len(data) >= 14 {
-			for _, tryBO := range []binary.ByteOrder{binary.LittleEndian, binary.BigEndian} {
-				entryCount := tryBO.Uint16(data[0:2])
-				if entryCount == 0 || entryCount > 500 {
-					continue
+	// Bare IFD (no signature, no TIFF header) -- Sony5 and similar formats.
+	// Detect by checking if the first 2 bytes form a plausible entry count
+	// and subsequent bytes look like valid IFD entries.
+	// Some vendors have entries that don't strictly ascend, so tolerate
+	// a small fraction of out-of-order tags.
+	if len(data) >= 14 {
+		for _, tryBO := range []binary.ByteOrder{binary.LittleEndian, binary.BigEndian} {
+			entryCount := tryBO.Uint16(data[0:2])
+			if entryCount == 0 || entryCount > 500 {
+				continue
+			}
+			ifdEnd := 2 + int(entryCount)*12 + 4
+			if ifdEnd > len(data) {
+				continue
+			}
+			prevTag := uint16(0)
+			invalidCount := 0
+			for i := uint16(0); i < entryCount; i++ {
+				off := 2 + int(i)*12
+				tag := tryBO.Uint16(data[off : off+2])
+				typ := tryBO.Uint16(data[off+2 : off+4])
+				if typ == 0 || typ > 12 || tag < prevTag {
+					invalidCount++
 				}
-				ifdEnd := 2 + int(entryCount)*12 + 4
-				if ifdEnd > len(data) {
-					continue
-				}
-				prevTag := uint16(0)
-				invalidCount := 0
-				for i := uint16(0); i < entryCount; i++ {
-					off := 2 + int(i)*12
-					tag := tryBO.Uint16(data[off : off+2])
-					typ := tryBO.Uint16(data[off+2 : off+4])
-					if typ == 0 || typ > 12 || tag < prevTag {
-						invalidCount++
-					}
-					prevTag = tag
-				}
-				if invalidCount < int(entryCount)/5 {
-					return makerNoteInfo{
-						kind:     makerNoteAnalyze,
-						ifdStart: 0,
-						bo:       tryBO,
-					}
+				prevTag = tag
+			}
+			if invalidCount < int(entryCount)/5 {
+				return makerNoteInfo{
+					kind:     makerNoteAnalyze,
+					ifdStart: 0,
+					bo:       tryBO,
 				}
 			}
 		}
+	}
 
 	return makerNoteInfo{kind: makerNoteSkip}
+}
+
+// MakerNoteFixup holds offset correction data for absolute-offset MakerNotes.
+// Set by ExtractedMetadata.analyzeMakerNote; nil for relative-offset, self-contained, or absent MakerNotes.
+type MakerNoteFixup struct {
+	BaseOld   uint32           // Inferred original base offset in source file
+	BO        binary.ByteOrder // Byte order of MakerNote IFD content
+	Pointers  []int            // Byte positions of offset pointers (relative to MakerNote start)
+	DataLen   int              // Length of MakerNote binary data
+	HasFooter bool             // Whether Canon-style TIFF footer exists
 }
 
 // makerNoteLocation holds the file position of MakerNote data in a TIFF file.
@@ -225,22 +235,13 @@ type makerNoteLocation struct {
 	dataLen uint32
 }
 
-// FindMakerNoteFileOffset locates MakerNote data in a TIFF-structured file
-// by parsing the TIFF/IFD0/EXIF-IFD structure directly (no libtiff dependency).
-func FindMakerNoteFileOffset(path string) (offset uint32, dataLen uint32, err error) {
+func findMakerNoteOffset(path string) (makerNoteLocation, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return 0, 0, err
-	}
-	defer f.Close()
-	loc, err := findMakerNoteOffset(f)
-	return loc.offset, loc.dataLen, err
-}
-
-func findMakerNoteOffset(f *os.File) (makerNoteLocation, error) {
-	if _, err := f.Seek(0, io.SeekStart); err != nil {
 		return makerNoteLocation{}, err
 	}
+	defer f.Close()
+
 	header := make([]byte, 8)
 	if _, err := io.ReadFull(f, header); err != nil {
 		return makerNoteLocation{}, fmt.Errorf("read TIFF header: %w", err)
@@ -312,12 +313,23 @@ func findMakerNoteOffset(f *os.File) (makerNoteLocation, error) {
 	return makerNoteLocation{}, fmt.Errorf("MakerNote tag 37500 not found")
 }
 
-// analyzeMakerNote analyzes the MakerNote binary data for absolute offset fixup.
-// Sets em.MakerNoteFixup if patching is needed; leaves it nil otherwise.
-// AnalyzeMakerNote analyzes MakerNote binary data for absolute offset fixup.
+// AnalyzeMakerNote analyzes MakerNote binary for absolute offset fixup.
+// srcPath is the source RAW file used to determine MakerNote's file offset.
+// Falls back to offset inference if the source file cannot be parsed.
+func (em *ExtractedMetadata) AnalyzeMakerNote(srcPath string) {
+	var baseOld uint32
+	if loc, err := findMakerNoteOffset(srcPath); err == nil {
+		baseOld = loc.offset
+	} else {
+		em.logger.Debug("find MakerNote offset failed, using inference", "err", err)
+	}
+	em.analyzeMakerNote(baseOld)
+}
+
+// analyzeMakerNote performs binary analysis of MakerNote IFD entries to collect
+// absolute offset pointers that need patching after TIFF re-write.
 // baseOld: MakerNote's file offset in the source RAW (>0 = from source file, 0 = infer as fallback).
-// Sets em.MakerNoteFixup if patching is needed; leaves it nil otherwise.
-func (em *ExtractedMetadata) AnalyzeMakerNote(baseOld uint32) {
+func (em *ExtractedMetadata) analyzeMakerNote(baseOld uint32) {
 	var ti TagInfo
 	for _, t := range em.EXIF {
 		if t.TagID() == golibtiff.TagExifMakerNote {
@@ -512,7 +524,7 @@ func (em *ExtractedMetadata) PatchMakerNoteOffsets(path string) error {
 	}
 	defer f.Close()
 
-	loc, err := findMakerNoteOffset(f)
+	loc, err := findMakerNoteOffset(path)
 	if err != nil {
 		return fmt.Errorf("find MakerNote in output: %w", err)
 	}

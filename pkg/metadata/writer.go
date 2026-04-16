@@ -9,7 +9,7 @@ import (
 func (em *ExtractedMetadata) WriteIFD0(tf *golibtiff.TIFF) {
 	em.writeGroup(tf, em.IFD0, skipIFD0IDs)
 	if len(em.XMP) > 0 {
-		packet, err := em.BuildXMPacket()
+		packet, err := em.buildXMPacket()
 		if err != nil {
 			em.logger.Debug("build XMP packet failed", "err", err)
 			return
@@ -84,18 +84,17 @@ func (em *ExtractedMetadata) writeTag(tf *golibtiff.TIFF, ti TagInfo, skipIDs ma
 	if skipIDs != nil && skipIDs[id] {
 		return nil
 	}
-	tag := golibtiff.Tag(id)
 
-	ft := tf.GetFieldType(tag)
+	ft := tf.GetFieldType(id)
 	if ft < 0 {
 		return nil
 	}
 
-	wc := tf.FieldWriteCount(tag)
+	wc := tf.FieldWriteCount(id)
 	val := ti.ExtractValue(ft, wc)
 	if val == nil {
 		return nil
 	}
 
-	return tf.SetFieldAny(tag, val)
+	return tf.SetFieldAny(id, val)
 }

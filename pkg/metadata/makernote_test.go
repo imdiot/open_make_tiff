@@ -11,23 +11,23 @@ import (
 )
 
 // newEMWithMakerNote creates an ExtractedMetadata with MakerNote binary data
-// and calls AnalyzeMakerNote(0), returning the populated em.
+// and calls analyzeMakerNote(0), returning the populated em.
 func newEMWithMakerNote(t *testing.T, data []byte) *ExtractedMetadata {
 	t.Helper()
 	em := NewExtractedMetadata(nil)
 	em.EXIF["MakerNote"] = TagInfo{ID: "37500", Val: "base64:" + base64.StdEncoding.EncodeToString(data)}
-	em.AnalyzeMakerNote(0)
+	em.analyzeMakerNote(0)
 	return em
 }
 
 // newEMWithMakerNoteAndMake creates an ExtractedMetadata with MakerNote binary data
-// and a Make tag in IFD0, then calls AnalyzeMakerNote(baseOld).
+// and a Make tag in IFD0, then calls analyzeMakerNote(baseOld).
 func newEMWithMakerNoteAndMake(t *testing.T, data []byte, makeVal string, baseOld uint32) *ExtractedMetadata {
 	t.Helper()
 	em := NewExtractedMetadata(nil)
 	em.IFD0["Make"] = TagInfo{ID: "271", Val: makeVal}
 	em.EXIF["MakerNote"] = TagInfo{ID: "37500", Val: "base64:" + base64.StdEncoding.EncodeToString(data)}
-	em.AnalyzeMakerNote(baseOld)
+	em.analyzeMakerNote(baseOld)
 	return em
 }
 
@@ -387,7 +387,7 @@ func TestFindMakerNoteOffset(t *testing.T) {
 	}
 	defer f.Close()
 
-	loc, err := findMakerNoteOffset(f)
+	loc, err := findMakerNoteOffset(path)
 	if err != nil {
 		t.Fatalf("findMakerNoteOffset: %v", err)
 	}
@@ -396,25 +396,6 @@ func TestFindMakerNoteOffset(t *testing.T) {
 	}
 	if loc.dataLen != uint32(len(makerNote)) {
 		t.Errorf("dataLen = %d, want %d", loc.dataLen, len(makerNote))
-	}
-}
-
-func TestFindMakerNoteFileOffset(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "test.tiff")
-
-	makerNote := []byte("SONY DSC \x00\x00\x00" + "TEST_MAKER_NOTE_DATA")
-	writeTIFFWithMakerNote(t, path, makerNote)
-
-	offset, dataLen, err := FindMakerNoteFileOffset(path)
-	if err != nil {
-		t.Fatalf("FindMakerNoteFileOffset: %v", err)
-	}
-	if offset == 0 {
-		t.Error("offset should not be 0")
-	}
-	if dataLen != uint32(len(makerNote)) {
-		t.Errorf("dataLen = %d, want %d", dataLen, len(makerNote))
 	}
 }
 
@@ -456,7 +437,7 @@ func TestPatchRoundTrip(t *testing.T) {
 	}
 	defer f.Close()
 
-	loc, err := findMakerNoteOffset(f)
+	loc, err := findMakerNoteOffset(path)
 	if err != nil {
 		t.Fatalf("findMakerNoteOffset: %v", err)
 	}
@@ -539,7 +520,7 @@ func TestPatchWithFooter(t *testing.T) {
 	}
 	defer f.Close()
 
-	loc, err := findMakerNoteOffset(f)
+	loc, err := findMakerNoteOffset(path)
 	if err != nil {
 		t.Fatalf("findMakerNoteOffset: %v", err)
 	}
@@ -592,7 +573,7 @@ func TestPatchPanasonicRoundTrip(t *testing.T) {
 	}
 	defer f.Close()
 
-	loc, err := findMakerNoteOffset(f)
+	loc, err := findMakerNoteOffset(path)
 	if err != nil {
 		t.Fatalf("findMakerNoteOffset: %v", err)
 	}

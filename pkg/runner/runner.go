@@ -40,15 +40,11 @@ type Config struct {
 	EnableSubfolder         bool
 	EnableCompression       bool
 	Profile                 string
+	KeepLogFiles            bool
+	KeepIntermediateFiles   bool
 }
 
 type Option func(*Runner)
-
-func WithRemoveIntermediate() Option {
-	return func(r *Runner) {
-		r.removeIntermediate = true
-	}
-}
 
 func WithExiftool(et *exiftool.Exiftool) Option {
 	return func(r *Runner) {
@@ -66,7 +62,8 @@ func WithDNGConverterExecutable(path string) Option {
 type Runner struct {
 	cfg                       Config
 	logger                    *slog.Logger
-	removeIntermediate        bool
+	keepLogFiles              bool
+	keepIntermediateFiles     bool
 	et                        *exiftool.Exiftool
 	dngConverterExecutable    string
 	dngConverterExecutableSet bool
@@ -103,8 +100,10 @@ type decodedImage struct {
 
 func New(cfg Config, opts ...Option) *Runner {
 	r := &Runner{
-		cfg:    cfg,
-		logger: slog.New(slog.NewTextHandler(os.Stdout, nil)),
+		cfg:                   cfg,
+		logger:                slog.New(slog.NewTextHandler(os.Stdout, nil)),
+		keepLogFiles:          cfg.KeepLogFiles,
+		keepIntermediateFiles: cfg.KeepIntermediateFiles,
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -144,7 +143,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	)
 
 	defer func() {
-		if r.removeIntermediate {
+		if !r.keepIntermediateFiles {
 			for _, f := range []string{dngIntPrePath, dngIntPath, tiffIntPath} {
 				if f != "" {
 					_ = os.Remove(f)
@@ -187,7 +186,7 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 			r.logger.Error(returnErr.Error())
 		}
 		_ = f.Close()
-		if returnErr == nil && r.removeIntermediate {
+		if returnErr == nil && !r.keepLogFiles {
 			_ = os.Remove(logPath)
 		}
 	}()
@@ -360,7 +359,7 @@ func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*decodedIma
 		return nil, fmt.Errorf("dng converter (linear) convert: %w", err)
 	}
 	r.logger.Info("dng converter (linear)", "time", time.Since(now).Seconds())
-	if r.removeIntermediate {
+	if !r.keepIntermediateFiles {
 		_ = os.Remove(env.DngIntPrePath)
 	}
 
@@ -562,7 +561,7 @@ func (r *Runner) decodeTIFF(srcPath string) (*decodedImage, error) {
 
 func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage) error {
 	now := time.Now()
-	defer r.logger.Info("write TIFF", "time", time.Since(now).Seconds())
+	defer func() { r.logger.Info("write TIFF", "time", time.Since(now).Seconds()) }()
 
 	tf, err := golibtiff.Open(path, golibtiff.OpenWrite)
 	if err != nil {
@@ -628,7 +627,7 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage) error {
 
 func (r *Runner) writeMetadataExiftool(tiffPath string, env ConvertEnv, img *decodedImage) error {
 	now := time.Now()
-	defer r.logger.Info("write metadata", "time", time.Since(now).Seconds())
+	defer func() { r.logger.Info("write metadata", "time", time.Since(now).Seconds()) }()
 
 	rawPath := env.SrcPath
 	secondSrcPath := env.SrcPath

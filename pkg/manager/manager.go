@@ -48,6 +48,8 @@ type Config struct {
 	EnableCompression        bool   `json:"enable_compression,omitempty"`
 	ICCProfile               string `json:"icc_profile,omitempty"`
 	Workers                  int    `json:"workers,omitempty"`
+	KeepLogFiles             bool   `json:"-"`
+	KeepIntermediateFiles    bool   `json:"-"`
 }
 
 func MaxWorkers() int {
@@ -133,6 +135,8 @@ func New(opts ...ManagerOption) *Manager {
 	} else {
 		m.tmpDir = td
 	}
+
+	m.initDNGShadowBundle()
 
 	return m
 }
@@ -349,7 +353,6 @@ func (m *Manager) Convert(paths []string) {
 					m.mu.RUnlock()
 
 					runnerOpts := []runner.Option{
-						runner.WithRemoveIntermediate(),
 						runner.WithExiftool(m.et),
 					}
 					if m.dngConverterExecutable != "" {
@@ -361,6 +364,8 @@ func (m *Manager) Convert(paths []string) {
 						EnableSubfolder:         cfg.EnableSubfolder,
 						EnableCompression:       cfg.EnableCompression,
 						Profile:                 cfg.ICCProfile,
+						KeepLogFiles:            cfg.KeepLogFiles,
+						KeepIntermediateFiles:   cfg.KeepIntermediateFiles,
 					}, runnerOpts...).Run(m.ctx, path); err != nil {
 						if errors.Is(err, runner.ErrDstFileExists) {
 							m.emit("omt:convert:file:skipped", path)

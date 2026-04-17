@@ -80,6 +80,8 @@ func runCLI() int {
 	compress := fs.Bool("compress", false, "enable LZW compression")
 	profile := fs.String("profile", "", "ICC profile: "+profileList())
 	workers := fs.Int("workers", max(runtime.NumCPU()/2, 1), "number of parallel workers")
+	keepLog := fs.Bool("keep-log", false, "keep log files after conversion")
+	keepIntermediate := fs.Bool("keep-intermediate", false, "keep intermediate DNG/TIFF files")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <input-file> [input-file...]\n\n", fs.Name())
@@ -139,6 +141,8 @@ func runCLI() int {
 		EnableCompression:       *compress,
 		ICCProfile:              *profile,
 		Workers:                 *workers,
+		KeepLogFiles:            *keepLog,
+		KeepIntermediateFiles:   *keepIntermediate,
 	})
 
 	mgr.Convert(fs.Args())

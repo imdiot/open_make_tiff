@@ -1,17 +1,14 @@
 package runner
 
 import (
-	"cmp"
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -21,7 +18,6 @@ import (
 	"open-make-tiff/pkg/golibraw"
 	"open-make-tiff/pkg/golibtiff"
 	"open-make-tiff/pkg/icc"
-	"open-make-tiff/pkg/metadata"
 )
 
 var ErrDstFileExists = errors.New("destination file already exists")
@@ -44,7 +40,6 @@ type Config struct {
 	EnableSubfolder         bool
 	EnableCompression       bool
 	Profile                 string
-	DPI                     int
 }
 
 type Option func(*Runner)
@@ -212,46 +207,15 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 		return returnErr
 	}
 
-	secondSrc := env.SrcPath
-	if img.DecodeType == DecodeDNG {
-		secondSrc = env.DngIntPath
-	}
-
-	var meta *metadata.ExtractedMetadata
-	{
-		var metaErr error
-		meta, metaErr = r.extractMetadata(srcPath, secondSrc, "ColorSpace")
-		if metaErr != nil {
-			returnErr = fmt.Errorf("extract metadata: %w", metaErr)
-			return returnErr
-		}
-	}
-
-	// WB comment: compatible with MakeTiff 2.01 / ColorPerfect workflow.
-	// The decode pipeline skips WB correction (WithUserMul 1,1,1,1),
-	// so write the original camera WB to XMP dc:Description as "raw-wb: R G B".
-	if meta != nil {
-		if img.DecodeType == DecodeDNG {
-			if ti, ok := meta.IFD0["AsShotNeutral"]; ok && ti.Val != "" {
-				meta.XMP["XMP-dc:Description"] = metadata.TagInfo{
-					Val: "raw-wb: " + ti.Val,
-				}
-			}
-		} else if img.CamMul != [4]float32{} {
-			meta.XMP["XMP-dc:Description"] = metadata.TagInfo{
-				Val: fmt.Sprintf("raw-wb: %g %g %g", img.CamMul[0], img.CamMul[1], img.CamMul[2]),
-			}
-		}
-	}
-
-	if writeErr := r.writeMemImageToTIFF(env.TiffIntPath, img, meta); writeErr != nil {
+	if writeErr := r.writeMemImageToTIFF(env.TiffIntPath, img); writeErr != nil {
 		returnErr = writeErr
 		return returnErr
 	}
 
-	if meta != nil {
-		if err := meta.PatchMakerNoteOffsets(env.TiffIntPath); err != nil {
-			r.logger.Warn("patch MakerNote offsets failed (non-fatal)", "err", err)
+	if r.et != nil {
+		if metaErr := r.writeMetadataExiftool(env.TiffIntPath, env, img); metaErr != nil {
+			returnErr = metaErr
+			return returnErr
 		}
 	}
 
@@ -596,8 +560,9 @@ func (r *Runner) decodeTIFF(srcPath string) (*decodedImage, error) {
 	}, nil
 }
 
-func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *metadata.ExtractedMetadata) error {
+func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage) error {
 	now := time.Now()
+	defer r.logger.Info("write TIFF", "time", time.Since(now).Seconds())
 
 	tf, err := golibtiff.Open(path, golibtiff.OpenWrite)
 	if err != nil {
@@ -638,30 +603,14 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *metad
 		return fmt.Errorf("set RowsPerStrip: %w", err)
 	}
 
-	// Phase 2: Write IFD0 metadata and config overrides.
-	if meta != nil {
-		meta.WriteIFD0(tf)
-
-		dpi := cmp.Or(float64(r.cfg.DPI), 300.0)
-		if err := tf.SetFieldDouble(golibtiff.TagXResolution, dpi); err != nil {
-			return fmt.Errorf("set XResolution: %w", err)
-		}
-		if err := tf.SetFieldDouble(golibtiff.TagYResolution, dpi); err != nil {
-			return fmt.Errorf("set YResolution: %w", err)
-		}
-		_ = tf.SetFieldUint16(golibtiff.TagResolutionUnit, uint16(golibtiff.ResolutionUnitInch))
-		if profile, ok := icc.Profiles[r.cfg.Profile]; ok {
-			if err := tf.SetFieldByteSlice(golibtiff.TagIccProfile, profile.Data()); err != nil {
-				return fmt.Errorf("set ICC profile: %w", err)
-			}
-		}
-
-		if err := meta.ReserveSubIFDs(tf); err != nil {
-			return err
+	// ICC profile.
+	if profile, ok := icc.Profiles[r.cfg.Profile]; ok {
+		if err := tf.SetFieldByteSlice(golibtiff.TagIccProfile, profile.Data()); err != nil {
+			return fmt.Errorf("set ICC profile: %w", err)
 		}
 	}
 
-	// Phase 3: Write pixel scanlines.
+	// Phase 2: Write pixel scanlines.
 	scanline := int64(w) * int64(colors) * int64(bits/8)
 	for row := uint32(0); row < h; row++ {
 		off := int64(row) * scanline
@@ -670,97 +619,46 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage, meta *metad
 		}
 	}
 
-	// Phase 4: Write Sub-IFDs (EXIF, GPS).
-	if meta != nil {
-		if err := meta.WriteSubIFDs(tf); err != nil {
-			return err
-		}
-	} else {
-		if err := tf.WriteDirectory(); err != nil {
-			return fmt.Errorf("write directory: %w", err)
-		}
+	if err := tf.WriteDirectory(); err != nil {
+		return fmt.Errorf("write directory: %w", err)
 	}
 
-	r.logger.Info("write TIFF", "time", time.Since(now).Seconds())
 	return nil
 }
 
-func (r *Runner) extractMetadata(rawPath, secondSrcPath string, excludeKeys ...string) (*metadata.ExtractedMetadata, error) {
-	if r.et == nil {
-		return nil, nil
-	}
+func (r *Runner) writeMetadataExiftool(tiffPath string, env ConvertEnv, img *decodedImage) error {
+	now := time.Now()
+	defer r.logger.Info("write metadata", "time", time.Since(now).Seconds())
 
-	samePath := strings.EqualFold(filepath.Clean(rawPath), filepath.Clean(secondSrcPath))
+	rawPath := env.SrcPath
+	secondSrcPath := env.SrcPath
+	if img.DecodeType == DecodeDNG {
+		secondSrcPath = env.DngIntPath
+	}
 
 	args := []string{
-		"-json", "-G1", "-l", "-t", "-b", "-a", "-U", "-ee",
-		"-api", "SaveBin=1", "-api", "SaveFormat=1", "-api", "MakerNotes=1",
-		"-IFD0:All", "-ExifIFD:All", "-GPS:All",
-		"-MakerNoteCanon",
-		"-XMP-aux:All", "-XMP-exifEX:All",
-		"-XMP-dc:Subject", "-XMP-lr:HierarchicalSubject", "-XMP-mwg-kw:All",
-	}
-	args = append(args, rawPath)
-	if !samePath {
-		args = append(args, secondSrcPath)
+		"--ICC_Profile",
+		"-tagsFromFile", rawPath, "-all", "-XMP:all=", "-all:ImageDescription=",
+		"-tagsFromFile", secondSrcPath,
+		"-AsShotNeutral", "-UniqueCameraModel", "-LocalizedCameraModel",
+		"-XMP-aux:all", "-XMP-exifEX:all", "-XMP-dc:subject",
+		"-XMP-lr:HierarchicalSubject", "-XMP-mwg-kw:all",
 	}
 
-	resp, err := r.et.Execute(args...)
-	if err != nil {
-		return nil, fmt.Errorf("exiftool extract metadata: %w", err)
+	if img.DecodeType == DecodeDNG {
+		args = append(args, "-XMP-dc:Description<raw-wb: ${AsShotNeutral}")
+	} else if img.CamMul != [4]float32{} {
+		args = append(args, fmt.Sprintf("-XMP-dc:Description=raw-wb: %g %g %g", img.CamMul[0], img.CamMul[1], img.CamMul[2]))
 	}
 
-	var objects []map[string]any
-	if err := json.Unmarshal([]byte(resp), &objects); err != nil {
-		return nil, fmt.Errorf("json parse: %w", err)
-	}
-	if len(objects) == 0 {
-		return nil, nil
-	}
+	args = append(args,
+		"-IPTC:all=", "-all:Colorspace=", "-orientation=",
+		"-XMP-crs:RAWFileName="+filepath.Base(rawPath),
+		"-overwrite_original", tiffPath,
+	)
 
-	var rawEM, dngEM *metadata.ExtractedMetadata
-	if samePath {
-		rawEM = metadata.NewExtractedMetadata(r.logger)
-		rawEM.Parse(objects[0])
-		dngEM = rawEM
-	} else {
-		for _, obj := range objects {
-			src, _ := obj["SourceFile"].(string)
-			em := metadata.NewExtractedMetadata(r.logger)
-			em.Parse(obj)
-			if strings.EqualFold(filepath.Clean(src), filepath.Clean(rawPath)) {
-				rawEM = em
-			} else {
-				dngEM = em
-			}
-		}
+	if err := r.et.ExecuteWrite(args...); err != nil {
+		return fmt.Errorf("exiftool metadata copy: %w", err)
 	}
-
-	if rawEM == nil {
-		return nil, nil
-	}
-
-	if dngEM != nil {
-		for name, ti := range dngEM.IFD0 {
-			if metadata.DNGOverrideIDs[ti.TagID()] {
-				rawEM.IFD0[name] = ti
-			}
-		}
-		if len(dngEM.XMP) > 0 {
-			rawEM.XMP = dngEM.XMP
-		}
-	}
-	rawEM.XMP["XMP-crs:RAWFileName"] = metadata.TagInfo{Val: filepath.Base(rawPath)}
-
-	for _, key := range excludeKeys {
-		delete(rawEM.IFD0, key)
-		delete(rawEM.EXIF, key)
-		delete(rawEM.GPS, key)
-	}
-
-	if rawEM != nil {
-		rawEM.AnalyzeMakerNote(rawPath)
-	}
-
-	return rawEM, nil
+	return nil
 }

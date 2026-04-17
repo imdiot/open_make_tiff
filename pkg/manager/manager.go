@@ -48,7 +48,6 @@ type Config struct {
 	EnableCompression        bool   `json:"enable_compression,omitempty"`
 	ICCProfile               string `json:"icc_profile,omitempty"`
 	Workers                  int    `json:"workers,omitempty"`
-	DPI                      int    `json:"dpi,omitempty"`
 }
 
 func MaxWorkers() int {
@@ -362,7 +361,6 @@ func (m *Manager) Convert(paths []string) {
 						EnableSubfolder:         cfg.EnableSubfolder,
 						EnableCompression:       cfg.EnableCompression,
 						Profile:                 cfg.ICCProfile,
-						DPI:                     cfg.DPI,
 					}, runnerOpts...).Run(m.ctx, path); err != nil {
 						if errors.Is(err, runner.ErrDstFileExists) {
 							m.emit("omt:convert:file:skipped", path)

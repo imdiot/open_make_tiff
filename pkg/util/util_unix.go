@@ -2,10 +2,4 @@
 
 package util
 
-import "syscall"
-
-func GetSysProcAttr() *syscall.SysProcAttr {
-	return &syscall.SysProcAttr{
-		Setpgid: true,
-	}
-}
+func AttachParentConsole() bool { return false }

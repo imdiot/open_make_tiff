@@ -19,6 +19,7 @@ import (
 
 	"open-make-tiff/pkg/icc"
 	"open-make-tiff/pkg/manager"
+	"open-make-tiff/pkg/util"
 )
 
 //go:embed all:frontend/dist
@@ -73,6 +74,8 @@ func main() {
 }
 
 func runCLI() int {
+	util.AttachParentConsole()
+
 	fs := flag.NewFlagSet("open-make-tiff", flag.ContinueOnError)
 
 	noDNG := fs.Bool("no-dng", false, "disable Adobe DNG Converter")

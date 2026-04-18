@@ -22,7 +22,6 @@ import (
 
 var ErrDstFileExists = errors.New("destination file already exists")
 
-// baseRawOpts contains shared LibRaw processing options for consistent RAW decoding.
 var baseRawOpts = []golibraw.Option{
 	golibraw.WithUserMul(1, 1, 1, 1),
 	golibraw.WithOutputColorSpace(golibraw.ColorSpaceRaw),
@@ -35,6 +34,14 @@ var baseRawOpts = []golibraw.Option{
 	golibraw.WithEmbeddedColorMatrix(false),
 }
 
+type DecodeType int
+
+const (
+	DecodeDirect DecodeType = iota
+	DecodeDNG
+	DecodeTIFF
+)
+
 type Config struct {
 	EnableAdobeDNGConverter bool
 	EnableSubfolder         bool
@@ -44,31 +51,6 @@ type Config struct {
 	KeepIntermediateFiles   bool
 }
 
-type Option func(*Runner)
-
-func WithExiftool(et *exiftool.Exiftool) Option {
-	return func(r *Runner) {
-		r.et = et
-	}
-}
-
-func WithDNGConverterExecutable(path string) Option {
-	return func(r *Runner) {
-		r.dngConverterExecutable = path
-		r.dngConverterExecutableSet = true
-	}
-}
-
-type Runner struct {
-	cfg                       Config
-	logger                    *slog.Logger
-	keepLogFiles              bool
-	keepIntermediateFiles     bool
-	et                        *exiftool.Exiftool
-	dngConverterExecutable    string
-	dngConverterExecutableSet bool
-}
-
 type ConvertEnv struct {
 	SrcPath       string
 	DstDir        string
@@ -76,14 +58,6 @@ type ConvertEnv struct {
 	DngIntPath    string
 	TiffIntPath   string
 }
-
-type DecodeType int
-
-const (
-	DecodeDirect DecodeType = iota
-	DecodeDNG
-	DecodeTIFF
-)
 
 // decodedImage holds decoded pixel data.
 // Unlike golibraw.ProcessedImage (whose Width/Height are uint16 per LibRaw C API),
@@ -96,6 +70,31 @@ type decodedImage struct {
 	Bits       uint16
 	Data       []byte
 	CamMul     [4]float32
+}
+
+type Option func(*Runner)
+
+type Runner struct {
+	cfg                       Config
+	logger                    *slog.Logger
+	keepLogFiles              bool
+	keepIntermediateFiles     bool
+	et                        *exiftool.Exiftool
+	dngConverterExecutable    string
+	dngConverterExecutableSet bool
+}
+
+func WithExiftool(et *exiftool.Exiftool) Option {
+	return func(r *Runner) {
+		r.et = et
+	}
+}
+
+func WithDNGConverterExecutable(path string) Option {
+	return func(r *Runner) {
+		r.dngConverterExecutable = path
+		r.dngConverterExecutableSet = true
+	}
 }
 
 func New(cfg Config, opts ...Option) *Runner {
@@ -226,6 +225,42 @@ func (r *Runner) Run(ctx context.Context, srcPath string) error {
 	return nil
 }
 
+// probeFile detects whether srcPath is a readable TIFF that LibRaw cannot handle.
+// Returns (false, nil) if the file appears to be RAW (LibRaw can open it).
+// Returns (true, nil) if LibRaw cannot open it but libtiff can (plain TIFF).
+// Returns (false, err) only if LibRaw init itself fails — a fatal condition.
+//
+// When both LibRaw and libtiff fail to open the file, it returns (false, nil)
+// and logs a warning, allowing the caller to fall through to decodeDirect
+// for a final attempt with full options (DNG SDK, RawSpeed, etc.).
+//
+// LibRaw is probed first because many RAW formats (CR2, NEF, ARW, DNG, etc.)
+// are TIFF containers — only LibRaw can distinguish them from plain TIFF.
+func (r *Runner) probeFile(srcPath string) (isTIFF bool, err error) {
+	rp, probeErr := golibraw.New()
+	if probeErr != nil {
+		return false, fmt.Errorf("golibraw init failed: %w", probeErr)
+	}
+	librawOK := rp.OpenFile(srcPath) == nil
+	rp.Close()
+
+	if librawOK {
+		r.logger.Info("detected RAW format", "path", srcPath)
+		return false, nil
+	}
+
+	// LibRaw cannot open it — check if it is a readable TIFF.
+	tf, tiffErr := golibtiff.Open(srcPath, golibtiff.OpenRead)
+	if tiffErr != nil {
+		r.logger.Warn("file not recognized as RAW or TIFF by probe, will attempt direct decode", "path", srcPath)
+		return false, nil
+	}
+	tf.Close()
+
+	r.logger.Info("detected TIFF format", "path", srcPath)
+	return true, nil
+}
+
 func (r *Runner) decode(ctx context.Context, env ConvertEnv) (*decodedImage, error) {
 	isTIFF, probeErr := r.probeFile(env.SrcPath)
 	if probeErr != nil {
@@ -269,42 +304,6 @@ func (r *Runner) decode(ctx context.Context, env ConvertEnv) (*decodedImage, err
 	}
 	img.DecodeType = DecodeDirect
 	return img, nil
-}
-
-// probeFile detects whether srcPath is a readable TIFF that LibRaw cannot handle.
-// Returns (false, nil) if the file appears to be RAW (LibRaw can open it).
-// Returns (true, nil) if LibRaw cannot open it but libtiff can (plain TIFF).
-// Returns (false, err) only if LibRaw init itself fails — a fatal condition.
-//
-// When both LibRaw and libtiff fail to open the file, it returns (false, nil)
-// and logs a warning, allowing the caller to fall through to decodeDirect
-// for a final attempt with full options (DNG SDK, RawSpeed, etc.).
-//
-// LibRaw is probed first because many RAW formats (CR2, NEF, ARW, DNG, etc.)
-// are TIFF containers — only LibRaw can distinguish them from plain TIFF.
-func (r *Runner) probeFile(srcPath string) (isTIFF bool, err error) {
-	rp, probeErr := golibraw.New()
-	if probeErr != nil {
-		return false, fmt.Errorf("golibraw init failed: %w", probeErr)
-	}
-	librawOK := rp.OpenFile(srcPath) == nil
-	rp.Close()
-
-	if librawOK {
-		r.logger.Info("detected RAW format", "path", srcPath)
-		return false, nil
-	}
-
-	// LibRaw cannot open it — check if it is a readable TIFF.
-	tf, tiffErr := golibtiff.Open(srcPath, golibtiff.OpenRead)
-	if tiffErr != nil {
-		r.logger.Warn("file not recognized as RAW or TIFF by probe, will attempt direct decode", "path", srcPath)
-		return false, nil
-	}
-	tf.Close()
-
-	r.logger.Info("detected TIFF format", "path", srcPath)
-	return true, nil
 }
 
 func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*decodedImage, error) {

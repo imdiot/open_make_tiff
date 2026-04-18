@@ -52,6 +52,13 @@ type Config struct {
 	KeepIntermediateFiles    bool   `json:"-"`
 }
 
+func NewConfig() *Config {
+	return &Config{
+		ICCProfile: "",
+		Workers:    MaxWorkers(),
+	}
+}
+
 func MaxWorkers() int {
 	return max(runtime.NumCPU()/2, 1)
 }
@@ -59,6 +66,21 @@ func MaxWorkers() int {
 type EventEmitter func(event string, data ...any)
 
 type ManagerOption func(*Manager)
+
+type Manager struct {
+	ctx     context.Context
+	cancel  context.CancelFunc
+	mu      sync.RWMutex
+	running atomic.Bool
+	config  *Config
+	setting *Setting
+	et      *exiftool.Exiftool
+	wg      sync.WaitGroup
+	emit    EventEmitter
+
+	tmpDir                 *util.TempDir
+	dngConverterExecutable string
+}
 
 func WithEventEmitter(emit EventEmitter) ManagerOption {
 	return func(m *Manager) { m.emit = emit }
@@ -84,28 +106,6 @@ func WithContext(ctx context.Context) ManagerOption {
 	}
 }
 
-func newConfig() *Config {
-	return &Config{
-		ICCProfile: "",
-		Workers:    MaxWorkers(),
-	}
-}
-
-type Manager struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	mu      sync.RWMutex
-	running atomic.Bool
-	config  *Config
-	setting *Setting
-	et      *exiftool.Exiftool
-	wg      sync.WaitGroup
-	emit    EventEmitter
-
-	tmpDir                 *util.TempDir
-	dngConverterExecutable string
-}
-
 func New(opts ...ManagerOption) *Manager {
 	setting := &Setting{
 		WorkerNums:              make([]*WorkerNumOption, 0),
@@ -122,7 +122,7 @@ func New(opts ...ManagerOption) *Manager {
 	slices.SortStableFunc(setting.Profiles, func(a, b *ProfileOption) int { return cmp.Compare(a.Value, b.Value) })
 
 	m := &Manager{
-		config:  newConfig(),
+		config:  NewConfig(),
 		setting: setting,
 	}
 
@@ -218,6 +218,31 @@ func (m *Manager) OnShutdown(_ context.Context) {
 	}
 }
 
+func (m *Manager) GetSetting() *Setting {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.setting
+}
+
+func (m *Manager) GetConfig() *Config {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return m.config
+}
+
+func (m *Manager) SetConfig(cfg *Config) *Config {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	m.config = cfg
+
+	m.validateConfig()
+	m.saveConfig()
+	return m.config
+}
+
 func (m *Manager) configPath() string {
 	path, err := os.UserConfigDir()
 	if err != nil {
@@ -241,7 +266,7 @@ func (m *Manager) loadConfig() {
 		return
 	}
 
-	cfg := newConfig()
+	cfg := NewConfig()
 	if err = json.Unmarshal(b, cfg); err != nil {
 		return
 	}
@@ -280,31 +305,6 @@ func (m *Manager) validateConfig() {
 	if m.config.Workers < 1 || m.config.Workers > MaxWorkers() {
 		m.config.Workers = MaxWorkers()
 	}
-}
-
-func (m *Manager) GetSetting() *Setting {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	return m.setting
-}
-
-func (m *Manager) GetConfig() *Config {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	return m.config
-}
-
-func (m *Manager) SetConfig(cfg *Config) *Config {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.config = cfg
-
-	m.validateConfig()
-	m.saveConfig()
-	return m.config
 }
 
 func (m *Manager) Convert(paths []string) {

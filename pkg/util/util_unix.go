@@ -3,3 +3,4 @@
 package util
 
 func AttachParentConsole() bool { return false }
+func FreeParentConsole()        {}

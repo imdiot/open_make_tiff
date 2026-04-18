@@ -75,6 +75,7 @@ func main() {
 
 func runCLI() int {
 	util.AttachParentConsole()
+	defer util.FreeParentConsole()
 
 	fs := flag.NewFlagSet("open-make-tiff", flag.ContinueOnError)
 

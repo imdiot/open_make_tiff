@@ -160,9 +160,10 @@ func OpenWithCallbacks(name string, mode OpenMode, io ClientIO) (*TIFF, error) {
 	C.attachErrorState(tif)
 
 	t := &TIFF{tif: tif}
-	runtime.SetFinalizer(t, func(t *TIFF) {
-		t.Close()
-	})
+	t.cleanup = runtime.AddCleanup(t, func(tif *C.TIFF) {
+		C.detachErrorState(tif)
+		C.TIFFClose(tif)
+	}, tif)
 	return t, nil
 }
 

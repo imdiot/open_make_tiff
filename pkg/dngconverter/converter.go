@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"sync"
 )
 
 var (
@@ -21,11 +22,14 @@ var defaultExecutablePaths = map[string]string{
 	"windows": `C:\Program Files\Adobe\Adobe DNG Converter\Adobe DNG Converter.exe`,
 }
 
+func GetDefaultExecutablePath() string {
+	return defaultExecutablePaths[runtime.GOOS]
+}
+
 type Converter struct {
-	executable string
-	defaults   Options
-	version    string
-	versionErr error
+	executable  string
+	defaults    Options
+	versionOnce func() (string, error)
 }
 
 func New(opts ...Option) (*Converter, error) {
@@ -51,13 +55,12 @@ func New(opts ...Option) (*Converter, error) {
 	cfg.executable = execPath
 
 	return &Converter{
-		executable: execPath,
-		defaults:   cfg,
+		executable:  execPath,
+		defaults:    cfg,
+		versionOnce: sync.OnceValues(func() (string, error) {
+			return readExecutableVersion(execPath)
+		}),
 	}, nil
-}
-
-func GetDefaultExecutablePath() string {
-	return defaultExecutablePaths[runtime.GOOS]
 }
 
 func (c *Converter) IsAvailable() bool {
@@ -73,18 +76,8 @@ func (c *Converter) Executable() string {
 }
 
 // Version returns the Adobe DNG Converter version in "major.minor" format (e.g. "17.5").
-// The version is read from file metadata on first call and cached.
 func (c *Converter) Version() (string, error) {
-	if c.version != "" || c.versionErr != nil {
-		return c.version, c.versionErr
-	}
-	ver, err := readExecutableVersion(c.executable)
-	if err != nil {
-		c.versionErr = err
-		return "", err
-	}
-	c.version = ver
-	return ver, nil
+	return c.versionOnce()
 }
 
 func (c *Converter) Convert(ctx context.Context, input string, opts ...Option) error {
@@ -96,18 +89,7 @@ func (c *Converter) Convert(ctx context.Context, input string, opts ...Option) e
 		return fmt.Errorf("failed to access input file: %w", err)
 	}
 
-	args := c.buildArgs(cfg, input)
-
-	cmd := exec.CommandContext(ctx, c.executable, args...)
-	cmd.SysProcAttr = getSysProcAttr()
-	cfg.logger().Debug("executing DNG Converter", "args", cmd.Args)
-
-	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("%w: %s", ErrConversionFailed, string(output))
-	}
-
-	return nil
+	return c.runConvert(ctx, cfg, c.buildArgs(cfg, input))
 }
 
 func (c *Converter) ConvertMany(ctx context.Context, inputs []string, opts ...Option) error {
@@ -125,8 +107,10 @@ func (c *Converter) ConvertMany(ctx context.Context, inputs []string, opts ...Op
 		}
 	}
 
-	args := c.buildArgs(cfg, inputs...)
+	return c.runConvert(ctx, cfg, c.buildArgs(cfg, inputs...))
+}
 
+func (c *Converter) runConvert(ctx context.Context, cfg Options, args []string) error {
 	cmd := exec.CommandContext(ctx, c.executable, args...)
 	cmd.SysProcAttr = getSysProcAttr()
 	cfg.logger().Debug("executing DNG Converter", "args", cmd.Args)

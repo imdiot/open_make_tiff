@@ -1,6 +1,7 @@
 package dngconverter
 
 import (
+	"cmp"
 	"log/slog"
 )
 
@@ -109,7 +110,7 @@ func WithExecutable(path string) Option {
 
 func WithCompress(compress bool) Option {
 	return func(o *Options) {
-		o.Compress = true
+		o.Compress = compress
 		o.compressSet = true
 	}
 }
@@ -242,8 +243,5 @@ func defaultOptions() Options {
 }
 
 func (o *Options) logger() *slog.Logger {
-	if o.Logger != nil {
-		return o.Logger
-	}
-	return slog.Default()
+	return cmp.Or(o.Logger, slog.Default())
 }

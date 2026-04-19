@@ -1,9 +1,9 @@
 package dngconverter
 
 import (
-	"context"
 	"errors"
 	"runtime"
+	"slices"
 	"testing"
 )
 
@@ -31,6 +31,17 @@ func TestBuildArgs(t *testing.T) {
 			opts:   []Option{WithCompress(true)},
 			inputs: []string{"test.nef"},
 			want:   []string{"-c", "test.nef"},
+		},
+		{
+			name:   "with compress disabled",
+			opts:   []Option{WithCompress(false)},
+			inputs: []string{"test.nef"},
+			want: func() []string {
+				if runtime.GOOS == "windows" {
+					return []string{"-c", "test.nef"}
+				}
+				return []string{"test.nef"}
+			}(),
 		},
 		{
 			name:   "with output directory",
@@ -79,6 +90,40 @@ func TestBuildArgs(t *testing.T) {
 			opts:   []Option{WithLosslessJXL(true)},
 			inputs: []string{"test.nef"},
 			want:   []string{"-jxl", "-losslessJXL", "test.nef"},
+		},
+		{
+			name:   "with lossless JXL disabled",
+			opts:   []Option{WithLosslessJXL(false)},
+			inputs: []string{"test.nef"},
+			want: func() []string {
+				if runtime.GOOS == "windows" {
+					return []string{"-c", "test.nef"}
+				}
+				return []string{"test.nef"}
+			}(),
+		},
+		{
+			name:   "with lossy mosaic JXL",
+			opts:   []Option{WithLossyMosaicJXL(true)},
+			inputs: []string{"test.nef"},
+			want:   []string{"-jxl", "-lossyMosaicJXL", "test.nef"},
+		},
+		{
+			name:   "with lossy mosaic JXL disabled",
+			opts:   []Option{WithLossyMosaicJXL(false)},
+			inputs: []string{"test.nef"},
+			want: func() []string {
+				if runtime.GOOS == "windows" {
+					return []string{"-c", "test.nef"}
+				}
+				return []string{"test.nef"}
+			}(),
+		},
+		{
+			name:   "lossless and lossy mosaic JXL combined",
+			opts:   []Option{WithLosslessJXL(true), WithLossyMosaicJXL(true)},
+			inputs: []string{"test.nef"},
+			want:   []string{"-jxl", "-losslessJXL", "-lossyMosaicJXL", "test.nef"},
 		},
 		{
 			name:   "with output filename",
@@ -163,15 +208,8 @@ func TestBuildArgs(t *testing.T) {
 
 			got := c.buildArgs(cfg, tt.inputs...)
 
-			if len(got) != len(tt.want) {
-				t.Errorf("len(got) = %d, want %d\ngot:  %v\nwant: %v", len(got), len(tt.want), got, tt.want)
-				return
-			}
-
-			for i := range tt.want {
-				if got[i] != tt.want[i] {
-					t.Errorf("args[%d] = %s, want %s\ngot:  %v\nwant: %v", i, got[i], tt.want[i], got, tt.want)
-				}
+			if !slices.Equal(got, tt.want) {
+				t.Errorf("got  %v\nwant %v", got, tt.want)
 			}
 		})
 	}
@@ -264,7 +302,7 @@ func TestConvertErrors(t *testing.T) {
 		defaults:   defaultOptions(),
 	}
 
-	ctx := context.Background()
+	ctx := t.Context()
 
 	// Test with non-existent input file
 	err := c.Convert(ctx, "/nonexistent/input.nef")
@@ -300,12 +338,39 @@ func TestNoOptionsBehavior(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		expected = []string{"-c", "test.nef"}
 	}
-	if len(got) != len(expected) {
-		t.Errorf("len(got) = %d, want %d\ngot:  %v\nwant: %v", len(got), len(expected), got, expected)
+	if !slices.Equal(got, expected) {
+		t.Errorf("got  %v\nwant %v", got, expected)
 	}
-	for i := range expected {
-		if got[i] != expected[i] {
-			t.Errorf("args[%d] = %s, want %s", i, got[i], expected[i])
-		}
+}
+
+func TestJXLOptionPanics(t *testing.T) {
+	tests := []struct {
+		name    string
+		f       func()
+		wantPanic bool
+	}{
+		{"JXLDistance too low", func() { WithJXLDistance(-0.1) }, true},
+		{"JXLDistance too high", func() { WithJXLDistance(6.1) }, true},
+		{"JXLEffort too low", func() { WithJXLEffort(0) }, true},
+		{"JXLEffort too high", func() { WithJXLEffort(10) }, true},
+		{"JXLDistance boundary 0.0", func() { WithJXLDistance(0.0) }, false},
+		{"JXLDistance boundary 6.0", func() { WithJXLDistance(6.0) }, false},
+		{"JXLEffort boundary 1", func() { WithJXLEffort(1) }, false},
+		{"JXLEffort boundary 9", func() { WithJXLEffort(9) }, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			defer func() {
+				r := recover()
+				if tt.wantPanic && r == nil {
+					t.Error("expected panic")
+				}
+				if !tt.wantPanic && r != nil {
+					t.Errorf("unexpected panic: %v", r)
+				}
+			}()
+			tt.f()
+		})
 	}
 }

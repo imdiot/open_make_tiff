@@ -1,19 +1,14 @@
 package golibraw
 
-/*
-#include <libraw/libraw.h>
-*/
-import "C"
-
 import "time"
 
 type ImageFormat int
 
 const (
-	ImageJPEG   ImageFormat = C.LIBRAW_IMAGE_JPEG
-	ImageBitmap ImageFormat = C.LIBRAW_IMAGE_BITMAP
-	ImageJPEGXL ImageFormat = C.LIBRAW_IMAGE_JPEGXL
-	ImageH265   ImageFormat = C.LIBRAW_IMAGE_H265
+	ImageJPEG   ImageFormat = 1 // LIBRAW_IMAGE_JPEG
+	ImageBitmap ImageFormat = 2 // LIBRAW_IMAGE_BITMAP
+	ImageJPEGXL ImageFormat = 3 // LIBRAW_IMAGE_JPEGXL
+	ImageH265   ImageFormat = 4 // LIBRAW_IMAGE_H265
 )
 
 // InsetCropMask is a bitmask selecting which raw_inset_crop entries to check.
@@ -825,3 +820,37 @@ const (
 	AFDataMaxCount    = 4
 	IFDMaxCount       = 10
 )
+
+// Capability flags (enum LibRaw_runtime_capabilities).
+type Capability uint
+
+const (
+	CapRawSpeed Capability = 1 << iota
+	CapDNGSDK
+	CapGPRSDK
+	CapUnicodePaths
+	CapX3FTools
+	CapRPI6BY9
+	CapZlib
+	CapJPEG
+	CapRawSpeed3
+	CapRawSpeedBits
+)
+
+// DecoderInfo holds information about the RAW decoder used.
+type DecoderInfo struct {
+	DecoderName  string
+	DecoderFlags uint
+}
+
+// RawImageData holds pointers to the various RAW data representations.
+// The returned slices share C memory and become invalid after any subsequent
+// processor operation (Process, Recycle, Close, etc.).
+type RawImageData struct {
+	RawImage    []uint16
+	Color4Image []uint16 // row-major, 4 channels per pixel
+	Color3Image []uint16 // row-major, 3 channels per pixel
+	FloatImage  []float32
+	Float3Image []float32 // row-major, 3 channels per pixel
+	Float4Image []float32 // row-major, 4 channels per pixel
+}

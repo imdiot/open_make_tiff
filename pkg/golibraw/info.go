@@ -27,34 +27,12 @@ const (
 	ErrCodeMemPoolOverflow              = -100013
 )
 
-// Capability flags (enum LibRaw_runtime_capabilities).
-type Capability uint
-
-const (
-	CapRawSpeed    Capability = 1 << iota
-	CapDNGSDK
-	CapGPRSDK
-	CapUnicodePaths
-	CapX3FTools
-	CapRPI6BY9
-	CapZlib
-	CapJPEG
-	CapRawSpeed3
-	CapRawSpeedBits
-)
-
 // cGoString safely converts a C string to Go, returning "" for nil.
 func cGoString(s *C.char) string {
 	if s == nil {
 		return ""
 	}
 	return C.GoString(s)
-}
-
-// DecoderInfo holds information about the RAW decoder used.
-type DecoderInfo struct {
-	DecoderName  string
-	DecoderFlags uint
 }
 
 // GetDecoderInfo returns information about the decoder used for the current image.
@@ -65,7 +43,7 @@ func (rp *RawProcessor) GetDecoderInfo() (DecoderInfo, error) {
 		return DecoderInfo{}, err
 	}
 	var di C.libraw_decoder_info_t
-	rc := C.libraw_get_decoder_info(rp.handle, &di)
+	rc := C.libraw_get_decoder_info(rp.res.handle, &di)
 	if rc != C.LIBRAW_SUCCESS {
 		return DecoderInfo{}, checkError(rc, ErrProcess)
 	}
@@ -82,7 +60,7 @@ func (rp *RawProcessor) UnpackFunctionName() (string, error) {
 	if err := rp.ensureOpen(); err != nil {
 		return "", err
 	}
-	return cGoString(C.libraw_unpack_function_name(rp.handle)), nil
+	return cGoString(C.libraw_unpack_function_name(rp.res.handle)), nil
 }
 
 // Capabilities returns the runtime capabilities bitmask.
@@ -110,4 +88,20 @@ func CameraList() []string {
 // StrProgress returns the description of a processing stage.
 func StrProgress(stage int) string {
 	return cGoString(C.libraw_strprogress(C.enum_LibRaw_progress(stage)))
+}
+
+func Version() string {
+	return cGoString(C.libraw_version())
+}
+
+func VersionNumber() int {
+	return int(C.libraw_versionNumber())
+}
+
+func CameraCount() int {
+	return int(C.libraw_cameraCount())
+}
+
+func StrError(code int) string {
+	return cGoString(C.libraw_strerror(C.int(code)))
 }

@@ -21,7 +21,7 @@ func (rp *RawProcessor) OpenBuffer(data []byte) error {
 		return ErrBufferOpen
 	}
 
-	rc := C.libraw_open_buffer(rp.handle, unsafe.Pointer(&data[0]), C.size_t(len(data)))
+	rc := C.libraw_open_buffer(rp.res.handle, unsafe.Pointer(&data[0]), C.size_t(len(data)))
 	runtime.KeepAlive(data)
 	return checkError(rc, ErrBufferOpen)
 }
@@ -35,7 +35,7 @@ func (rp *RawProcessor) Unpack() error {
 		return err
 	}
 
-	rc := C.libraw_unpack(rp.handle)
+	rc := C.libraw_unpack(rp.res.handle)
 	return checkError(rc, ErrUnpack)
 }
 
@@ -47,7 +47,7 @@ func (rp *RawProcessor) UnpackThumb() error {
 		return err
 	}
 
-	rc := C.libraw_unpack_thumb(rp.handle)
+	rc := C.libraw_unpack_thumb(rp.res.handle)
 	return checkError(rc, ErrUnpackThumb)
 }
 
@@ -60,7 +60,7 @@ func (rp *RawProcessor) Process() error {
 		return err
 	}
 
-	rc := C.libraw_dcraw_process(rp.handle)
+	rc := C.libraw_dcraw_process(rp.res.handle)
 	return checkError(rc, ErrProcess)
 }
 
@@ -74,7 +74,7 @@ func (rp *RawProcessor) MakeMemImage() (*ProcessedImage, error) {
 	}
 
 	var errc C.int
-	img := C.libraw_dcraw_make_mem_image(rp.handle, &errc)
+	img := C.libraw_dcraw_make_mem_image(rp.res.handle, &errc)
 	if img == nil {
 		return nil, checkError(errc, ErrMemImage)
 	}
@@ -93,7 +93,7 @@ func (rp *RawProcessor) MakeMemThumb() (*ProcessedImage, error) {
 	}
 
 	var errc C.int
-	img := C.libraw_dcraw_make_mem_thumb(rp.handle, &errc)
+	img := C.libraw_dcraw_make_mem_thumb(rp.res.handle, &errc)
 	if img == nil {
 		return nil, checkError(errc, ErrMemImage)
 	}
@@ -114,7 +114,7 @@ func (rp *RawProcessor) WritePPMTiff(outputPath string) error {
 	cPath := C.CString(outputPath)
 	defer C.free(unsafe.Pointer(cPath))
 
-	rc := C.libraw_dcraw_ppm_tiff_writer(rp.handle, cPath)
+	rc := C.libraw_dcraw_ppm_tiff_writer(rp.res.handle, cPath)
 	return checkError(rc, ErrWriteFailed)
 }
 
@@ -130,7 +130,7 @@ func (rp *RawProcessor) WriteThumb(outputPath string) error {
 	cPath := C.CString(outputPath)
 	defer C.free(unsafe.Pointer(cPath))
 
-	rc := C.libraw_dcraw_thumb_writer(rp.handle, cPath)
+	rc := C.libraw_dcraw_thumb_writer(rp.res.handle, cPath)
 	return checkError(rc, ErrWriteFailed)
 }
 
@@ -143,7 +143,7 @@ func (rp *RawProcessor) GetThumbnailList() ([]ThumbnailItem, error) {
 		return nil, err
 	}
 
-	tl := rp.handle.thumbs_list
+	tl := rp.res.handle.thumbs_list
 	count := int(tl.thumbcount)
 	if count <= 0 {
 		return nil, nil
@@ -177,7 +177,7 @@ func (rp *RawProcessor) UnpackThumbAt(index int) error {
 		return err
 	}
 
-	rc := C.libraw_unpack_thumb_ex(rp.handle, C.int(index))
+	rc := C.libraw_unpack_thumb_ex(rp.res.handle, C.int(index))
 	return checkError(rc, ErrUnpackThumb)
 }
 
@@ -197,7 +197,7 @@ func (rp *RawProcessor) OpenBayer(data []byte, rawWidth, rawHeight uint16, leftM
 	}
 
 	rc := C.libraw_open_bayer(
-		rp.handle,
+		rp.res.handle,
 		(*C.uchar)(unsafe.Pointer(&data[0])),
 		C.uint(len(data)),
 		C.ushort(rawWidth), C.ushort(rawHeight),

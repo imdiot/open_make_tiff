@@ -34,7 +34,7 @@ func (rp *RawProcessor) Raw2ImageEx(subBlack bool) error {
 	if subBlack {
 		sub = 1
 	}
-	rc := C.golibraw_raw2image_ex(rp.handle, C.int(sub))
+	rc := C.golibraw_raw2image_ex(rp.res.handle, C.int(sub))
 	return checkError(rc, ErrProcess)
 }
 
@@ -45,7 +45,7 @@ func (rp *RawProcessor) SubtractBlack() error {
 	if err := rp.ensureOpen(); err != nil {
 		return err
 	}
-	C.libraw_subtract_black(rp.handle)
+	C.libraw_subtract_black(rp.res.handle)
 	return nil
 }
 
@@ -56,7 +56,7 @@ func (rp *RawProcessor) AdjustMaximum() error {
 	if err := rp.ensureOpen(); err != nil {
 		return err
 	}
-	rc := C.golibraw_adjust_maximum(rp.handle)
+	rc := C.golibraw_adjust_maximum(rp.res.handle)
 	return checkError(rc, ErrProcess)
 }
 
@@ -67,7 +67,7 @@ func (rp *RawProcessor) AdjustSizesInfoOnly() error {
 	if err := rp.ensureOpen(); err != nil {
 		return err
 	}
-	rc := C.libraw_adjust_sizes_info_only(rp.handle)
+	rc := C.libraw_adjust_sizes_info_only(rp.res.handle)
 	return checkError(rc, ErrProcess)
 }
 
@@ -75,10 +75,10 @@ func (rp *RawProcessor) AdjustSizesInfoOnly() error {
 func (rp *RawProcessor) FreeImage() {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
-	if rp.closed || rp.handle == nil {
+	if rp.closed || rp.res.handle == nil {
 		return
 	}
-	C.libraw_free_image(rp.handle)
+	C.libraw_free_image(rp.res.handle)
 }
 
 // ConvertFloatToInt converts floating-point RAW data to integer.
@@ -86,31 +86,31 @@ func (rp *RawProcessor) FreeImage() {
 func (rp *RawProcessor) ConvertFloatToInt(dmin, dmax, dtarget float32) {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
-	if rp.closed || rp.handle == nil {
+	if rp.closed || rp.res.handle == nil {
 		return
 	}
-	C.golibraw_convert_float_to_int(rp.handle, C.float(dmin), C.float(dmax), C.float(dtarget))
+	C.golibraw_convert_float_to_int(rp.res.handle, C.float(dmin), C.float(dmax), C.float(dtarget))
 }
 
 // RecycleDatastream recycles internal state but keeps the data stream open.
 func (rp *RawProcessor) RecycleDatastream() {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
-	if rp.closed || rp.handle == nil {
+	if rp.closed || rp.res.handle == nil {
 		return
 	}
-	C.libraw_recycle_datastream(rp.handle)
+	C.libraw_recycle_datastream(rp.res.handle)
 }
 
 // GetMemImageFormat returns the output format without allocating memory.
 func (rp *RawProcessor) GetMemImageFormat() (width, height, colors, bps int) {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
-	if rp.closed || rp.handle == nil {
+	if rp.closed || rp.res.handle == nil {
 		return 0, 0, 0, 0
 	}
 	var w, h, c, b C.int
-	C.golibraw_get_mem_image_format(rp.handle, &w, &h, &c, &b)
+	C.golibraw_get_mem_image_format(rp.res.handle, &w, &h, &c, &b)
 	return int(w), int(h), int(c), int(b)
 }
 
@@ -132,7 +132,7 @@ func (rp *RawProcessor) CopyMemImage(scan0 []byte, stride int, bgr bool) error {
 	if bgr {
 		b = 1
 	}
-	rc := C.golibraw_copy_mem_image(rp.handle, unsafe.Pointer(&scan0[0]), C.int(stride), C.int(b))
+	rc := C.golibraw_copy_mem_image(rp.res.handle, unsafe.Pointer(&scan0[0]), C.int(stride), C.int(b))
 	runtime.KeepAlive(scan0)
 	return checkError(rc, ErrMemImage)
 }
@@ -144,7 +144,7 @@ func (rp *RawProcessor) SetMakeFromIndex(index uint) error {
 	if err := rp.ensureOpen(); err != nil {
 		return err
 	}
-	rc := C.golibraw_set_make_from_index(rp.handle, C.uint(index))
+	rc := C.golibraw_set_make_from_index(rp.res.handle, C.uint(index))
 	return checkError(rc, ErrProcess)
 }
 
@@ -157,6 +157,6 @@ func (rp *RawProcessor) SetRawSpeedCameraFile(path string) error {
 	}
 	cPath := C.CString(path)
 	defer C.free(unsafe.Pointer(cPath))
-	rc := C.golibraw_set_rawspeed_camerafile(rp.handle, cPath)
+	rc := C.golibraw_set_rawspeed_camerafile(rp.res.handle, cPath)
 	return checkError(rc, ErrProcess)
 }

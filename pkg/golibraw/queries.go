@@ -27,7 +27,7 @@ func (rp *RawProcessor) IsFujiRotated() bool {
 	if !rp.isOpen() {
 		return false
 	}
-	return C.golibraw_is_fuji_rotated(rp.handle) != 0
+	return C.golibraw_is_fuji_rotated(rp.res.handle) != 0
 }
 
 // IsSRAW returns whether the image is a half-resolution sRAW.
@@ -37,7 +37,7 @@ func (rp *RawProcessor) IsSRAW() bool {
 	if !rp.isOpen() {
 		return false
 	}
-	return C.golibraw_is_sraw(rp.handle) != 0
+	return C.golibraw_is_sraw(rp.res.handle) != 0
 }
 
 // SRAWMidpoint returns the sRAW midpoint value.
@@ -47,7 +47,7 @@ func (rp *RawProcessor) SRAWMidpoint() int {
 	if !rp.isOpen() {
 		return 0
 	}
-	return int(C.golibraw_sraw_midpoint(rp.handle))
+	return int(C.golibraw_sraw_midpoint(rp.res.handle))
 }
 
 // IsNikonSRAW returns whether the image is a Nikon sRAW.
@@ -57,7 +57,7 @@ func (rp *RawProcessor) IsNikonSRAW() bool {
 	if !rp.isOpen() {
 		return false
 	}
-	return C.golibraw_is_nikon_sraw(rp.handle) != 0
+	return C.golibraw_is_nikon_sraw(rp.res.handle) != 0
 }
 
 // IsCoolscanNEF returns whether the image is a CoolScan scanner NEF.
@@ -67,7 +67,7 @@ func (rp *RawProcessor) IsCoolscanNEF() bool {
 	if !rp.isOpen() {
 		return false
 	}
-	return C.golibraw_is_coolscan_nef(rp.handle) != 0
+	return C.golibraw_is_coolscan_nef(rp.res.handle) != 0
 }
 
 // IsJPEGThumb returns whether the thumbnail is JPEG format.
@@ -77,7 +77,7 @@ func (rp *RawProcessor) IsJPEGThumb() bool {
 	if !rp.isOpen() {
 		return false
 	}
-	return C.golibraw_is_jpeg_thumb(rp.handle) != 0
+	return C.golibraw_is_jpeg_thumb(rp.res.handle) != 0
 }
 
 // IsFloatingPoint returns whether the image is floating-point RAW.
@@ -87,7 +87,7 @@ func (rp *RawProcessor) IsFloatingPoint() bool {
 	if !rp.isOpen() {
 		return false
 	}
-	return C.golibraw_is_floating_point(rp.handle) != 0
+	return C.golibraw_is_floating_point(rp.res.handle) != 0
 }
 
 // HaveFPData returns whether floating-point data is available.
@@ -97,7 +97,7 @@ func (rp *RawProcessor) HaveFPData() bool {
 	if !rp.isOpen() {
 		return false
 	}
-	return C.golibraw_have_fpdata(rp.handle) != 0
+	return C.golibraw_have_fpdata(rp.res.handle) != 0
 }
 
 // ErrorCount returns the data error count.
@@ -107,7 +107,7 @@ func (rp *RawProcessor) ErrorCount() int {
 	if !rp.isOpen() {
 		return 0
 	}
-	return int(C.golibraw_error_count(rp.handle))
+	return int(C.golibraw_error_count(rp.res.handle))
 }
 
 // ThumbOK returns whether the thumbnail is valid.
@@ -118,7 +118,7 @@ func (rp *RawProcessor) ThumbOK(maxSize int64) bool {
 	if !rp.isOpen() {
 		return false
 	}
-	return C.golibraw_thumb_ok(rp.handle, C.longlong(maxSize)) != 0
+	return C.golibraw_thumb_ok(rp.res.handle, C.longlong(maxSize)) != 0
 }
 
 // RawWasRead returns whether RAW data has been read.
@@ -128,7 +128,7 @@ func (rp *RawProcessor) RawWasRead() bool {
 	if !rp.isOpen() {
 		return false
 	}
-	return C.golibraw_raw_was_read(rp.handle) != 0
+	return C.golibraw_raw_was_read(rp.res.handle) != 0
 }
 
 // Color returns the color channel at (row, col), handling Bayer/X-Trans/Fuji layouts.
@@ -138,7 +138,7 @@ func (rp *RawProcessor) Color(row, col int) int {
 	if !rp.isOpen() {
 		return 0
 	}
-	return int(C.golibraw_color(rp.handle, C.int(row), C.int(col)))
+	return int(C.golibraw_color(rp.res.handle, C.int(row), C.int(col)))
 }
 
 // FC returns the fast Bayer color channel query at (row, col).
@@ -148,7 +148,7 @@ func (rp *RawProcessor) FC(row, col int) int {
 	if !rp.isOpen() {
 		return 0
 	}
-	return int(C.golibraw_fc(rp.handle, C.int(row), C.int(col)))
+	return int(C.golibraw_fc(rp.res.handle, C.int(row), C.int(col)))
 }
 
 // FCol returns the color channel at (row, col), supporting X-Trans CFA.
@@ -158,7 +158,7 @@ func (rp *RawProcessor) FCol(row, col int) int {
 	if !rp.isOpen() {
 		return 0
 	}
-	return int(C.golibraw_fcol(rp.handle, C.int(row), C.int(col)))
+	return int(C.golibraw_fcol(rp.res.handle, C.int(row), C.int(col)))
 }
 
 // ProgressFlags returns the processing progress flags bitmask.
@@ -168,7 +168,7 @@ func (rp *RawProcessor) ProgressFlags() uint {
 	if !rp.isOpen() {
 		return 0
 	}
-	return uint(rp.handle.progress_flags)
+	return uint(rp.res.handle.progress_flags)
 }
 
 // ProcessWarnings returns the processing warnings bitmask.
@@ -178,5 +178,5 @@ func (rp *RawProcessor) ProcessWarnings() uint {
 	if !rp.isOpen() {
 		return 0
 	}
-	return uint(rp.handle.process_warnings)
+	return uint(rp.res.handle.process_warnings)
 }

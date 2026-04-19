@@ -18,7 +18,7 @@ func (rp *RawProcessor) GetImageSizes() (ImageSizes, error) {
 		return ImageSizes{}, err
 	}
 
-	s := rp.handle.sizes
+	s := rp.res.handle.sizes
 	img := ImageSizes{
 		RawHeight:        uint16(s.raw_height),
 		RawWidth:         uint16(s.raw_width),
@@ -63,7 +63,7 @@ func (rp *RawProcessor) GetCameraInfo() (CameraInfo, error) {
 		return CameraInfo{}, err
 	}
 
-	ip := C.libraw_get_iparams(rp.handle)
+	ip := C.libraw_get_iparams(rp.res.handle)
 	ci := CameraInfo{
 		Make:            C.GoString(&ip.make[0]),
 		Model:           C.GoString(&ip.model[0]),
@@ -99,7 +99,7 @@ func (rp *RawProcessor) GetLensInfo() (LensInfo, error) {
 		return LensInfo{}, err
 	}
 
-	li := C.libraw_get_lensinfo(rp.handle)
+	li := C.libraw_get_lensinfo(rp.res.handle)
 	return LensInfo{
 		LensMake:                C.GoString(&li.LensMake[0]),
 		Lens:                    C.GoString(&li.Lens[0]),
@@ -137,7 +137,7 @@ func (rp *RawProcessor) GetShootingParams() (ShootingParams, error) {
 		return ShootingParams{}, err
 	}
 
-	ot := C.libraw_get_imgother(rp.handle)
+	ot := C.libraw_get_imgother(rp.res.handle)
 	ts := time.Unix(int64(ot.timestamp), 0)
 	return ShootingParams{
 		ISOSpeed:      float32(ot.iso_speed),
@@ -160,7 +160,7 @@ func (rp *RawProcessor) GetGPS() (GPSInfo, error) {
 		return GPSInfo{}, err
 	}
 
-	gps := rp.handle.other.parsed_gps
+	gps := rp.res.handle.other.parsed_gps
 	return GPSInfo{
 		Latitude:     [3]float32{float32(gps.latitude[0]), float32(gps.latitude[1]), float32(gps.latitude[2])},
 		Longitude:    [3]float32{float32(gps.longitude[0]), float32(gps.longitude[1]), float32(gps.longitude[2])},
@@ -182,7 +182,7 @@ func (rp *RawProcessor) GetShootingInfo() (ShootingInfo, error) {
 		return ShootingInfo{}, err
 	}
 
-	si := rp.handle.shootinginfo
+	si := rp.res.handle.shootinginfo
 	return ShootingInfo{
 		DriveMode:          int16(si.DriveMode),
 		FocusMode:          int16(si.FocusMode),
@@ -204,7 +204,7 @@ func (rp *RawProcessor) GetMakernotesLens() (MakernotesLensInfo, error) {
 		return MakernotesLensInfo{}, err
 	}
 
-	ml := rp.handle.lens.makernotes
+	ml := rp.res.handle.lens.makernotes
 	return MakernotesLensInfo{
 		Lens:                    C.GoString(&ml.Lens[0]),
 		LensFormat:              uint16(ml.LensFormat),
@@ -250,7 +250,7 @@ func (rp *RawProcessor) GetTemperatures() (SensorTemperatures, error) {
 		return SensorTemperatures{}, err
 	}
 
-	c := rp.handle.makernotes.common
+	c := rp.res.handle.makernotes.common
 	return SensorTemperatures{
 		CameraTemperature:       float32(c.CameraTemperature),
 		SensorTemperature:       float32(c.SensorTemperature),
@@ -282,7 +282,7 @@ func (rp *RawProcessor) GetThumbnailInfo() (ThumbnailInfo, error) {
 		return ThumbnailInfo{}, err
 	}
 
-	t := rp.handle.thumbnail
+	t := rp.res.handle.thumbnail
 	return ThumbnailInfo{
 		Format: ThumbnailFormat(t.tformat),
 		Width:  uint16(t.twidth),
@@ -300,7 +300,7 @@ func (rp *RawProcessor) GetColorData() (ColorData, error) {
 		return ColorData{}, err
 	}
 
-	c := rp.handle.color
+	c := rp.res.handle.color
 	cd := ColorData{
 		Black:                uint(c.black),
 		Maximum:              uint(c.maximum),
@@ -376,12 +376,12 @@ func (rp *RawProcessor) GetWBCoeffs() (map[WBIndex][4]int, error) {
 
 	result := make(map[WBIndex][4]int)
 	for i := 0; i < 256; i++ {
-		if rp.handle.color.WB_Coeffs[i][0] != 0 || rp.handle.color.WB_Coeffs[i][1] != 0 {
+		if rp.res.handle.color.WB_Coeffs[i][0] != 0 || rp.res.handle.color.WB_Coeffs[i][1] != 0 {
 			result[WBIndex(i)] = [4]int{
-				int(rp.handle.color.WB_Coeffs[i][0]),
-				int(rp.handle.color.WB_Coeffs[i][1]),
-				int(rp.handle.color.WB_Coeffs[i][2]),
-				int(rp.handle.color.WB_Coeffs[i][3]),
+				int(rp.res.handle.color.WB_Coeffs[i][0]),
+				int(rp.res.handle.color.WB_Coeffs[i][1]),
+				int(rp.res.handle.color.WB_Coeffs[i][2]),
+				int(rp.res.handle.color.WB_Coeffs[i][3]),
 			}
 		}
 	}
@@ -398,16 +398,16 @@ func (rp *RawProcessor) GetWBTempCoeffs() ([]WBTempCoeff, error) {
 
 	var result []WBTempCoeff
 	for i := 0; i < 64; i++ {
-		if rp.handle.color.WBCT_Coeffs[i][0] == 0 {
+		if rp.res.handle.color.WBCT_Coeffs[i][0] == 0 {
 			break
 		}
 		result = append(result, WBTempCoeff{
-			CCT: int(rp.handle.color.WBCT_Coeffs[i][0]),
+			CCT: int(rp.res.handle.color.WBCT_Coeffs[i][0]),
 			Coeffs: [4]float32{
-				float32(rp.handle.color.WBCT_Coeffs[i][1]),
-				float32(rp.handle.color.WBCT_Coeffs[i][2]),
-				float32(rp.handle.color.WBCT_Coeffs[i][3]),
-				float32(rp.handle.color.WBCT_Coeffs[i][4]),
+				float32(rp.res.handle.color.WBCT_Coeffs[i][1]),
+				float32(rp.res.handle.color.WBCT_Coeffs[i][2]),
+				float32(rp.res.handle.color.WBCT_Coeffs[i][3]),
+				float32(rp.res.handle.color.WBCT_Coeffs[i][4]),
 			},
 		})
 	}
@@ -422,10 +422,10 @@ func (rp *RawProcessor) GetDNGColor(idx int) (DNGColorInfo, error) {
 		return DNGColorInfo{}, err
 	}
 	if idx < 0 || idx > 1 {
-		return DNGColorInfo{}, ErrBadCrop
+		return DNGColorInfo{}, ErrInvalidIndex
 	}
 
-	dc := rp.handle.color.dng_color[idx]
+	dc := rp.res.handle.color.dng_color[idx]
 	di := DNGColorInfo{
 		ParsedFields: uint(dc.parsedfields),
 		Illuminant:   uint16(dc.illuminant),
@@ -454,7 +454,7 @@ func (rp *RawProcessor) GetDNGLevels() (DNGLevels, error) {
 		return DNGLevels{}, err
 	}
 
-	dl := rp.handle.color.dng_levels
+	dl := rp.res.handle.color.dng_levels
 	return DNGLevels{
 		AsShotNeutral: [4]float32{
 			float32(dl.asshotneutral[0]),
@@ -502,15 +502,15 @@ func (rp *RawProcessor) GetICCProfile() ([]byte, error) {
 		return nil, err
 	}
 
-	if rp.handle.color.profile == nil {
+	if rp.res.handle.color.profile == nil {
 		return nil, nil
 	}
 
-	length := C.uint(rp.handle.color.profile_length)
+	length := C.uint(rp.res.handle.color.profile_length)
 	if length == 0 {
 		return nil, nil
 	}
-	return C.GoBytes(rp.handle.color.profile, C.int(length)), nil
+	return C.GoBytes(rp.res.handle.color.profile, C.int(length)), nil
 }
 
 // AdjustToRawInsetCrop applies the raw inset crop from DNG metadata.
@@ -525,7 +525,7 @@ func (rp *RawProcessor) AdjustToRawInsetCrop(mask InsetCropMask, maxcrop float32
 		return false, err
 	}
 
-	rc := C.libraw_adjust_to_raw_inset_crop(rp.handle, C.uint(mask), C.float(maxcrop))
+	rc := C.libraw_adjust_to_raw_inset_crop(rp.res.handle, C.uint(mask), C.float(maxcrop))
 	if rc >= C.LIBRAW_SUCCESS {
 		return true, nil
 	}

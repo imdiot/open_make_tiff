@@ -30,8 +30,7 @@ func (rp *RawProcessor) SetDataErrorHandler(handler DataErrorHandler) error {
 		return err
 	}
 
-	key := callbackKey(unsafe.Pointer(rp))
-	// Load or create the entry for this processor
+	key := rp.res.cbKey
 	var entry *callbackEntry
 	if v, ok := callbackRegistry.Load(key); ok {
 		entry = v.(*callbackEntry)
@@ -41,7 +40,7 @@ func (rp *RawProcessor) SetDataErrorHandler(handler DataErrorHandler) error {
 		registerCallback(key, entry)
 	}
 
-	C.libraw_set_dataerror_handler(rp.handle,
+	C.libraw_set_dataerror_handler(rp.res.handle,
 		(*[0]byte)(C.golibraw_data_error_trampoline), unsafe.Pointer(key))
 	return nil
 }
@@ -54,7 +53,7 @@ func (rp *RawProcessor) SetEXIFParseHandler(handler EXIFParseHandler) error {
 		return err
 	}
 
-	key := callbackKey(unsafe.Pointer(rp))
+	key := rp.res.cbKey
 	var entry *callbackEntry
 	if v, ok := callbackRegistry.Load(key); ok {
 		entry = v.(*callbackEntry)
@@ -64,7 +63,7 @@ func (rp *RawProcessor) SetEXIFParseHandler(handler EXIFParseHandler) error {
 		registerCallback(key, entry)
 	}
 
-	C.libraw_set_exifparser_handler(rp.handle,
+	C.libraw_set_exifparser_handler(rp.res.handle,
 		(*[0]byte)(C.golibraw_exif_trampoline), unsafe.Pointer(key))
 	return nil
 }
@@ -77,7 +76,7 @@ func (rp *RawProcessor) SetMakernotesParseHandler(handler MakernotesParseHandler
 		return err
 	}
 
-	key := callbackKey(unsafe.Pointer(rp))
+	key := rp.res.cbKey
 	var entry *callbackEntry
 	if v, ok := callbackRegistry.Load(key); ok {
 		entry = v.(*callbackEntry)
@@ -87,7 +86,7 @@ func (rp *RawProcessor) SetMakernotesParseHandler(handler MakernotesParseHandler
 		registerCallback(key, entry)
 	}
 
-	C.libraw_set_makernotes_handler(rp.handle,
+	C.libraw_set_makernotes_handler(rp.res.handle,
 		(*[0]byte)(C.golibraw_makernotes_trampoline), unsafe.Pointer(key))
 	return nil
 }

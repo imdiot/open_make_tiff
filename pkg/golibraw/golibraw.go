@@ -48,43 +48,9 @@ static void golibraw_register_cancel_cb(libraw_data_t* lr, int* flag) {
 import "C"
 
 import (
-	"errors"
-	"fmt"
 	"runtime"
 	"sync"
 	"unsafe"
-)
-
-// Error represents a LibRaw operation failure with error code and message.
-// Use errors.Is(err, ErrUnpack) to check the operation category,
-// or errors.As(err, &lrErr) to access Code and Message.
-type Error struct {
-	Op      string // operation that failed (e.g. "unpack", "process")
-	Code    int    // LibRaw error code (negative values, see ErrCode* constants)
-	Message string // human-readable message from libraw_strerror
-}
-
-func (e *Error) Error() string { return fmt.Sprintf("libraw: %s failed: %s (code %d)", e.Op, e.Message, e.Code) }
-
-func (e *Error) Is(target error) bool {
-	if t, ok := target.(*Error); ok {
-		return e.Op == t.Op
-	}
-	return false
-}
-
-// Sentinel errors for errors.Is matching. Each carries the operation name as Op.
-var (
-	ErrInitFailed     = &Error{Op: "init"}
-	ErrAlreadyClosed  = errors.New("libraw: processor already closed")
-	ErrFileOpenFailed = &Error{Op: "open_file"}
-	ErrBufferOpen     = &Error{Op: "open_buffer"}
-	ErrUnpack         = &Error{Op: "unpack"}
-	ErrUnpackThumb    = &Error{Op: "unpack_thumb"}
-	ErrProcess        = &Error{Op: "process"}
-	ErrMemImage       = &Error{Op: "dcraw_process"}
-	ErrWriteFailed    = &Error{Op: "write"}
-	ErrBadCrop        = &Error{Op: "crop"}
 )
 
 func checkError(rc C.int, sentinel *Error) error {
@@ -94,19 +60,26 @@ func checkError(rc C.int, sentinel *Error) error {
 	return &Error{
 		Op:      sentinel.Op,
 		Code:    int(rc),
-		Message: C.GoString(C.libraw_strerror(rc)),
+		Message: cGoString(C.libraw_strerror(rc)),
 	}
+}
+
+// rawRes holds C resources that must be freed when RawProcessor is collected.
+type rawRes struct {
+	handle     *C.libraw_data_t
+	cancelFlag unsafe.Pointer
+	dngHost    unsafe.Pointer
+	cstrings   []unsafe.Pointer
+	cbKey      callbackKey
 }
 
 // RawProcessor wraps libraw_data_t for RAW image processing.
 type RawProcessor struct {
-	handle     *C.libraw_data_t
-	dngHost    unsafe.Pointer
-	closed     bool
-	mu         sync.Mutex
-	cancelMu   sync.Mutex
-	cstrings   []unsafe.Pointer
-	cancelFlag unsafe.Pointer // *C.int, C-allocated
+	res      *rawRes
+	closed   bool
+	mu       sync.Mutex
+	cancelMu sync.Mutex
+	cleanup  runtime.Cleanup
 }
 
 func New(opts ...Option) (*RawProcessor, error) {
@@ -123,15 +96,38 @@ func New(opts ...Option) (*RawProcessor, error) {
 	*flag = 0
 	C.golibraw_register_cancel_cb(handle, flag)
 
-	rp := &RawProcessor{handle: handle, cancelFlag: unsafe.Pointer(flag)}
-	runtime.SetFinalizer(rp, (*RawProcessor).Close)
+	rp := &RawProcessor{res: &rawRes{
+		handle:     handle,
+		cancelFlag: unsafe.Pointer(flag),
+	}}
+	cbKey := C.malloc(1)
+	if cbKey == nil {
+		C.libraw_close(handle)
+		C.free(unsafe.Pointer(flag))
+		return nil, ErrInitFailed
+	}
+	rp.res.cbKey = callbackKey(cbKey)
+	rp.cleanup = runtime.AddCleanup(rp, func(r *rawRes) {
+		unregisterCallback(r.cbKey)
+		C.free(r.cbKey)
+		for _, p := range r.cstrings {
+			C.free(p)
+		}
+		if r.dngHost != nil {
+			C.golibraw_destroy_dng_host(r.dngHost)
+		}
+		if r.cancelFlag != nil {
+			C.free(r.cancelFlag)
+		}
+		C.libraw_close(r.handle)
+	}, rp.res)
 
 	cfg := defaultOptions()
 	for _, o := range opts {
 		o(&cfg)
 	}
 	rp.freeCStrings()
-	applyConfigToHandle(rp.handle, &cfg, rp.trackCString)
+	applyConfigToHandle(rp.res.handle, &cfg, rp.trackCString)
 
 	return rp, nil
 }
@@ -146,22 +142,24 @@ func (rp *RawProcessor) Close() error {
 	}
 
 	rp.closed = true
-	runtime.SetFinalizer(rp, nil)
-	unregisterCallback(callbackKey(unsafe.Pointer(rp)))
+	rp.cleanup.Stop()
+	unregisterCallback(rp.res.cbKey)
+	C.free(rp.res.cbKey)
+	rp.res.cbKey = nil
 	rp.freeCStrings()
 	rp.cancelMu.Lock()
-	flag := rp.cancelFlag
-	rp.cancelFlag = nil
+	flag := rp.res.cancelFlag
+	rp.res.cancelFlag = nil
 	rp.cancelMu.Unlock()
 	if flag != nil {
 		C.free(flag)
 	}
-	if rp.dngHost != nil {
-		C.golibraw_destroy_dng_host(rp.dngHost)
-		rp.dngHost = nil
+	if rp.res.dngHost != nil {
+		C.golibraw_destroy_dng_host(rp.res.dngHost)
+		rp.res.dngHost = nil
 	}
-	C.libraw_close(rp.handle)
-	rp.handle = nil
+	C.libraw_close(rp.res.handle)
+	rp.res.handle = nil
 
 	return nil
 }
@@ -171,14 +169,14 @@ func (rp *RawProcessor) Recycle() {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
 
-	if !rp.closed && rp.handle != nil {
+	if !rp.closed && rp.res.handle != nil {
 		rp.cancelMu.Lock()
-		if rp.cancelFlag != nil {
-			*(*C.int)(rp.cancelFlag) = 0
+		if rp.res.cancelFlag != nil {
+			*(*C.int)(rp.res.cancelFlag) = 0
 		}
 		rp.cancelMu.Unlock()
 		rp.freeCStrings()
-		C.libraw_recycle(rp.handle)
+		C.libraw_recycle(rp.res.handle)
 	}
 }
 
@@ -188,32 +186,32 @@ func (rp *RawProcessor) Recycle() {
 func (rp *RawProcessor) Cancel() {
 	rp.cancelMu.Lock()
 	defer rp.cancelMu.Unlock()
-	if rp.cancelFlag != nil {
-		*(*C.int)(rp.cancelFlag) = 1
+	if rp.res.cancelFlag != nil {
+		*(*C.int)(rp.res.cancelFlag) = 1
 	}
 }
 
 func (rp *RawProcessor) freeCStrings() {
-	for _, p := range rp.cstrings {
+	for _, p := range rp.res.cstrings {
 		C.free(p)
 	}
-	rp.cstrings = nil
-	if rp.handle != nil {
-		rp.handle.params.output_profile = nil
-		rp.handle.params.camera_profile = nil
-		rp.handle.params.bad_pixels = nil
-		rp.handle.params.dark_frame = nil
+	rp.res.cstrings = nil
+	if rp.res.handle != nil {
+		rp.res.handle.params.output_profile = nil
+		rp.res.handle.params.camera_profile = nil
+		rp.res.handle.params.bad_pixels = nil
+		rp.res.handle.params.dark_frame = nil
 	}
 }
 
 func (rp *RawProcessor) trackCString(s string) *C.char {
 	cs := C.CString(s)
-	rp.cstrings = append(rp.cstrings, unsafe.Pointer(cs))
+	rp.res.cstrings = append(rp.res.cstrings, unsafe.Pointer(cs))
 	return cs
 }
 
 func (rp *RawProcessor) ensureOpen() error {
-	if rp.closed || rp.handle == nil {
+	if rp.closed || rp.res.handle == nil {
 		return ErrAlreadyClosed
 	}
 	return nil
@@ -221,24 +219,7 @@ func (rp *RawProcessor) ensureOpen() error {
 
 // isOpen returns true if the processor can be used.
 func (rp *RawProcessor) isOpen() bool {
-	return !rp.closed && rp.handle != nil
-}
-
-
-func Version() string {
-	return C.GoString(C.libraw_version())
-}
-
-func VersionNumber() int {
-	return int(C.libraw_versionNumber())
-}
-
-func CameraCount() int {
-	return int(C.libraw_cameraCount())
-}
-
-func StrError(code int) string {
-	return C.GoString(C.libraw_strerror(C.int(code)))
+	return !rp.closed && rp.res.handle != nil
 }
 
 // EnableDNGSDK creates a DNG SDK dng_host and binds it to the processor.
@@ -255,8 +236,8 @@ func (rp *RawProcessor) EnableDNGSDK() error {
 	if host == nil {
 		return nil
 	}
-	rp.dngHost = unsafe.Pointer(host)
-	C.golibraw_set_dng_host_for_raw(rp.handle, rp.dngHost)
+	rp.res.dngHost = unsafe.Pointer(host)
+	C.golibraw_set_dng_host_for_raw(rp.res.handle, rp.res.dngHost)
 
 	return nil
 }

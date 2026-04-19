@@ -27,7 +27,7 @@ func (rp *RawProcessor) OpenFile(path string) error {
 		return checkError(-1, ErrFileOpenFailed)
 	}
 
-	rc := C.libraw_open_wfile(rp.handle, (*C.wchar_t)(unsafe.Pointer(wPath)))
+	rc := C.libraw_open_wfile(rp.res.handle, (*C.wchar_t)(unsafe.Pointer(wPath)))
 	runtime.KeepAlive(wPath)
 	return checkError(rc, ErrFileOpenFailed)
 }

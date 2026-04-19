@@ -134,7 +134,7 @@ func (rp *RawProcessor) ApplyOptions(opts ...Option) error {
 		o(&cfg)
 	}
 	rp.freeCStrings()
-	applyConfigToHandle(rp.handle, &cfg, rp.trackCString)
+	applyConfigToHandle(rp.res.handle, &cfg, rp.trackCString)
 
 	return nil
 }

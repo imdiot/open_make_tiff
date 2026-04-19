@@ -46,7 +46,7 @@ func golibraw_data_error_trampoline(data unsafe.Pointer, file *C.char, offset C.
 	if entry.dataError != nil {
 		f := ""
 		if file != nil {
-			f = C.GoString(file)
+			f = cGoString(file)
 		}
 		entry.dataError(f, int64(offset))
 	}

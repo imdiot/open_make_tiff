@@ -7,18 +7,6 @@ import "C"
 
 import "unsafe"
 
-// RawImageData holds pointers to the various RAW data representations.
-// The returned slices share C memory and become invalid after any subsequent
-// processor operation (Process, Recycle, Close, etc.).
-type RawImageData struct {
-	RawImage    []uint16
-	Color4Image []uint16 // row-major, 4 channels per pixel
-	Color3Image []uint16 // row-major, 3 channels per pixel
-	FloatImage  []float32
-	Float3Image []float32 // row-major, 3 channels per pixel
-	Float4Image []float32 // row-major, 4 channels per pixel
-}
-
 // GetRawData returns zero-copy views into the internal RAW data buffers.
 // At most one slice will be non-nil, depending on the image format.
 // The caller must not hold the returned slices across processor operations.
@@ -30,7 +18,7 @@ func (rp *RawProcessor) GetRawData() (RawImageData, error) {
 		return RawImageData{}, err
 	}
 
-	rd := rp.handle.rawdata
+	rd := rp.res.handle.rawdata
 	pixels := int(rd.sizes.raw_width) * int(rd.sizes.raw_height)
 	if pixels <= 0 {
 		return RawImageData{}, nil

@@ -5,13 +5,30 @@ package golibraw
 */
 import "C"
 
+func cMat3x3(a [3][3]C.float) [3][3]float32 {
+	return [3][3]float32{
+		{float32(a[0][0]), float32(a[0][1]), float32(a[0][2])},
+		{float32(a[1][0]), float32(a[1][1]), float32(a[1][2])},
+		{float32(a[2][0]), float32(a[2][1]), float32(a[2][2])},
+	}
+}
+
+func cMat4x3(a [4][3]C.double) [4][3]float64 {
+	return [4][3]float64{
+		{float64(a[0][0]), float64(a[0][1]), float64(a[0][2])},
+		{float64(a[1][0]), float64(a[1][1]), float64(a[1][2])},
+		{float64(a[2][0]), float64(a[2][1]), float64(a[2][2])},
+		{float64(a[3][0]), float64(a[3][1]), float64(a[3][2])},
+	}
+}
+
 func (rp *RawProcessor) GetCanonMakernotes() (CanonMakernotes, error) {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
 	if err := rp.ensureOpen(); err != nil {
 		return CanonMakernotes{}, err
 	}
-	c := rp.handle.makernotes.canon
+	c := rp.res.handle.makernotes.canon
 	return CanonMakernotes{
 		ColorDataVer:          int32(c.ColorDataVer),
 		ColorDataSubVer:       int32(c.ColorDataSubVer),
@@ -78,7 +95,7 @@ func (rp *RawProcessor) GetNikonMakernotes() (NikonMakernotes, error) {
 	if err := rp.ensureOpen(); err != nil {
 		return NikonMakernotes{}, err
 	}
-	c := rp.handle.makernotes.nikon
+	c := rp.res.handle.makernotes.nikon
 	return NikonMakernotes{
 		ExposureBracketValue:      float64(c.ExposureBracketValue),
 		ActiveDLighting:           uint16(c.ActiveDLighting),
@@ -147,7 +164,7 @@ func (rp *RawProcessor) GetFujiMakernotes() (FujiMakernotes, error) {
 	if err := rp.ensureOpen(); err != nil {
 		return FujiMakernotes{}, err
 	}
-	c := rp.handle.makernotes.fuji
+	c := rp.res.handle.makernotes.fuji
 	return FujiMakernotes{
 		ExpoMidPointShift:       float32(c.ExpoMidPointShift),
 		DynamicRange:            uint16(c.DynamicRange),
@@ -207,7 +224,7 @@ func (rp *RawProcessor) GetOlympusMakernotes() (OlympusMakernotes, error) {
 	if err := rp.ensureOpen(); err != nil {
 		return OlympusMakernotes{}, err
 	}
-	c := rp.handle.makernotes.olympus
+	c := rp.res.handle.makernotes.olympus
 	return OlympusMakernotes{
 		CameraType2:       C.GoStringN(&c.CameraType2[0], 6),
 		ValidBits:         uint16(c.ValidBits),
@@ -269,7 +286,7 @@ func (rp *RawProcessor) GetSonyMakernotes() (SonyMakernotes, error) {
 	if err := rp.ensureOpen(); err != nil {
 		return SonyMakernotes{}, err
 	}
-	c := rp.handle.makernotes.sony
+	c := rp.res.handle.makernotes.sony
 	return SonyMakernotes{
 		CameraType:                   uint16(c.CameraType),
 		Sony0x9400Version:            byte(c.Sony0x9400_version),
@@ -336,7 +353,7 @@ func (rp *RawProcessor) GetKodakMakernotes() (KodakMakernotes, error) {
 	if err := rp.ensureOpen(); err != nil {
 		return KodakMakernotes{}, err
 	}
-	c := rp.handle.makernotes.kodak
+	c := rp.res.handle.makernotes.kodak
 	return KodakMakernotes{
 		BlackLevelTop:    uint16(c.BlackLevelTop),
 		BlackLevelBottom: uint16(c.BlackLevelBottom),
@@ -344,36 +361,12 @@ func (rp *RawProcessor) GetKodakMakernotes() (KodakMakernotes, error) {
 		OffsetTop:        int16(c.offset_top),
 		ClipBlack:        uint16(c.clipBlack),
 		ClipWhite:        uint16(c.clipWhite),
-		ROMMCamDaylight:  [3][3]float32{
-			{float32(c.romm_camDaylight[0][0]), float32(c.romm_camDaylight[0][1]), float32(c.romm_camDaylight[0][2])},
-			{float32(c.romm_camDaylight[1][0]), float32(c.romm_camDaylight[1][1]), float32(c.romm_camDaylight[1][2])},
-			{float32(c.romm_camDaylight[2][0]), float32(c.romm_camDaylight[2][1]), float32(c.romm_camDaylight[2][2])},
-		},
-		ROMMCamTungsten: [3][3]float32{
-			{float32(c.romm_camTungsten[0][0]), float32(c.romm_camTungsten[0][1]), float32(c.romm_camTungsten[0][2])},
-			{float32(c.romm_camTungsten[1][0]), float32(c.romm_camTungsten[1][1]), float32(c.romm_camTungsten[1][2])},
-			{float32(c.romm_camTungsten[2][0]), float32(c.romm_camTungsten[2][1]), float32(c.romm_camTungsten[2][2])},
-		},
-		ROMMCamFluorescent: [3][3]float32{
-			{float32(c.romm_camFluorescent[0][0]), float32(c.romm_camFluorescent[0][1]), float32(c.romm_camFluorescent[0][2])},
-			{float32(c.romm_camFluorescent[1][0]), float32(c.romm_camFluorescent[1][1]), float32(c.romm_camFluorescent[1][2])},
-			{float32(c.romm_camFluorescent[2][0]), float32(c.romm_camFluorescent[2][1]), float32(c.romm_camFluorescent[2][2])},
-		},
-		ROMMCamFlash: [3][3]float32{
-			{float32(c.romm_camFlash[0][0]), float32(c.romm_camFlash[0][1]), float32(c.romm_camFlash[0][2])},
-			{float32(c.romm_camFlash[1][0]), float32(c.romm_camFlash[1][1]), float32(c.romm_camFlash[1][2])},
-			{float32(c.romm_camFlash[2][0]), float32(c.romm_camFlash[2][1]), float32(c.romm_camFlash[2][2])},
-		},
-		ROMMCamCustom: [3][3]float32{
-			{float32(c.romm_camCustom[0][0]), float32(c.romm_camCustom[0][1]), float32(c.romm_camCustom[0][2])},
-			{float32(c.romm_camCustom[1][0]), float32(c.romm_camCustom[1][1]), float32(c.romm_camCustom[1][2])},
-			{float32(c.romm_camCustom[2][0]), float32(c.romm_camCustom[2][1]), float32(c.romm_camCustom[2][2])},
-		},
-		ROMMCamAuto: [3][3]float32{
-			{float32(c.romm_camAuto[0][0]), float32(c.romm_camAuto[0][1]), float32(c.romm_camAuto[0][2])},
-			{float32(c.romm_camAuto[1][0]), float32(c.romm_camAuto[1][1]), float32(c.romm_camAuto[1][2])},
-			{float32(c.romm_camAuto[2][0]), float32(c.romm_camAuto[2][1]), float32(c.romm_camAuto[2][2])},
-		},
+		ROMMCamDaylight:  cMat3x3(c.romm_camDaylight),
+		ROMMCamTungsten:  cMat3x3(c.romm_camTungsten),
+		ROMMCamFluorescent: cMat3x3(c.romm_camFluorescent),
+		ROMMCamFlash:     cMat3x3(c.romm_camFlash),
+		ROMMCamCustom:    cMat3x3(c.romm_camCustom),
+		ROMMCamAuto:      cMat3x3(c.romm_camAuto),
 		Val018percent:      uint16(c.val018percent),
 		Val100percent:      uint16(c.val100percent),
 		Val170percent:      uint16(c.val170percent),
@@ -389,7 +382,7 @@ func (rp *RawProcessor) GetPanasonicMakernotes() (PanasonicMakernotes, error) {
 	if err := rp.ensureOpen(); err != nil {
 		return PanasonicMakernotes{}, err
 	}
-	c := rp.handle.makernotes.panasonic
+	c := rp.res.handle.makernotes.panasonic
 	return PanasonicMakernotes{
 		Compression:   uint16(c.Compression),
 		BlackLevelDim: uint16(c.BlackLevelDim),
@@ -410,7 +403,7 @@ func (rp *RawProcessor) GetPentaxMakernotes() (PentaxMakernotes, error) {
 	if err := rp.ensureOpen(); err != nil {
 		return PentaxMakernotes{}, err
 	}
-	c := rp.handle.makernotes.pentax
+	c := rp.res.handle.makernotes.pentax
 	return PentaxMakernotes{
 		DriveMode:             [4]byte{byte(c.DriveMode[0]), byte(c.DriveMode[1]), byte(c.DriveMode[2]), byte(c.DriveMode[3])},
 		FocusMode:             [2]uint16{uint16(c.FocusMode[0]), uint16(c.FocusMode[1])},
@@ -433,7 +426,7 @@ func (rp *RawProcessor) GetPhaseOneMakernotes() (PhaseOneMakernotes, error) {
 	if err := rp.ensureOpen(); err != nil {
 		return PhaseOneMakernotes{}, err
 	}
-	c := rp.handle.makernotes.phaseone
+	c := rp.res.handle.makernotes.phaseone
 	return PhaseOneMakernotes{
 		Software:       C.GoString(&c.Software[0]),
 		SystemType:     C.GoString(&c.SystemType[0]),
@@ -448,7 +441,7 @@ func (rp *RawProcessor) GetRicohMakernotes() (RicohMakernotes, error) {
 	if err := rp.ensureOpen(); err != nil {
 		return RicohMakernotes{}, err
 	}
-	c := rp.handle.makernotes.ricoh
+	c := rp.res.handle.makernotes.ricoh
 	return RicohMakernotes{
 		AFStatus:           uint16(c.AFStatus),
 		AFAreaXPosition:    [2]uint{uint(c.AFAreaXPosition[0]), uint(c.AFAreaXPosition[1])},
@@ -475,7 +468,7 @@ func (rp *RawProcessor) GetSamsungMakernotes() (SamsungMakernotes, error) {
 	if err := rp.ensureOpen(); err != nil {
 		return SamsungMakernotes{}, err
 	}
-	c := rp.handle.makernotes.samsung
+	c := rp.res.handle.makernotes.samsung
 	return SamsungMakernotes{
 		ImageSizeFull: [4]uint{uint(c.ImageSizeFull[0]), uint(c.ImageSizeFull[1]), uint(c.ImageSizeFull[2]), uint(c.ImageSizeFull[3])},
 		ImageSizeCrop: [4]uint{uint(c.ImageSizeCrop[0]), uint(c.ImageSizeCrop[1]), uint(c.ImageSizeCrop[2]), uint(c.ImageSizeCrop[3])},
@@ -499,7 +492,7 @@ func (rp *RawProcessor) GetHasselbladMakernotes() (HasselbladMakernotes, error) 
 	if err := rp.ensureOpen(); err != nil {
 		return HasselbladMakernotes{}, err
 	}
-	c := rp.handle.makernotes.hasselblad
+	c := rp.res.handle.makernotes.hasselblad
 	return HasselbladMakernotes{
 		BaseISO:                  int(c.BaseISO),
 		Gain:                     float64(c.Gain),
@@ -515,11 +508,6 @@ func (rp *RawProcessor) GetHasselbladMakernotes() (HasselbladMakernotes, error) 
 		Format:                   int(c.format),
 		NIFDCM:                   [2]int{int(c.nIFD_CM[0]), int(c.nIFD_CM[1])},
 		RecommendedCrop:          [2]int{int(c.RecommendedCrop[0]), int(c.RecommendedCrop[1])},
-		MNColorMatrix: [4][3]float64{
-			{float64(c.mnColorMatrix[0][0]), float64(c.mnColorMatrix[0][1]), float64(c.mnColorMatrix[0][2])},
-			{float64(c.mnColorMatrix[1][0]), float64(c.mnColorMatrix[1][1]), float64(c.mnColorMatrix[1][2])},
-			{float64(c.mnColorMatrix[2][0]), float64(c.mnColorMatrix[2][1]), float64(c.mnColorMatrix[2][2])},
-			{float64(c.mnColorMatrix[3][0]), float64(c.mnColorMatrix[3][1]), float64(c.mnColorMatrix[3][2])},
-		},
+		MNColorMatrix:            cMat4x3(c.mnColorMatrix),
 	}, nil
 }

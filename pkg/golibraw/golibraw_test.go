@@ -115,9 +115,6 @@ func TestOpenBuffer(t *testing.T) {
 		t.Fatalf("ReadFile() error: %v", err)
 	}
 
-	rp := openTestRAW(t) // just for reference
-	rp.Close()
-
 	rp2, err := New()
 	if err != nil {
 		t.Fatalf("New() error: %v", err)
@@ -561,7 +558,7 @@ func TestDNGSDK(t *testing.T) {
 	if err := rp.EnableDNGSDK(); err != nil {
 		t.Fatalf("EnableDNGSDK() error: %v", err)
 	}
-	if rp.dngHost == nil {
+	if rp.res.dngHost == nil {
 		t.Fatal("dngHost is nil, USE_DNGSDK may not be enabled")
 	}
 }
@@ -1599,8 +1596,8 @@ func TestGetDNGColorInvalidIndex(t *testing.T) {
 
 	for _, idx := range []int{-1, 2, 100} {
 		_, err := rp.GetDNGColor(idx)
-		if !errors.Is(err, ErrBadCrop) {
-			t.Errorf("GetDNGColor(%d) = %v, want ErrBadCrop", idx, err)
+		if !errors.Is(err, ErrInvalidIndex) {
+			t.Errorf("GetDNGColor(%d) = %v, want ErrInvalidIndex", idx, err)
 		}
 	}
 }

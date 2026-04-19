@@ -52,6 +52,31 @@ func createTestTIFF(t *testing.T, path string, w, h uint32) {
 	tif.Close()
 }
 
+func createGrayscaleTIFF(t *testing.T, path string, w, h uint32) {
+	t.Helper()
+	tif, err := Open(path, OpenWrite)
+	if err != nil {
+		t.Fatalf("Open write: %v", err)
+	}
+	tif.SetFieldUint32(TagImageWidth, w)
+	tif.SetFieldUint32(TagImageLength, h)
+	tif.SetFieldUint16(TagBitsPerSample, 8)
+	tif.SetFieldUint16(TagSamplesPerPixel, 1)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
+	scanline := make([]byte, w)
+	for row := uint32(0); row < h; row++ {
+		for i := range scanline {
+			scanline[i] = byte(row % 256)
+		}
+		if err := tif.WriteScanline(scanline, row); err != nil {
+			t.Fatalf("WriteScanline %d: %v", row, err)
+		}
+	}
+	tif.Close()
+}
+
 // writeMultiPageTIFF creates a TIFF with nDirectories pages.
 // Each page is a single-pixel grayscale image; the pixel value equals the page index.
 func writeMultiPageTIFF(t *testing.T, path string) {
@@ -116,6 +141,7 @@ func TestOpenClose(t *testing.T) {
 }
 
 func TestOpenNonexistent(t *testing.T) {
+	t.Parallel()
 	_, err := Open("/nonexistent/path/test.tif", OpenRead)
 	if err == nil {
 		t.Fatal("expected error for nonexistent file")
@@ -224,123 +250,67 @@ func TestWriteAndRead(t *testing.T) {
 	}
 }
 
-func TestLZWCompression(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "lzw.tif")
-
-	const w, h = 128, 64
-
-	func() {
-		tif, err := Open(path, OpenWrite)
-		if err != nil {
-			t.Fatalf("Open: %v", err)
-		}
-		defer tif.Close()
-
-		tif.SetFieldUint32(TagImageWidth, w)
-		tif.SetFieldUint32(TagImageLength, h)
-		tif.SetFieldUint16(TagBitsPerSample, 8)
-		tif.SetFieldUint16(TagSamplesPerPixel, 1)
-		tif.SetFieldUint16(TagCompression, uint16(CompressionLZW))
-		tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
-		tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
-		tif.SetFieldUint32(TagRowsPerStrip, h)
-
-		data := make([]byte, w*h)
-		for i := range data {
-			data[i] = byte(i % 256)
-		}
-		if _, err := tif.WriteEncodedStrip(0, data); err != nil {
-			t.Fatalf("WriteEncodedStrip: %v", err)
-		}
-	}()
-
-	// Read back in a separate scope to ensure file is closed.
-	tif2, err := Open(path, OpenRead)
-	if err != nil {
-		t.Fatalf("Open read: %v", err)
+func TestCompression(t *testing.T) {
+	tests := []struct {
+		name        string
+		compression Compression
+		w, h        uint32
+	}{
+		{"LZW", CompressionLZW, 128, 64},
+		{"Deflate", CompressionDeflate, 64, 32},
 	}
-	defer tif2.Close()
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			path := filepath.Join(dir, tc.name+".tif")
+			// create file with specified compression
+			tif, err := Open(path, OpenWrite)
+			if err != nil {
+				t.Fatalf("Open: %v", err)
+			}
+			tif.SetFieldUint32(TagImageWidth, tc.w)
+			tif.SetFieldUint32(TagImageLength, tc.h)
+			tif.SetFieldUint16(TagBitsPerSample, 8)
+			tif.SetFieldUint16(TagSamplesPerPixel, 1)
+			tif.SetFieldUint16(TagCompression, uint16(tc.compression))
+			tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+			tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
+			tif.SetFieldUint32(TagRowsPerStrip, tc.h)
+			data := make([]byte, tc.w*tc.h)
+			for i := range data {
+				data[i] = byte(i % 256)
+			}
+			if _, err := tif.WriteEncodedStrip(0, data); err != nil {
+				t.Fatalf("WriteEncodedStrip: %v", err)
+			}
+			tif.Close()
 
-	if v, err := tif2.Compression(); err != nil {
-		t.Fatalf("Compression: %v", err)
-	} else if v != uint16(CompressionLZW) {
-		t.Errorf("Compression = %d, want %d", v, CompressionLZW)
-	}
-
-	buf := make([]byte, w*h)
-	n, err := tif2.ReadEncodedStrip(0, buf, -1)
-	if err != nil {
-		t.Fatalf("ReadEncodedStrip: %v", err)
-	}
-	if n != w*h {
-		t.Errorf("ReadEncodedStrip returned %d bytes, want %d", n, w*h)
-	}
-	for i := range w * h {
-		expected := byte(i % 256)
-		if buf[i] != expected {
-			t.Errorf("byte %d mismatch: got %d, want %d", i, buf[i], expected)
-			break
-		}
-	}
-}
-
-func TestDeflateCompression(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "deflate.tif")
-
-	const w, h = 64, 32
-
-	func() {
-		tif, err := Open(path, OpenWrite)
-		if err != nil {
-			t.Fatalf("Open: %v", err)
-		}
-		defer tif.Close()
-
-		tif.SetFieldUint32(TagImageWidth, w)
-		tif.SetFieldUint32(TagImageLength, h)
-		tif.SetFieldUint16(TagBitsPerSample, 8)
-		tif.SetFieldUint16(TagSamplesPerPixel, 1)
-		tif.SetFieldUint16(TagCompression, uint16(CompressionDeflate))
-		tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
-		tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
-		tif.SetFieldUint32(TagRowsPerStrip, h)
-
-		data := make([]byte, w*h)
-		for i := range data {
-			data[i] = byte(i % 256)
-		}
-		if _, err := tif.WriteEncodedStrip(0, data); err != nil {
-			t.Fatalf("WriteEncodedStrip: %v", err)
-		}
-	}()
-
-	tif2, err := Open(path, OpenRead)
-	if err != nil {
-		t.Fatalf("Open read: %v", err)
-	}
-	defer tif2.Close()
-
-	if v, err := tif2.Compression(); err != nil {
-		t.Fatalf("Compression: %v", err)
-	} else if v != uint16(CompressionDeflate) {
-		t.Errorf("Compression = %d, want %d", v, CompressionDeflate)
-	}
-
-	buf := make([]byte, w*h)
-	n, err := tif2.ReadEncodedStrip(0, buf, -1)
-	if err != nil {
-		t.Fatalf("ReadEncodedStrip: %v", err)
-	}
-	if n != w*h {
-		t.Errorf("ReadEncodedStrip returned %d, want %d", n, w*h)
-	}
-	for i := range buf {
-		if buf[i] != byte(i%256) {
-			t.Errorf("byte %d mismatch: got %d, want %d", i, buf[i], byte(i%256))
-			break
-		}
+			// read back
+			tif2, err := Open(path, OpenRead)
+			if err != nil {
+				t.Fatalf("Open read: %v", err)
+			}
+			defer tif2.Close()
+			if v, err := tif2.Compression(); err != nil {
+				t.Fatalf("Compression: %v", err)
+			} else if v != uint16(tc.compression) {
+				t.Errorf("Compression = %d, want %d", v, tc.compression)
+			}
+			buf := make([]byte, tc.w*tc.h)
+			n, err := tif2.ReadEncodedStrip(0, buf, -1)
+			if err != nil {
+				t.Fatalf("ReadEncodedStrip: %v", err)
+			}
+			if n != int(tc.w*tc.h) {
+				t.Errorf("ReadEncodedStrip returned %d bytes, want %d", n, tc.w*tc.h)
+			}
+			for i := range tc.w * tc.h {
+				if buf[i] != byte(i%256) {
+					t.Errorf("byte %d mismatch: got %d, want %d", i, buf[i], byte(i%256))
+					break
+				}
+			}
+		})
 	}
 }
 
@@ -667,6 +637,7 @@ func TestDefaultStripSize(t *testing.T) {
 }
 
 func TestIsByteSwapped(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "native.tif")
 	createTestTIFF(t, path, 4, 4)
@@ -1304,6 +1275,7 @@ func TestTileReadWrite(t *testing.T) {
 
 
 func TestReadRGBAStrip(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("testdata", "rgb-3c-8b.tiff")
 	tif, err := Open(path, OpenRead)
 	if err != nil {
@@ -1311,37 +1283,45 @@ func TestReadRGBAStrip(t *testing.T) {
 	}
 	defer tif.Close()
 
-	w, _ := tif.Width()
-	rps, _ := tif.RowsPerStrip()
-
-	var strip []uint32
-	if isTiled(tif) {
+	if tif.IsTiled() {
 		t.Skip("test file is tiled, not stripped")
 	}
+	w, _ := tif.Width()
+	rps, _ := tif.RowsPerStrip()
 	if rps == 0 {
 		t.Skip("cannot determine rows per strip")
 	}
-	strip = make([]uint32, int(w*rps))
 
-	if err := tif.ReadRGBAStrip(0, strip); err != nil {
-		t.Fatalf("ReadRGBAStrip: %v", err)
+	tests := []struct {
+		name string
+		fn   func(strip uint32, buf []uint32) error
+	}{
+		{"Basic", func(strip uint32, buf []uint32) error { return tif.ReadRGBAStrip(strip, buf) }},
+		{"Ext", func(strip uint32, buf []uint32) error { return tif.ReadRGBAStripExt(strip, buf, true) }},
 	}
-
-	// verify at least some non-zero pixels (not all-black)
-	hasNonZero := false
-	for _, px := range strip {
-		if px != 0 {
-			hasNonZero = true
-			break
-		}
-	}
-	if !hasNonZero {
-		t.Error("all RGBA pixels are zero, expected non-zero data")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			buf := make([]uint32, int(w*rps))
+			if err := tc.fn(0, buf); err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			hasNonZero := false
+			for _, px := range buf {
+				if px != 0 {
+					hasNonZero = true
+					break
+				}
+			}
+			if !hasNonZero {
+				t.Error("all RGBA pixels are zero, expected non-zero data")
+			}
+		})
 	}
 }
 
 
 func TestReadRGBATile(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("testdata", "quad-tile.jpg.tiff")
 	tif, err := Open(path, OpenRead)
 	if err != nil {
@@ -1349,24 +1329,33 @@ func TestReadRGBATile(t *testing.T) {
 	}
 	defer tif.Close()
 
-	tileWidth, _ := tif.GetFieldUint32(TagTileWidth)
-	tileLength, _ := tif.GetFieldUint32(TagTileLength)
-	tile := make([]uint32, int(tileWidth*tileLength))
+	tw, _ := tif.TileWidth()
+	th, _ := tif.TileLength()
 
-	var tileNum uint32
-	if err := tif.ReadRGBATile(tileNum, tile); err != nil {
-		t.Fatalf("ReadRGBATile: %v", err)
+	tests := []struct {
+		name string
+		fn   func(tile uint32, buf []uint32) error
+	}{
+		{"Basic", func(tile uint32, buf []uint32) error { return tif.ReadRGBATile(tile, buf) }},
+		{"Ext", func(tile uint32, buf []uint32) error { return tif.ReadRGBATileExt(tile, buf, true) }},
 	}
-
-	hasNonZero := false
-	for _, px := range tile {
-		if px != 0 {
-			hasNonZero = true
-			break
-		}
-	}
-	if !hasNonZero {
-		t.Error("all RGBA tile pixels are zero")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			buf := make([]uint32, int(tw*th))
+			if err := tc.fn(0, buf); err != nil {
+				t.Fatalf("%s: %v", tc.name, err)
+			}
+			hasNonZero := false
+			for _, px := range buf {
+				if px != 0 {
+					hasNonZero = true
+					break
+				}
+			}
+			if !hasNonZero {
+				t.Error("all RGBA tile pixels are zero")
+			}
+		})
 	}
 }
 
@@ -1471,9 +1460,12 @@ func TestEXIFSubIFD(t *testing.T) {
 			}
 		}
 
-		// Checkpoint main IFD before creating EXIF sub-IFD
-		if err := tif.CheckpointDirectory(); err != nil {
-			t.Fatalf("CheckpointDirectory: %v", err)
+		// Write main IFD before creating EXIF sub-IFD
+		if err := tif.WriteDirectory(); err != nil {
+			t.Fatalf("WriteDirectory: %v", err)
+		}
+		if err := tif.SetDirectory(0); err != nil {
+			t.Fatalf("SetDirectory(0): %v", err)
 		}
 
 		// Create EXIF sub-IFD
@@ -1481,12 +1473,12 @@ func TestEXIFSubIFD(t *testing.T) {
 			t.Fatalf("CreateEXIFDirectory: %v", err)
 		}
 
-		// Write scalar EXIF tags (SETGET_FLOAT, SETGET_UINT16, SETGET_ASCII)
-		if err := tif.SetFieldFloat(TagExifExposureTime, 0.025); err != nil {
-			t.Errorf("SetFieldFloat ExposureTime: %v", err)
+		// Write scalar EXIF tags (RATIONAL, SETGET_UINT16, SETGET_ASCII)
+		if err := tif.SetFieldDouble(TagExifExposureTime, 0.025); err != nil {
+			t.Errorf("SetFieldDouble ExposureTime: %v", err)
 		}
-		if err := tif.SetFieldFloat(TagExifFNumber, 5.6); err != nil {
-			t.Errorf("SetFieldFloat FNumber: %v", err)
+		if err := tif.SetFieldDouble(TagExifFNumber, 5.6); err != nil {
+			t.Errorf("SetFieldDouble FNumber: %v", err)
 		}
 		if err := tif.SetFieldUint16(TagExifExposureProgram, 1); err != nil {
 			t.Errorf("SetFieldUint16 ExposureProgram: %v", err)
@@ -1502,11 +1494,11 @@ func TestEXIFSubIFD(t *testing.T) {
 			t.Errorf("SetFieldUint16 Sharpness=0: %v", err)
 		}
 		// Zero-value float (ExposureCompensation=0)
-		if err := tif.SetFieldFloat(TagExifExposureCompensation, 0); err != nil {
-			t.Errorf("SetFieldFloat ExposureCompensation=0: %v", err)
+		if err := tif.SetFieldDouble(TagExifExposureCompensation, 0); err != nil {
+			t.Errorf("SetFieldDouble ExposureCompensation=0: %v", err)
 		}
-		if err := tif.SetFieldFloat(TagExifFocalLength, 35.0); err != nil {
-			t.Errorf("SetFieldFloat FocalLength: %v", err)
+		if err := tif.SetFieldDouble(TagExifFocalLength, 35.0); err != nil {
+			t.Errorf("SetFieldDouble FocalLength: %v", err)
 		}
 		if err := tif.SetFieldString(TagExifDateTimeOriginal, "2025:05:16 15:12:13"); err != nil {
 			t.Errorf("SetFieldString DateTimeOriginal: %v", err)
@@ -1579,14 +1571,14 @@ func TestEXIFSubIFD(t *testing.T) {
 		t.Fatalf("ReadEXIFDirectory: %v", err)
 	}
 
-	// Verify scalar float tags (RATIONAL stored as float32, tolerance needed)
-	if et, err := tif.GetFieldFloat(TagExifExposureTime); err != nil || math.Abs(et-0.025) > 1e-6 {
+	// Verify RATIONAL EXIF tags (stored as double, tolerance needed)
+	if et, err := tif.GetFieldDouble(TagExifExposureTime); err != nil || math.Abs(et-0.025) > 1e-6 {
 		t.Errorf("ExposureTime = %v (err=%v), want ~0.025", et, err)
 	}
-	if fn, err := tif.GetFieldFloat(TagExifFNumber); err != nil || math.Abs(fn-5.6) > 0.01 {
+	if fn, err := tif.GetFieldDouble(TagExifFNumber); err != nil || math.Abs(fn-5.6) > 0.01 {
 		t.Errorf("FNumber = %v (err=%v), want ~5.6", fn, err)
 	}
-	if fl, err := tif.GetFieldFloat(TagExifFocalLength); err != nil || math.Abs(fl-35.0) > 0.01 {
+	if fl, err := tif.GetFieldDouble(TagExifFocalLength); err != nil || math.Abs(fl-35.0) > 0.01 {
 		t.Errorf("FocalLength = %v (err=%v), want ~35.0", fl, err)
 	}
 
@@ -1605,7 +1597,7 @@ func TestEXIFSubIFD(t *testing.T) {
 	}
 
 	// Verify zero-value float (RATIONAL precision)
-	if ec, err := tif.GetFieldFloat(TagExifExposureCompensation); err != nil || math.Abs(ec) > 1e-6 {
+	if ec, err := tif.GetFieldDouble(TagExifExposureCompensation); err != nil || math.Abs(ec) > 1e-6 {
 		t.Errorf("ExposureCompensation = %v (err=%v), want ~0", ec, err)
 	}
 

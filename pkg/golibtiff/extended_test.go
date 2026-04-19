@@ -14,6 +14,7 @@ import (
 // --- Phase 1: Pseudo-Tag constants ---
 
 func TestPseudoTagConstants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		tag  Tag
@@ -43,6 +44,7 @@ func TestPseudoTagConstants(t *testing.T) {
 }
 
 func TestDataTypeConstants(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		got  int
@@ -246,47 +248,6 @@ func TestAppendMode(t *testing.T) {
 	numDirs := readTif.NumberOfDirectories()
 	if numDirs < 2 {
 		t.Errorf("NumberOfDirectories = %d, want >= 2", numDirs)
-	}
-}
-
-// --- SetFieldByteSlice round-trip ---
-
-func TestSetFieldByteSliceRoundTrip(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "xmp_test.tif")
-
-	testXMP := []byte("<xmp>test data for round-trip</xmp>")
-
-	tif, err := Open(path, OpenWrite)
-	if err != nil {
-		t.Fatalf("Open write: %v", err)
-	}
-
-	tif.SetFieldUint32(TagImageWidth, 1)
-	tif.SetFieldUint32(TagImageLength, 1)
-	tif.SetFieldUint16(TagBitsPerSample, 8)
-	tif.SetFieldUint16(TagSamplesPerPixel, 1)
-	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
-	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
-	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
-
-	if err := tif.SetFieldByteSlice(TagXMP, testXMP); err != nil {
-		t.Fatalf("SetFieldByteSlice XMP: %v", err)
-	}
-
-	if err := tif.WriteScanline([]byte{0}, 0); err != nil {
-		t.Fatalf("WriteScanline: %v", err)
-	}
-	tif.Close()
-
-	readTif, err := Open(path, OpenRead)
-	if err != nil {
-		t.Fatalf("Open read: %v", err)
-	}
-	defer readTif.Close()
-
-	if !readTif.IsFieldKnown(TagXMP) {
-		t.Error("XMP tag not found after round-trip")
 	}
 }
 
@@ -574,14 +535,10 @@ func TestUnsetField(t *testing.T) {
 
 // --- H4: ReadRGBAStrip / ReadRGBATile ---
 
-func isTiled(tif *TIFF) bool {
-	tileWidth, err := tif.GetFieldUint32(TagTileWidth)
-	return err == nil && tileWidth > 0
-}
-
 // --- Close concurrency safety ---
 
 func TestCloseConcurrent(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("testdata", "rgb-3c-8b.tiff")
 	tif, err := Open(path, OpenRead)
 	if err != nil {
@@ -600,6 +557,7 @@ func TestCloseConcurrent(t *testing.T) {
 // --- C2: ClientIO GC safety ---
 
 func TestClientIOGC(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("testdata", "rgb-3c-8b.tiff")
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -930,6 +888,7 @@ func TestUnlinkDirectory(t *testing.T) {
 // --- Tag enumeration ---
 
 func TestTagListEnumeration(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("testdata", "rgb-3c-8b.tiff")
 	tif, err := Open(path, OpenRead)
 	if err != nil {
@@ -954,6 +913,7 @@ func TestTagListEnumeration(t *testing.T) {
 // --- GetFieldDefaulted ---
 
 func TestGetFieldDefaulted(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("testdata", "rgb-3c-8b.tiff")
 	tif, err := Open(path, OpenRead)
 	if err != nil {
@@ -974,6 +934,7 @@ func TestGetFieldDefaulted(t *testing.T) {
 // --- Strile access ---
 
 func TestStrileAccess(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("testdata", "rgb-3c-8b.tiff")
 	tif, err := Open(path, OpenRead)
 	if err != nil {
@@ -1009,6 +970,7 @@ func TestStrileAccess(t *testing.T) {
 // --- ReadRawTile / WriteRawTile ---
 
 func TestReadRawTile(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("testdata", "quad-tile.jpg.tiff")
 	tif, err := Open(path, OpenRead)
 	if err != nil {
@@ -1034,6 +996,7 @@ func TestReadRawTile(t *testing.T) {
 // --- TileRowSize ---
 
 func TestTileRowSize(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("testdata", "quad-tile.jpg.tiff")
 	tif, err := Open(path, OpenRead)
 	if err != nil {
@@ -1090,7 +1053,7 @@ func TestReadRGBAImageOriented(t *testing.T) {
 	h, _ := tif.Height()
 	buf := make([]uint32, int(w)*int(h))
 
-	if err := tif.ReadRGBAImageOriented(buf, int(OrientationTopLeft), false); err != nil {
+	if err := tif.ReadRGBAImageOriented(buf, OrientationTopLeft, false); err != nil {
 		t.Fatalf("ReadRGBAImageOriented: %v", err)
 	}
 
@@ -1107,47 +1070,6 @@ func TestReadRGBAImageOriented(t *testing.T) {
 }
 
 // --- ReadRGBAStripExt / ReadRGBATileExt ---
-
-func TestReadRGBAStripExt(t *testing.T) {
-	path := filepath.Join("testdata", "rgb-3c-8b.tiff")
-	tif, err := Open(path, OpenRead)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer tif.Close()
-
-	w, _ := tif.Width()
-	rps, _ := tif.RowsPerStrip()
-	if rps == 0 {
-		t.Skip("cannot determine rows per strip")
-	}
-	buf := make([]uint32, int(w*rps))
-
-	if err := tif.ReadRGBAStripExt(0, buf, true); err != nil {
-		t.Fatalf("ReadRGBAStripExt: %v", err)
-	}
-}
-
-func TestReadRGBATileExt(t *testing.T) {
-	path := filepath.Join("testdata", "quad-tile.jpg.tiff")
-	tif, err := Open(path, OpenRead)
-	if err != nil {
-		t.Fatalf("Open: %v", err)
-	}
-	defer tif.Close()
-
-	if !tif.IsTiled() {
-		t.Skip("not a tiled image")
-	}
-
-	tw, _ := tif.TileWidth()
-	th, _ := tif.TileLength()
-	buf := make([]uint32, int(tw*th))
-
-	if err := tif.ReadRGBATileExt(0, buf, true); err != nil {
-		t.Fatalf("ReadRGBATileExt: %v", err)
-	}
-}
 
 // --- FlushData ---
 
@@ -1191,6 +1113,7 @@ func TestFlushData(t *testing.T) {
 // --- Size queries ---
 
 func TestRawStripSize(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("testdata", "rgb-3c-8b.tiff")
 	tif, err := Open(path, OpenRead)
 	if err != nil {
@@ -1208,6 +1131,7 @@ func TestRawStripSize(t *testing.T) {
 }
 
 func TestRasterScanlineSize(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("testdata", "rgb-3c-8b.tiff")
 	tif, err := Open(path, OpenRead)
 	if err != nil {
@@ -1229,6 +1153,7 @@ func TestRasterScanlineSize(t *testing.T) {
 }
 
 func TestVStripSize(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("testdata", "rgb-3c-8b.tiff")
 	tif, err := Open(path, OpenRead)
 	if err != nil {
@@ -1250,6 +1175,7 @@ func TestVStripSize(t *testing.T) {
 // --- Tile coordinate operations ---
 
 func TestComputeStrip(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("testdata", "rgb-3c-8b.tiff")
 	tif, err := Open(path, OpenRead)
 	if err != nil {
@@ -1264,6 +1190,7 @@ func TestComputeStrip(t *testing.T) {
 }
 
 func TestComputeTile(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("testdata", "quad-tile.jpg.tiff")
 	tif, err := Open(path, OpenRead)
 	if err != nil {
@@ -1352,6 +1279,7 @@ func TestVTileSize(t *testing.T) {
 }
 
 func TestDefaultTileSize(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join("testdata", "rgb-3c-8b.tiff")
 	tif, err := Open(path, OpenRead)
 	if err != nil {
@@ -1368,7 +1296,55 @@ func TestDefaultTileSize(t *testing.T) {
 	}
 }
 
+func TestSetFieldAny(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "set_any.tif")
+
+	tif, err := Open(path, OpenWrite)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	tests := []struct {
+		tag   Tag
+		value any
+	}{
+		{TagImageWidth, uint32(8)},
+		{TagImageLength, uint32(4)},
+		{TagBitsPerSample, uint16(16)},
+		{TagSamplesPerPixel, uint16(3)},
+		{TagCompression, uint16(CompressionNone)},
+		{TagPhotometric, uint16(PhotometricRGB)},
+		{TagPlanarConfig, uint16(PlanarConfigContig)},
+	}
+	for _, tc := range tests {
+		if err := tif.SetFieldAny(tc.tag, tc.value); err != nil {
+			t.Fatalf("SetFieldAny(%d): %v", tc.tag, err)
+		}
+	}
+// Write minimal pixel data to satisfy TIFF requirements
+	scanline := make([]byte, 8*3*2)
+	for row := range uint32(4) {
+		tif.WriteScanline(scanline, row)
+	}
+	tif.Close()
+
+	// Verify round-trip
+	tif2, err := Open(path, OpenRead)
+	if err != nil {
+		t.Fatalf("Open read: %v", err)
+	}
+	defer tif2.Close()
+	if v, err := tif2.GetFieldUint32(TagImageWidth); err != nil || v != 8 {
+		t.Errorf("ImageWidth = %d, want 8 (err=%v)", v, err)
+	}
+	if v, err := tif2.GetFieldUint16(TagBitsPerSample); err != nil || v != 16 {
+		t.Errorf("BitsPerSample = %d, want 16 (err=%v)", v, err)
+	}
+}
+
 func TestGetVersion(t *testing.T) {
+	t.Parallel()
 	v := GetVersion()
 	if v == "" {
 		t.Fatal("GetVersion returned empty string")

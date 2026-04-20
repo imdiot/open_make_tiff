@@ -87,22 +87,22 @@ func (m Metadata) GetStrings(k string) ([]string, error) {
 }
 
 // SetString sets a string field.
-func (m Metadata) SetString(k string, v string) {
+func (m *Metadata) SetString(k string, v string) {
 	m.Fields[k] = v
 }
 
 // SetInt sets an integer field.
-func (m Metadata) SetInt(k string, v int64) {
+func (m *Metadata) SetInt(k string, v int64) {
 	m.Fields[k] = v
 }
 
 // SetFloat sets a float field.
-func (m Metadata) SetFloat(k string, v float64) {
+func (m *Metadata) SetFloat(k string, v float64) {
 	m.Fields[k] = v
 }
 
 // SetStrings sets a string list field.
-func (m Metadata) SetStrings(k string, v []string) {
+func (m *Metadata) SetStrings(k string, v []string) {
 	t := make([]any, len(v))
 	for i, s := range v {
 		t[i] = s
@@ -111,7 +111,7 @@ func (m Metadata) SetStrings(k string, v []string) {
 }
 
 // Clear deletes a field (nil value means delete on write).
-func (m Metadata) Clear(k string) {
+func (m *Metadata) Clear(k string) {
 	m.Fields[k] = nil
 }
 

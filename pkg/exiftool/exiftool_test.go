@@ -181,22 +181,22 @@ func TestHandleWriteResponse(t *testing.T) {
 }
 
 func TestWithOptions(t *testing.T) {
-	cfg := defaultOptions()
-	if cfg.lazyInit {
+	e := &Exiftool{closeTimeout: defaultCloseTimeout}
+	if e.lazyInit {
 		t.Error("default lazyInit should be false")
 	}
-	if cfg.closeTimeout != 5*time.Second {
-		t.Errorf("default closeTimeout = %v, want 5s", cfg.closeTimeout)
+	if e.closeTimeout != 5*time.Second {
+		t.Errorf("default closeTimeout = %v, want 5s", e.closeTimeout)
 	}
 
-	WithLazyInit()(&cfg)
-	if !cfg.lazyInit {
+	WithLazyInit()(e)
+	if !e.lazyInit {
 		t.Error("WithLazyInit() did not set lazyInit to true")
 	}
 
-	WithCloseTimeout(10 * time.Second)(&cfg)
-	if cfg.closeTimeout != 10*time.Second {
-		t.Errorf("custom closeTimeout = %v, want 10s", cfg.closeTimeout)
+	WithCloseTimeout(10 * time.Second)(e)
+	if e.closeTimeout != 10*time.Second {
+		t.Errorf("custom closeTimeout = %v, want 10s", e.closeTimeout)
 	}
 }
 
@@ -365,63 +365,35 @@ func TestCopyTags(t *testing.T) {
 // Format-specific metadata reads
 // ---------------------------------------------------------------------------
 
-func TestReadGPS(t *testing.T) {
+func TestReadFormats(t *testing.T) {
 	e := newTestInstance(t)
-	md, err := e.ReadMetadata(testFile("GPS.jpg"))
-	if err != nil {
-		t.Fatalf("ReadMetadata error = %v", err)
+	tests := []struct {
+		name    string
+		file    string
+		wantKey string
+	}{
+		{"GPS", "GPS.jpg", "GPSLatitude"},
+		{"Canon", "Canon.jpg", "Make"},
+		{"DNG", "DNG.dng", ""},
+		{"MP3", "MP3.mp3", ""},
+		{"QuickTime", "QuickTime.mov", ""},
 	}
-
-	lat, err := md.GetString("GPSLatitude")
-	if err != nil {
-		t.Fatalf("GetString(GPSLatitude) error = %v", err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			md, err := e.ReadMetadata(testFile(tt.file))
+			if err != nil {
+				t.Fatalf("ReadMetadata error = %v", err)
+			}
+			if len(md.Fields) == 0 {
+				t.Errorf("%s: metadata is empty", tt.name)
+			}
+			if tt.wantKey != "" {
+				if _, err := md.GetString(tt.wantKey); err != nil {
+					t.Errorf("%s: key %q not found: %v", tt.name, tt.wantKey, err)
+				}
+			}
+		})
 	}
-	t.Logf("GPS.jpg Latitude: %s", lat)
-
-	lon, err := md.GetString("GPSLongitude")
-	if err != nil {
-		t.Fatalf("GetString(GPSLongitude) error = %v", err)
-	}
-	t.Logf("GPS.jpg Longitude: %s", lon)
-}
-
-func TestReadCanon(t *testing.T) {
-	e := newTestInstance(t)
-	md, err := e.ReadMetadata(testFile("Canon.jpg"))
-	if err != nil {
-		t.Fatalf("ReadMetadata error = %v", err)
-	}
-	make_, _ := md.GetString("Make")
-	t.Logf("Canon.jpg Make: %s", make_)
-}
-
-func TestReadDNG(t *testing.T) {
-	e := newTestInstance(t)
-	md, err := e.ReadMetadata(testFile("DNG.dng"))
-	if err != nil {
-		t.Fatalf("ReadMetadata error = %v", err)
-	}
-	if len(md.Fields) == 0 {
-		t.Error("DNG metadata is empty")
-	}
-}
-
-func TestReadMP3(t *testing.T) {
-	e := newTestInstance(t)
-	md, err := e.ReadMetadata(testFile("MP3.mp3"))
-	if err != nil {
-		t.Fatalf("ReadMetadata error = %v", err)
-	}
-	t.Logf("MP3.mp3 fields count: %d", len(md.Fields))
-}
-
-func TestReadQuickTime(t *testing.T) {
-	e := newTestInstance(t)
-	md, err := e.ReadMetadata(testFile("QuickTime.mov"))
-	if err != nil {
-		t.Fatalf("ReadMetadata error = %v", err)
-	}
-	t.Logf("QuickTime.mov fields count: %d", len(md.Fields))
 }
 
 // ---------------------------------------------------------------------------
@@ -712,6 +684,3 @@ func BenchmarkBitsPerSample_OneShot(b *testing.B) {
 	}
 }
 
-func TestMain(m *testing.M) {
-	os.Exit(m.Run())
-}

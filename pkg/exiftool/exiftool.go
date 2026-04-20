@@ -29,30 +29,71 @@ var (
 )
 
 const (
-	defaultScanBufSize = 64 * 1024
-	defaultScanBufMax  = 10 * 1024 * 1024
-	minExiftoolVersion = "12.15"
-
-	writeSuccessToken = "image files updated"
+	defaultScanBufSize  = 64 * 1024
+	defaultScanBufMax   = 10 * 1024 * 1024
+	minExiftoolVersion  = "12.15"
+	defaultCloseTimeout = 5 * time.Second
+	writeSuccessToken   = "image files updated"
 )
 
 var readyToken = []byte("{ready}")
 
 // Exiftool manages a persistent exiftool process (-stay_open mode).
 type Exiftool struct {
-	mu         sync.Mutex
-	executable string
-	version    string
-	defaults   Options
-	cmd        *exec.Cmd
-	stdin      io.WriteCloser
-	stdout     io.ReadCloser
-	scanner    *bufio.Scanner
-	closed     bool
-	done       chan struct{} // nil=not started, open=running, closed=exited
+	mu sync.Mutex
 
-	instanceCtx    context.Context    // lifecycle context
-	cancelInstance context.CancelFunc // cancel triggers process kill
+	executable   string
+	logger       *slog.Logger
+	closeTimeout time.Duration
+	lazyInit     bool
+
+	cmd     *exec.Cmd
+	stdin   io.WriteCloser
+	scanner *bufio.Scanner
+	version string
+	closed  bool
+	done    chan struct{} // nil=not started, open=running, closed=exited
+
+	instanceCtx    context.Context
+	cancelInstance context.CancelFunc
+}
+
+// Option configures Exiftool behavior.
+type Option func(*Exiftool)
+
+// WithExecutable sets the exiftool binary path.
+func WithExecutable(path string) Option {
+	return func(e *Exiftool) {
+		e.executable = path
+	}
+}
+
+// WithLogger sets the structured logger.
+func WithLogger(logger *slog.Logger) Option {
+	return func(e *Exiftool) {
+		e.logger = logger
+	}
+}
+
+// WithCloseTimeout overrides the default close timeout (default 5s).
+func WithCloseTimeout(d time.Duration) Option {
+	return func(e *Exiftool) {
+		e.closeTimeout = d
+	}
+}
+
+// WithLazyInit defers process startup until first use.
+func WithLazyInit() Option {
+	return func(e *Exiftool) {
+		e.lazyInit = true
+	}
+}
+
+// WithContext binds a context to the Exiftool instance lifecycle.
+func WithContext(ctx context.Context) Option {
+	return func(e *Exiftool) {
+		e.instanceCtx = ctx
+	}
 }
 
 // GetDefaultExecutablePath resolves the default exiftool path via exec.LookPath.
@@ -66,171 +107,39 @@ func GetDefaultExecutablePath() string {
 
 // New creates an Exiftool instance, starts a persistent process, and verifies the version.
 func New(opts ...Option) (*Exiftool, error) {
-	cfg := defaultOptions()
-	for _, opt := range opts {
-		opt(&cfg)
+	e := &Exiftool{closeTimeout: defaultCloseTimeout}
+	for _, o := range opts {
+		o(e)
 	}
 
-	execPath := cmp.Or(cfg.executable, GetDefaultExecutablePath())
+	if e.logger == nil {
+		e.logger = slog.Default()
+	}
+
+	execPath := cmp.Or(e.executable, GetDefaultExecutablePath())
 	if execPath == "" {
 		return nil, ErrExecutableNotFound
 	}
 	if _, err := os.Stat(execPath); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrExecutableNotFound, execPath)
 	}
+	e.executable = execPath
 
-	cfg.executable = execPath
-
-	instanceCtx := cfg.ctx
-	if instanceCtx == nil {
-		instanceCtx = context.Background()
+	ctx := e.instanceCtx
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	instanceCtx, cancel := context.WithCancel(instanceCtx)
+	ctx, cancel := context.WithCancel(ctx)
+	e.instanceCtx = ctx
+	e.cancelInstance = cancel
 
-	e := &Exiftool{
-		executable:     execPath,
-		defaults:       cfg,
-		instanceCtx:    instanceCtx,
-		cancelInstance: cancel,
-	}
-
-	if !cfg.lazyInit {
+	if !e.lazyInit {
 		if err := e.start(); err != nil {
 			return nil, err
 		}
 	}
 
 	return e, nil
-}
-
-func (e *Exiftool) start() error {
-	args := []string{"-stay_open", "True", "-@", "-"}
-
-	e.cmd = exec.Command(e.executable, args...)
-	e.cmd.SysProcAttr = getSysProcAttr()
-
-	// OS-level pipe: has kernel buffer, process exit automatically sends EOF.
-	// Unlike io.Pipe (synchronous, unbuffered), writes only block when the
-	// kernel buffer is full, and cmd.Wait() is never blocked by an IO goroutine.
-	stdoutPipe, err := e.cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("error creating stdout pipe: %w", err)
-	}
-	e.stdout = stdoutPipe
-
-	// Capture stderr for diagnostics during startup.
-	// bytes.Buffer is synchronous (no deadlock risk unlike io.Pipe).
-	// exiftool's Perl startup errors appear here, critical for diagnosing
-	// why the process might exit immediately (e.g., antivirus kill).
-	var stderrBuf bytes.Buffer
-	e.cmd.Stderr = &stderrBuf
-
-	if e.stdin, err = e.cmd.StdinPipe(); err != nil {
-		return fmt.Errorf("error piping stdin: %w", err)
-	}
-
-	e.scanner = bufio.NewScanner(stdoutPipe)
-	buf := make([]byte, defaultScanBufSize)
-	e.scanner.Buffer(buf, defaultScanBufMax)
-	e.scanner.Split(splitReadyToken)
-
-	if err := e.cmd.Start(); err != nil {
-		return fmt.Errorf("error starting exiftool: %w", err)
-	}
-
-	// Assign child to OS-level job/process-group for crash protection.
-	if pid := e.cmd.Process.Pid; pid > 0 {
-		if err := assignToJob(pid); err != nil {
-			slog.Warn("failed to assign exiftool to job object", "pid", pid, "error", err)
-		}
-	}
-
-	// Monitor goroutine: sole caller of cmd.Wait.
-	// cmd.StdoutPipe() creates no IO goroutine for stdout.
-	// stderr writes to bytes.Buffer (synchronous, never blocks).
-	// cmd.Wait() only waits for process exit — no deadlock possible.
-	e.done = make(chan struct{})
-	go func() {
-		e.cmd.Wait()
-		close(e.done)
-	}()
-
-	// Context watcher: kill process immediately when context is canceled.
-	go func() {
-		select {
-		case <-e.done:
-			// Process exited on its own.
-		case <-e.instanceCtx.Done():
-			if e.cmd != nil && e.cmd.Process != nil {
-				e.cmd.Process.Kill()
-			}
-			<-e.done
-		}
-	}()
-
-	// First start: version check
-	if e.version == "" {
-		ver, err := e.executeInner("-ver")
-		if err != nil {
-			e.cmd.Process.Kill()
-			<-e.done
-			e.reset()
-			if stderrOutput := strings.TrimSpace(stderrBuf.String()); stderrOutput != "" {
-				return fmt.Errorf("error checking version: %w (stderr: %s)", err, stderrOutput)
-			}
-			return fmt.Errorf("error checking version: %w", err)
-		}
-		ver = strings.TrimSpace(ver)
-		if err := checkVersion(ver); err != nil {
-			e.cmd.Process.Kill()
-			<-e.done
-			e.reset()
-			return fmt.Errorf("%w: %s", err, ver)
-		}
-		e.version = ver
-	}
-
-	return nil
-}
-
-// isRunning checks if the subprocess is alive.
-// Must be called with e.mu held.
-func (e *Exiftool) isRunning() bool {
-	if e.done == nil {
-		return false
-	}
-	select {
-	case <-e.done:
-		return false
-	default:
-		return true
-	}
-}
-
-// reset cleans up resources from a dead process.
-// Must be called with e.mu held, after done is closed.
-func (e *Exiftool) reset() {
-	e.cmd = nil
-	e.stdin = nil
-	e.stdout = nil
-	e.scanner = nil
-	e.done = nil
-}
-
-// ensureStarted starts the persistent process on first use in lazy mode,
-// or restarts it if the process has exited.
-// Must be called with e.mu held.
-func (e *Exiftool) ensureStarted() error {
-	if e.isRunning() {
-		return nil
-	}
-	if e.instanceCtx.Err() != nil {
-		return ErrContextCanceled
-	}
-	if e.done != nil {
-		e.reset()
-	}
-	return e.start()
 }
 
 // Close shuts down the exiftool process and releases all resources.
@@ -263,7 +172,7 @@ func (e *Exiftool) Close() error {
 	if done != nil {
 		select {
 		case <-done:
-		case <-time.After(e.defaults.closeTimeout):
+		case <-time.After(e.closeTimeout):
 			if cmd != nil && cmd.Process != nil {
 				cmd.Process.Kill()
 			}
@@ -308,44 +217,14 @@ func (e *Exiftool) Execute(args ...string) (string, error) {
 	return e.executeInner(args...)
 }
 
-// executeInner is the lock-free internal execute method.
-// It can be interrupted by instanceCtx cancellation, which is critical for
-// preventing mutex deadlocks when Close() cancels the context.
-func (e *Exiftool) executeInner(args ...string) (string, error) {
-	var buf strings.Builder
-	for _, arg := range args {
-		buf.WriteString(arg)
-		buf.WriteByte('\n')
+// ExecuteWrite runs an exiftool write command and validates the response.
+// Use this for commands that modify files (metadata writes, tag copies, etc.).
+func (e *Exiftool) ExecuteWrite(args ...string) error {
+	resp, err := e.Execute(args...)
+	if err != nil {
+		return err
 	}
-	buf.WriteString("-execute\n")
-
-	if _, err := io.WriteString(e.stdin, buf.String()); err != nil {
-		return "", fmt.Errorf("error writing command to stdin: %w", err)
-	}
-
-	type scanResult struct {
-		text string
-		err  error
-	}
-	resultCh := make(chan scanResult, 1)
-	go func() {
-		if !e.scanner.Scan() {
-			if err := e.scanner.Err(); err != nil {
-				resultCh <- scanResult{"", fmt.Errorf("error reading response: %w", err)}
-				return
-			}
-			resultCh <- scanResult{"", ErrNoResponse}
-			return
-		}
-		resultCh <- scanResult{e.scanner.Text(), nil}
-	}()
-
-	select {
-	case r := <-resultCh:
-		return r.text, r.err
-	case <-e.instanceCtx.Done():
-		return "", ErrContextCanceled
-	}
+	return handleWriteResponse(resp)
 }
 
 // ExecuteWithStdin runs a one-shot process for commands requiring stdin input.
@@ -373,7 +252,7 @@ func (e *Exiftool) ExecuteWithStdin(ctx context.Context, stdinData []byte, args 
 	// Assign child to OS-level job/process-group for crash protection.
 	if pid := cmd.Process.Pid; pid > 0 {
 		if err := assignToJob(pid); err != nil {
-			slog.Warn("failed to assign exiftool to job object", "pid", pid, "error", err)
+			e.logger.Warn("failed to assign exiftool to job object", "pid", pid, "error", err)
 		}
 	}
 
@@ -462,6 +341,174 @@ func (e *Exiftool) CopyTags(src, dst string, tags []string) error {
 	return handleWriteResponse(resp)
 }
 
+func (e *Exiftool) start() error {
+	args := []string{"-stay_open", "True", "-@", "-"}
+
+	e.cmd = exec.Command(e.executable, args...)
+	e.cmd.SysProcAttr = getSysProcAttr()
+
+	// OS-level pipe: has kernel buffer, process exit automatically sends EOF.
+	// Unlike io.Pipe (synchronous, unbuffered), writes only block when the
+	// kernel buffer is full, and cmd.Wait() is never blocked by an IO goroutine.
+	stdoutPipe, err := e.cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("error creating stdout pipe: %w", err)
+	}
+
+	// Capture stderr for diagnostics during startup.
+	// bytes.Buffer is synchronous (no deadlock risk unlike io.Pipe).
+	// exiftool's Perl startup errors appear here, critical for diagnosing
+	// why the process might exit immediately (e.g., antivirus kill).
+	var stderrBuf bytes.Buffer
+	e.cmd.Stderr = &stderrBuf
+
+	if e.stdin, err = e.cmd.StdinPipe(); err != nil {
+		return fmt.Errorf("error piping stdin: %w", err)
+	}
+
+	e.scanner = bufio.NewScanner(stdoutPipe)
+	buf := make([]byte, defaultScanBufSize)
+	e.scanner.Buffer(buf, defaultScanBufMax)
+	e.scanner.Split(splitReadyToken)
+
+	if err := e.cmd.Start(); err != nil {
+		return fmt.Errorf("error starting exiftool: %w", err)
+	}
+
+	// Assign child to OS-level job/process-group for crash protection.
+	if pid := e.cmd.Process.Pid; pid > 0 {
+		if err := assignToJob(pid); err != nil {
+			e.logger.Warn("failed to assign exiftool to job object", "pid", pid, "error", err)
+		}
+	}
+
+	// Monitor goroutine: sole caller of cmd.Wait.
+	// cmd.StdoutPipe() creates no IO goroutine for stdout.
+	// stderr writes to bytes.Buffer (synchronous, never blocks).
+	// cmd.Wait() only waits for process exit — no deadlock possible.
+	e.done = make(chan struct{})
+	go func() {
+		e.cmd.Wait()
+		close(e.done)
+	}()
+
+	// Context watcher: kill process immediately when context is canceled.
+	go func() {
+		select {
+		case <-e.done:
+			// Process exited on its own.
+		case <-e.instanceCtx.Done():
+			if e.cmd != nil && e.cmd.Process != nil {
+				e.cmd.Process.Kill()
+			}
+			<-e.done
+		}
+	}()
+
+	// First start: version check
+	if e.version == "" {
+		ver, err := e.executeInner("-ver")
+		if err != nil {
+			e.cmd.Process.Kill()
+			<-e.done
+			e.reset()
+			if stderrOutput := strings.TrimSpace(stderrBuf.String()); stderrOutput != "" {
+				return fmt.Errorf("error checking version: %w (stderr: %s)", err, stderrOutput)
+			}
+			return fmt.Errorf("error checking version: %w", err)
+		}
+		ver = strings.TrimSpace(ver)
+		if err := checkVersion(ver); err != nil {
+			e.cmd.Process.Kill()
+			<-e.done
+			e.reset()
+			return fmt.Errorf("%w: %s", err, ver)
+		}
+		e.version = ver
+	}
+
+	return nil
+}
+
+// ensureStarted starts the persistent process on first use in lazy mode,
+// or restarts it if the process has exited.
+// Must be called with e.mu held.
+func (e *Exiftool) ensureStarted() error {
+	if e.isRunning() {
+		return nil
+	}
+	if e.instanceCtx.Err() != nil {
+		return ErrContextCanceled
+	}
+	if e.done != nil {
+		e.reset()
+	}
+	return e.start()
+}
+
+// isRunning checks if the subprocess is alive.
+// Must be called with e.mu held.
+func (e *Exiftool) isRunning() bool {
+	if e.done == nil {
+		return false
+	}
+	select {
+	case <-e.done:
+		return false
+	default:
+		return true
+	}
+}
+
+// reset cleans up resources from a dead process.
+// Must be called with e.mu held, after done is closed.
+func (e *Exiftool) reset() {
+	e.cmd = nil
+	e.stdin = nil
+	e.scanner = nil
+	e.done = nil
+}
+
+// executeInner is the lock-free internal execute method.
+// It can be interrupted by instanceCtx cancellation, which is critical for
+// preventing mutex deadlocks when Close() cancels the context.
+func (e *Exiftool) executeInner(args ...string) (string, error) {
+	var buf strings.Builder
+	for _, arg := range args {
+		buf.WriteString(arg)
+		buf.WriteByte('\n')
+	}
+	buf.WriteString("-execute\n")
+
+	if _, err := io.WriteString(e.stdin, buf.String()); err != nil {
+		return "", fmt.Errorf("error writing command to stdin: %w", err)
+	}
+
+	type scanResult struct {
+		text string
+		err  error
+	}
+	resultCh := make(chan scanResult, 1)
+	go func() {
+		if !e.scanner.Scan() {
+			if err := e.scanner.Err(); err != nil {
+				resultCh <- scanResult{"", fmt.Errorf("error reading response: %w", err)}
+				return
+			}
+			resultCh <- scanResult{"", ErrNoResponse}
+			return
+		}
+		resultCh <- scanResult{e.scanner.Text(), nil}
+	}()
+
+	select {
+	case r := <-resultCh:
+		return r.text, r.err
+	case <-e.instanceCtx.Done():
+		return "", ErrContextCanceled
+	}
+}
+
 func splitReadyToken(data []byte, atEOF bool) (int, []byte, error) {
 	idx := bytes.Index(data, readyToken)
 	if idx == -1 {
@@ -483,26 +530,15 @@ func splitReadyToken(data []byte, atEOF bool) (int, []byte, error) {
 	return end, data[:idx], nil
 }
 
-func checkVersion(ver string) error {
-	if ver == "" {
-		return fmt.Errorf("%w: empty version", ErrVersionMismatch)
-	}
-
-	minMajor, minMinor, err := parseVersion(minExiftoolVersion)
-	if err != nil {
-		return err
-	}
-
-	major, minor, err := parseVersion(ver)
-	if err != nil {
-		return fmt.Errorf("%w: cannot parse version %q", ErrVersionMismatch, ver)
-	}
-
-	if major > minMajor || (major == minMajor && minor >= minMinor) {
+func handleWriteResponse(resp string) error {
+	cleaned := strings.TrimSpace(resp)
+	if strings.Contains(cleaned, writeSuccessToken) {
 		return nil
 	}
-
-	return fmt.Errorf("%w: got %s, need >= %s", ErrVersionMismatch, ver, minExiftoolVersion)
+	if cleaned == "" {
+		return nil
+	}
+	return errors.New(cleaned)
 }
 
 func parseVersion(ver string) (major, minor int, err error) {
@@ -526,24 +562,24 @@ func parseVersion(ver string) (major, minor int, err error) {
 	return major, minor, nil
 }
 
-// ExecuteWrite runs an exiftool write command and validates the response.
-// Use this for commands that modify files (metadata writes, tag copies, etc.).
-func (e *Exiftool) ExecuteWrite(args ...string) error {
-	resp, err := e.Execute(args...)
+func checkVersion(ver string) error {
+	if ver == "" {
+		return fmt.Errorf("%w: empty version", ErrVersionMismatch)
+	}
+
+	minMajor, minMinor, err := parseVersion(minExiftoolVersion)
 	if err != nil {
 		return err
 	}
-	return handleWriteResponse(resp)
-}
 
-func handleWriteResponse(resp string) error {
-	cleaned := strings.TrimSpace(resp)
-	if strings.Contains(cleaned, writeSuccessToken) {
+	major, minor, err := parseVersion(ver)
+	if err != nil {
+		return fmt.Errorf("%w: cannot parse version %q", ErrVersionMismatch, ver)
+	}
+
+	if major > minMajor || (major == minMajor && minor >= minMinor) {
 		return nil
 	}
-	if cleaned == "" {
-		return nil
-	}
-	return errors.New(cleaned)
-}
 
+	return fmt.Errorf("%w: got %s, need >= %s", ErrVersionMismatch, ver, minExiftoolVersion)
+}

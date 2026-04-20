@@ -10,11 +10,7 @@ import (
 func TestConcurrentStress(t *testing.T) {
 	exiftoolAvailable(t)
 
-	e, err := New()
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	defer e.Close()
+	e := newTestInstance(t)
 
 	// Prepare 20 writable copies
 	tmpDir := t.TempDir()

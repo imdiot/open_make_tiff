@@ -1,10 +1,10 @@
 <script setup>
 import * as vue from 'vue'
-import {reactive, ref} from 'vue'
 
 import * as runtime from "../wailsjs/runtime/runtime.js";
 import * as api from "../wailsjs/go/manager/Api.js";
 import * as models from "../wailsjs/go/models.ts"
+import {ElMessage} from 'element-plus'
 
 window.addEventListener('dragover', e => {
   e.preventDefault();
@@ -15,11 +15,20 @@ runtime.OnFileDrop((x, y, paths) => {
   api.Convert(paths);
 }, false);
 
+const EVENT = {
+  CONVERT_STARTED: "omt:convert:started",
+  CONVERT_FINISHED: "omt:convert:finished",
+  FILE_STARTED: "omt:convert:file:started",
+  FILE_SUCCESS: "omt:convert:file:success",
+  FILE_SKIPPED: "omt:convert:file:skipped",
+  FILE_ERROR: "omt:convert:file:error",
+};
+
 const DEFAULT_MESSAGE = "DRAG-N-DROP MORE FILES HERE";
-const PROCESSING_MESSAGE = "PROCESSING FILES... DRAG-N-DROP IS DISABLE";
+const PROCESSING_MESSAGE = "PROCESSING FILES... DRAG-N-DROP IS DISABLED";
 const FINISHED_MESSAGE = "FINISHED PROCESSING FILES";
 
-const config = reactive({
+const config = vue.reactive({
   disableAdobeDNGConverter: false,
   enableWindowTop: false,
   enableSubfolder: false,
@@ -27,16 +36,16 @@ const config = reactive({
   iccProfile: "",
   workers: 0,
 });
-const setting = reactive({
+const setting = vue.reactive({
   workerNums: [],
   profiles: [],
   enableAdobeDNGConverter: false
 });
 
-const textarea = ref(DEFAULT_MESSAGE);
-const textareaRef = ref(null);
-const running = ref(false);
-const fileStates = ref([]);
+const textarea = vue.ref(DEFAULT_MESSAGE);
+const textareaRef = vue.ref(null);
+const running = vue.ref(false);
+const fileStates = vue.ref([]);
 
 const updateTextarea = () => {
   const symbols = {
@@ -51,63 +60,53 @@ const updateTextarea = () => {
 };
 
 vue.onMounted(async () => {
-  const config_ = await api.GetConfig();
-  config.disableAdobeDNGConverter = config_.disable_adobe_dng_converter || config.disableAdobeDNGConverter;
-  config.enableWindowTop = config_.enable_window_top || config.enableWindowTop;
-  config.enableSubfolder = config_.enable_subfolder || config.enableSubfolder;
-  config.enableCompression = config_.enable_compression || config.enableCompression;
-  config.iccProfile = config_.icc_profile || config.iccProfile;
-  config.workers = config_.workers || config.workers;
+  try {
+    const config_ = await api.GetConfig();
+    config.disableAdobeDNGConverter = config_.disable_adobe_dng_converter ?? config.disableAdobeDNGConverter;
+    config.enableWindowTop = config_.enable_window_top ?? config.enableWindowTop;
+    config.enableSubfolder = config_.enable_subfolder ?? config.enableSubfolder;
+    config.enableCompression = config_.enable_compression ?? config.enableCompression;
+    config.iccProfile = config_.icc_profile ?? config.iccProfile;
+    config.workers = config_.workers ?? config.workers;
 
-  const setting_ = await api.GetSetting();
-  setting.enableAdobeDNGConverter = setting_.enable_adobe_dng_converter || setting.enableAdobeDNGConverter;
-  const workerNums = [];
-  for (const worker_num of setting_.worker_nums) {
-    workerNums.push({
-      "value": worker_num.value,
-      "label": worker_num.label
-    });
+    const setting_ = await api.GetSetting();
+    setting.enableAdobeDNGConverter = setting_.enable_adobe_dng_converter ?? setting.enableAdobeDNGConverter;
+    setting.workerNums = setting_.worker_nums;
+    setting.profiles = setting_.profiles;
+  } catch (e) {
+    ElMessage.error("Failed to initialize: " + e);
   }
-  setting.workerNums = workerNums;
-  const profiles_ = [];
-  for (const profile of setting_.profiles) {
-    profiles_.push({
-      "value": profile.value,
-      "label": profile.label
-    });
-  }
-  setting.profiles = profiles_;
 
-  runtime.EventsOn("omt:convert:started", () => {
+  runtime.EventsOn(EVENT.CONVERT_STARTED, () => {
     running.value = true;
     fileStates.value = [];
     textarea.value = PROCESSING_MESSAGE + "\n";
   });
 
-  runtime.EventsOn("omt:convert:finished", () => {
+  runtime.EventsOn(EVENT.CONVERT_FINISHED, () => {
     running.value = false;
     textarea.value += FINISHED_MESSAGE + "\n";
     textarea.value += DEFAULT_MESSAGE + "\n";
   });
 
-  runtime.EventsOn("omt:convert:file:started", (path) => {
+  runtime.EventsOn(EVENT.FILE_STARTED, (path) => {
     fileStates.value.push({ path, state: "processing" });
     updateTextarea();
   });
 
-  runtime.EventsOn("omt:convert:file:success", (path) => {
+  runtime.EventsOn(EVENT.FILE_SUCCESS, (path) => {
     const item = fileStates.value.find(f => f.path === path);
     if (item) item.state = "success";
     updateTextarea();
   });
 
-  runtime.EventsOn("omt:convert:file:skipped", (path) => {
+  runtime.EventsOn(EVENT.FILE_SKIPPED, (path) => {
     const item = fileStates.value.find(f => f.path === path);
     if (item) item.state = "skipped";
     updateTextarea();
   });
 
-  runtime.EventsOn("omt:convert:file:error", (path) => {
+  runtime.EventsOn(EVENT.FILE_ERROR, (path) => {
     const item = fileStates.value.find(f => f.path === path);
     if (item) item.state = "error";
     updateTextarea();
@@ -115,12 +114,12 @@ vue.onMounted(async () => {
 })
 
 vue.onUnmounted(() => {
-  runtime.EventsOff("omt:convert:started");
-  runtime.EventsOff("omt:convert:finished");
-  runtime.EventsOff("omt:convert:file:started");
-  runtime.EventsOff("omt:convert:file:success");
-  runtime.EventsOff("omt:convert:file:skipped");
-  runtime.EventsOff("omt:convert:file:error");
+  runtime.EventsOff(EVENT.CONVERT_STARTED);
+  runtime.EventsOff(EVENT.CONVERT_FINISHED);
+  runtime.EventsOff(EVENT.FILE_STARTED);
+  runtime.EventsOff(EVENT.FILE_SUCCESS);
+  runtime.EventsOff(EVENT.FILE_SKIPPED);
+  runtime.EventsOff(EVENT.FILE_ERROR);
 });
 
 vue.watch(textarea, () => {
@@ -133,22 +132,26 @@ vue.watch(textarea, () => {
 });
 
 const handleConfigChange = async () => {
-  const cfg = new models.manager.Config({
-    disable_adobe_dng_converter: config.disableAdobeDNGConverter,
-    enable_window_top: config.enableWindowTop,
-    enable_subfolder: config.enableSubfolder,
-    enable_compression: config.enableCompression,
-    icc_profile: config.iccProfile,
-    workers: config.workers,
-  })
+  try {
+    const cfg = new models.manager.Config({
+      disable_adobe_dng_converter: config.disableAdobeDNGConverter,
+      enable_window_top: config.enableWindowTop,
+      enable_subfolder: config.enableSubfolder,
+      enable_compression: config.enableCompression,
+      icc_profile: config.iccProfile,
+      workers: config.workers,
+    })
 
-  const config_ = await api.SetConfig(cfg);
-  config.disableAdobeDNGConverter = config_.disable_adobe_dng_converter || config.disableAdobeDNGConverter;
-  config.enableWindowTop = config_.enable_window_top || config.enableWindowTop;
-  config.enableSubfolder = config_.enable_subfolder || config.enableSubfolder;
-  config.enableCompression = config_.enable_compression || config.enableCompression;
-  config.iccProfile = config_.icc_profile || config.iccProfile;
-  config.workers = config_.workers || config.workers;
+    const config_ = await api.SetConfig(cfg);
+    config.disableAdobeDNGConverter = config_.disable_adobe_dng_converter ?? config.disableAdobeDNGConverter;
+    config.enableWindowTop = config_.enable_window_top ?? config.enableWindowTop;
+    config.enableSubfolder = config_.enable_subfolder ?? config.enableSubfolder;
+    config.enableCompression = config_.enable_compression ?? config.enableCompression;
+    config.iccProfile = config_.icc_profile ?? config.iccProfile;
+    config.workers = config_.workers ?? config.workers;
+  } catch (e) {
+    ElMessage.error("Failed to save config: " + e);
+  }
 };
 </script>
 

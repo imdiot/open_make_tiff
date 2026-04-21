@@ -602,7 +602,7 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage) error {
 
 	// ICC profile.
 	if profile, ok := icc.Profiles[r.cfg.Profile]; ok {
-		if err := tf.SetFieldByteSlice(golibtiff.TagIccProfile, profile.Data()); err != nil {
+		if err := tf.SetFieldByteSlice(golibtiff.TagIccProfile, profile.Data); err != nil {
 			return fmt.Errorf("set ICC profile: %w", err)
 		}
 	}

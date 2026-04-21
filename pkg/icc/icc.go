@@ -18,23 +18,15 @@ var (
 )
 
 var Profiles = map[string]*Profile{
-	"AdobeRGB1998":  {name: "Adobe RGB 1998", data: _AdobeRGB1998},
-	"BT2020":        {name: "BT.2020", data: _BT2020},
-	"DisplayP3":     {name: "Display P3", data: _DisplayP3},
-	"HasselbladRGB": {name: "Hasselblad RGB", data: _HasselbladRGB},
-	"ProPhoto":      {name: "ProPhoto", data: _ProPhoto},
-	"sRGB":          {name: "sRGB", data: _sRGB},
+	"AdobeRGB1998":  {Name: "Adobe RGB 1998", Data: _AdobeRGB1998},
+	"BT2020":        {Name: "BT.2020", Data: _BT2020},
+	"DisplayP3":     {Name: "Display P3", Data: _DisplayP3},
+	"HasselbladRGB": {Name: "Hasselblad RGB", Data: _HasselbladRGB},
+	"ProPhoto":      {Name: "ProPhoto", Data: _ProPhoto},
+	"sRGB":          {Name: "sRGB", Data: _sRGB},
 }
 
 type Profile struct {
-	name string
-	data []byte
-}
-
-func (p *Profile) Name() string {
-	return p.name
-}
-
-func (p *Profile) Data() []byte {
-	return p.data
+	Name string
+	Data []byte
 }

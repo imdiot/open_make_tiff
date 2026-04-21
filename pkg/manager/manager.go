@@ -117,7 +117,7 @@ func New(opts ...ManagerOption) *Manager {
 	}
 	setting.Profiles = append(setting.Profiles, &ProfileOption{Value: "", Label: "none"})
 	for k, v := range icc.Profiles {
-		setting.Profiles = append(setting.Profiles, &ProfileOption{Value: v.Name(), Label: k})
+		setting.Profiles = append(setting.Profiles, &ProfileOption{Value: k, Label: v.Name})
 	}
 	slices.SortStableFunc(setting.Profiles, func(a, b *ProfileOption) int { return cmp.Compare(a.Value, b.Value) })
 

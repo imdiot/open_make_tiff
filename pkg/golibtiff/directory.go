@@ -8,21 +8,20 @@ package golibtiff
 import "C"
 
 import (
-	"errors"
 	"fmt"
 )
 
 // --- Directory Operations ---
 
 func (t *TIFF) NumberOfDirectories() uint32 {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return 0
 	}
 	return uint32(C.TIFFNumberOfDirectories(t.tif))
 }
 
 func (t *TIFF) CurrentDirectory() uint32 {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return 0
 	}
 	return uint32(C.TIFFCurrentDirectory(t.tif))
@@ -35,16 +34,16 @@ func (t *TIFF) SetDirectory(dirnum uint32) error {
 	C.clearHandleError(t.tif)
 	if C.TIFFSetDirectory(t.tif, C.tdir_t(dirnum)) == 0 {
 		if err := t.lastError(); err != nil {
-			return err
+			return &DirectoryError{Op: "SetDirectory", Msg: fmt.Sprintf("dir %d: %s", dirnum, err)}
 		}
-		return errors.New("libtiff: failed to set directory")
+		return &DirectoryError{Op: "SetDirectory", Msg: fmt.Sprintf("dir %d: failed", dirnum)}
 	}
 	return nil
 }
 
 // ReadDirectory reads the next directory. Returns true if a directory was read.
 func (t *TIFF) ReadDirectory() bool {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return false
 	}
 	return C.TIFFReadDirectory(t.tif) != 0
@@ -57,9 +56,9 @@ func (t *TIFF) WriteDirectory() error {
 	C.clearHandleError(t.tif)
 	if C.TIFFWriteDirectory(t.tif) == 0 {
 		if err := t.lastError(); err != nil {
-			return err
+			return &DirectoryError{Op: "WriteDirectory", Msg: err.Error()}
 		}
-		return errors.New("libtiff: failed to write directory")
+		return &DirectoryError{Op: "WriteDirectory", Msg: "failed"}
 	}
 	return nil
 }
@@ -73,9 +72,9 @@ func (t *TIFF) CheckpointDirectory() error {
 	C.clearHandleError(t.tif)
 	if C.tiffCheckpointDirectory(t.tif) == 0 {
 		if err := t.lastError(); err != nil {
-			return err
+			return &DirectoryError{Op: "CheckpointDirectory", Msg: err.Error()}
 		}
-		return errors.New("libtiff: failed to checkpoint directory")
+		return &DirectoryError{Op: "CheckpointDirectory", Msg: "failed"}
 	}
 	return nil
 }
@@ -87,9 +86,9 @@ func (t *TIFF) SetSubDirectory(offset uint64) error {
 	C.clearHandleError(t.tif)
 	if C.TIFFSetSubDirectory(t.tif, C.uint64_t(offset)) == 0 {
 		if err := t.lastError(); err != nil {
-			return err
+			return &DirectoryError{Op: "SetSubDirectory", Msg: fmt.Sprintf("offset %d: %s", offset, err)}
 		}
-		return errors.New("libtiff: failed to set subdirectory")
+		return &DirectoryError{Op: "SetSubDirectory", Msg: fmt.Sprintf("offset %d: failed", offset)}
 	}
 	return nil
 }
@@ -103,15 +102,15 @@ func (t *TIFF) ReadEXIFDirectory(offset uint64) error {
 	C.clearHandleError(t.tif)
 	if C.tiffReadEXIFDirectory(t.tif, C.uint64_t(offset)) == 0 {
 		if err := t.lastError(); err != nil {
-			return err
+			return &DirectoryError{Op: "ReadEXIFDirectory", Msg: fmt.Sprintf("offset %d: %s", offset, err)}
 		}
-		return errors.New("libtiff: failed to read EXIF directory")
+		return &DirectoryError{Op: "ReadEXIFDirectory", Msg: fmt.Sprintf("offset %d: failed", offset)}
 	}
 	return nil
 }
 
 func (t *TIFF) LastDirectory() bool {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return false
 	}
 	return C.TIFFLastDirectory(t.tif) != 0
@@ -127,9 +126,9 @@ func (t *TIFF) CreateEXIFDirectory() error {
 	C.clearHandleError(t.tif)
 	if C.tiffCreateEXIFDirectory(t.tif) != 0 {
 		if err := t.lastError(); err != nil {
-			return fmt.Errorf("libtiff: CreateEXIFDirectory: %w", err)
+			return &DirectoryError{Op: "CreateEXIFDirectory", Msg: err.Error()}
 		}
-		return errors.New("libtiff: CreateEXIFDirectory failed")
+		return &DirectoryError{Op: "CreateEXIFDirectory", Msg: "failed"}
 	}
 	return nil
 }
@@ -144,9 +143,9 @@ func (t *TIFF) WriteCustomDirectory() (uint64, error) {
 	var offset C.uint64_t
 	if C.tiffWriteCustomDirectory(t.tif, &offset) == 0 {
 		if err := t.lastError(); err != nil {
-			return 0, fmt.Errorf("libtiff: WriteCustomDirectory: %w", err)
+			return 0, &DirectoryError{Op: "WriteCustomDirectory", Msg: err.Error()}
 		}
-		return 0, errors.New("libtiff: WriteCustomDirectory failed")
+		return 0, &DirectoryError{Op: "WriteCustomDirectory", Msg: "failed"}
 	}
 	return uint64(offset), nil
 }
@@ -161,9 +160,9 @@ func (t *TIFF) CreateGPSDirectory() error {
 	C.clearHandleError(t.tif)
 	if C.tiffCreateGPSDirectory(t.tif) != 0 {
 		if err := t.lastError(); err != nil {
-			return fmt.Errorf("libtiff: CreateGPSDirectory: %w", err)
+			return &DirectoryError{Op: "CreateGPSDirectory", Msg: err.Error()}
 		}
-		return errors.New("libtiff: CreateGPSDirectory failed")
+		return &DirectoryError{Op: "CreateGPSDirectory", Msg: "failed"}
 	}
 	return nil
 }
@@ -178,9 +177,9 @@ func (t *TIFF) ReadGPSDirectory(offset uint64) error {
 	C.clearHandleError(t.tif)
 	if C.tiffReadGPSDirectory(t.tif, C.uint64_t(offset)) == 0 {
 		if err := t.lastError(); err != nil {
-			return err
+			return &DirectoryError{Op: "ReadGPSDirectory", Msg: fmt.Sprintf("offset %d: %s", offset, err)}
 		}
-		return errors.New("libtiff: failed to read GPS directory")
+		return &DirectoryError{Op: "ReadGPSDirectory", Msg: fmt.Sprintf("offset %d: failed", offset)}
 	}
 	return nil
 }
@@ -193,16 +192,16 @@ func (t *TIFF) CreateDirectory() error {
 	C.clearHandleError(t.tif)
 	if C.tiffCreateDirectory(t.tif) != 0 {
 		if err := t.lastError(); err != nil {
-			return err
+			return &DirectoryError{Op: "CreateDirectory", Msg: err.Error()}
 		}
-		return errors.New("libtiff: failed to create directory")
+		return &DirectoryError{Op: "CreateDirectory", Msg: "failed"}
 	}
 	return nil
 }
 
 // FreeDirectory releases internal data associated with the current IFD.
 func (t *TIFF) FreeDirectory() {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return
 	}
 	C.TIFFFreeDirectory(t.tif)
@@ -215,11 +214,11 @@ func (t *TIFF) RewriteDirectory() error {
 		return err
 	}
 	C.clearHandleError(t.tif)
-	if C.tiffRewriteDirectory(t.tif) == 0 {
+	if C.TIFFRewriteDirectory(t.tif) == 0 {
 		if err := t.lastError(); err != nil {
-			return err
+			return &DirectoryError{Op: "RewriteDirectory", Msg: err.Error()}
 		}
-		return errors.New("libtiff: failed to rewrite directory")
+		return &DirectoryError{Op: "RewriteDirectory", Msg: "failed"}
 	}
 	return nil
 }
@@ -230,11 +229,11 @@ func (t *TIFF) UnlinkDirectory(dirNum uint16) error {
 		return err
 	}
 	C.clearHandleError(t.tif)
-	if C.tiffUnlinkDirectory(t.tif, C.uint16_t(dirNum)) == 0 {
+	if C.TIFFUnlinkDirectory(t.tif, C.tdir_t(dirNum)) == 0 {
 		if err := t.lastError(); err != nil {
-			return err
+			return &DirectoryError{Op: "UnlinkDirectory", Msg: fmt.Sprintf("dir %d: %s", dirNum, err)}
 		}
-		return errors.New("libtiff: failed to unlink directory")
+		return &DirectoryError{Op: "UnlinkDirectory", Msg: fmt.Sprintf("dir %d: failed", dirNum)}
 	}
 	return nil
 }
@@ -243,7 +242,7 @@ func (t *TIFF) UnlinkDirectory(dirNum uint16) error {
 
 // TagListCount returns the number of tags defined in the current IFD.
 func (t *TIFF) TagListCount() int {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return 0
 	}
 	return int(C.TIFFGetTagListCount(t.tif))
@@ -251,7 +250,7 @@ func (t *TIFF) TagListCount() int {
 
 // TagListEntry returns the tag number at the given index.
 func (t *TIFF) TagListEntry(index int) Tag {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return 0
 	}
 	return Tag(C.TIFFGetTagListEntry(t.tif, C.int(index)))

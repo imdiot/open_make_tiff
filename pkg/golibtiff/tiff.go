@@ -8,7 +8,6 @@ package golibtiff
 import "C"
 
 import (
-	"errors"
 	"fmt"
 	"runtime"
 	"sync"
@@ -82,9 +81,14 @@ func (t *TIFF) Close() error {
 	return nil
 }
 
+// IsOpen reports whether the TIFF handle is still open and usable.
+func (t *TIFF) IsOpen() bool {
+	return t.tif != nil
+}
+
 // FileName returns the file name associated with the TIFF handle.
 func (t *TIFF) FileName() string {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return ""
 	}
 	return C.GoString(C.TIFFFileName(t.tif))
@@ -92,7 +96,7 @@ func (t *TIFF) FileName() string {
 
 func (t *TIFF) checkOpen() error {
 	if t.tif == nil {
-		return errors.New("libtiff: handle is closed")
+		return ErrClosed
 	}
 	return nil
 }
@@ -219,6 +223,66 @@ func (t *TIFF) GetFieldUint64(tag Tag) (uint64, error) {
 		return 0, &FieldError{Tag: tag, Op: "get", Msg: "field not found"}
 	}
 	return uint64(val), nil
+}
+
+func (t *TIFF) GetFieldInt8(tag Tag) (int8, error) {
+	if err := t.checkOpen(); err != nil {
+		return 0, err
+	}
+	C.clearHandleError(t.tif)
+	var val C.int8_t
+	if C.tiffGetFieldS8(t.tif, C.uint32_t(tag), &val) == 0 {
+		if err := t.lastError(); err != nil {
+			return 0, &FieldError{Tag: tag, Op: "get", Msg: err.Error()}
+		}
+		return 0, &FieldError{Tag: tag, Op: "get", Msg: "field not found"}
+	}
+	return int8(val), nil
+}
+
+func (t *TIFF) GetFieldInt16(tag Tag) (int16, error) {
+	if err := t.checkOpen(); err != nil {
+		return 0, err
+	}
+	C.clearHandleError(t.tif)
+	var val C.int16_t
+	if C.tiffGetFieldS16(t.tif, C.uint32_t(tag), &val) == 0 {
+		if err := t.lastError(); err != nil {
+			return 0, &FieldError{Tag: tag, Op: "get", Msg: err.Error()}
+		}
+		return 0, &FieldError{Tag: tag, Op: "get", Msg: "field not found"}
+	}
+	return int16(val), nil
+}
+
+func (t *TIFF) GetFieldInt32(tag Tag) (int32, error) {
+	if err := t.checkOpen(); err != nil {
+		return 0, err
+	}
+	C.clearHandleError(t.tif)
+	var val C.int32_t
+	if C.tiffGetFieldS32(t.tif, C.uint32_t(tag), &val) == 0 {
+		if err := t.lastError(); err != nil {
+			return 0, &FieldError{Tag: tag, Op: "get", Msg: err.Error()}
+		}
+		return 0, &FieldError{Tag: tag, Op: "get", Msg: "field not found"}
+	}
+	return int32(val), nil
+}
+
+func (t *TIFF) GetFieldInt64(tag Tag) (int64, error) {
+	if err := t.checkOpen(); err != nil {
+		return 0, err
+	}
+	C.clearHandleError(t.tif)
+	var val C.int64_t
+	if C.tiffGetFieldS64(t.tif, C.uint32_t(tag), &val) == 0 {
+		if err := t.lastError(); err != nil {
+			return 0, &FieldError{Tag: tag, Op: "get", Msg: err.Error()}
+		}
+		return 0, &FieldError{Tag: tag, Op: "get", Msg: "field not found"}
+	}
+	return int64(val), nil
 }
 
 // GetFieldByteSlice reads a BYTE/UNDEFINED array field (e.g. ICC Profile, XMP, MakerNotes).
@@ -507,6 +571,62 @@ func (t *TIFF) SetFieldUint64(tag Tag, v uint64) error {
 	return nil
 }
 
+func (t *TIFF) SetFieldInt8(tag Tag, v int8) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	C.clearHandleError(t.tif)
+	if C.tiffSetFieldS8(t.tif, C.uint32_t(tag), C.int8_t(v)) == 0 {
+		if err := t.lastError(); err != nil {
+			return &FieldError{Tag: tag, Op: "set", Msg: err.Error()}
+		}
+		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
+	}
+	return nil
+}
+
+func (t *TIFF) SetFieldInt16(tag Tag, v int16) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	C.clearHandleError(t.tif)
+	if C.tiffSetFieldS16(t.tif, C.uint32_t(tag), C.int16_t(v)) == 0 {
+		if err := t.lastError(); err != nil {
+			return &FieldError{Tag: tag, Op: "set", Msg: err.Error()}
+		}
+		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
+	}
+	return nil
+}
+
+func (t *TIFF) SetFieldInt32(tag Tag, v int32) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	C.clearHandleError(t.tif)
+	if C.tiffSetFieldS32(t.tif, C.uint32_t(tag), C.int32_t(v)) == 0 {
+		if err := t.lastError(); err != nil {
+			return &FieldError{Tag: tag, Op: "set", Msg: err.Error()}
+		}
+		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
+	}
+	return nil
+}
+
+func (t *TIFF) SetFieldInt64(tag Tag, v int64) error {
+	if err := t.checkOpen(); err != nil {
+		return err
+	}
+	C.clearHandleError(t.tif)
+	if C.tiffSetFieldS64(t.tif, C.uint32_t(tag), C.int64_t(v)) == 0 {
+		if err := t.lastError(); err != nil {
+			return &FieldError{Tag: tag, Op: "set", Msg: err.Error()}
+		}
+		return &FieldError{Tag: tag, Op: "set", Msg: "failed"}
+	}
+	return nil
+}
+
 // SetFieldUint8 sets a single-byte field.
 func (t *TIFF) SetFieldUint8(tag Tag, v uint8) error {
 	if err := t.checkOpen(); err != nil {
@@ -628,7 +748,7 @@ func (t *TIFF) UnsetField(tag Tag) error {
 
 // IsFieldKnown checks if a tag is registered in libtiff's field definitions.
 func (t *TIFF) IsFieldKnown(tag Tag) bool {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return false
 	}
 	return C.tiffIsFieldKnown(t.tif, C.uint32_t(tag)) != 0
@@ -637,7 +757,7 @@ func (t *TIFF) IsFieldKnown(tag Tag) bool {
 // GetFieldType returns the libtiff-registered TIFFDataType for a tag.
 // Returns -1 if the tag is not registered.
 func (t *TIFF) GetFieldType(tag Tag) DataType {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return -1
 	}
 	return DataType(C.tiffGetFieldType(t.tif, C.uint32_t(tag)))
@@ -645,7 +765,7 @@ func (t *TIFF) GetFieldType(tag Tag) DataType {
 
 // FieldPassCount reports whether a tag requires a count argument in TIFFSetField.
 func (t *TIFF) FieldPassCount(tag Tag) bool {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return false
 	}
 	return C.tiffFieldPassCount(t.tif, C.uint32_t(tag)) != 0
@@ -653,7 +773,7 @@ func (t *TIFF) FieldPassCount(tag Tag) bool {
 
 // FieldWriteCount returns the number of values a tag expects.
 func (t *TIFF) FieldWriteCount(tag Tag) int {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return 0
 	}
 	return int(C.tiffFieldWriteCount(t.tif, C.uint32_t(tag)))
@@ -662,7 +782,7 @@ func (t *TIFF) FieldWriteCount(tag Tag) int {
 // FieldSetGetSize returns the per-element storage size in bytes for the tag.
 // Returns 4 for SETGET_*_FLOAT tags, 8 for SETGET_*_DOUBLE tags, -1 if unknown.
 func (t *TIFF) FieldSetGetSize(tag Tag) int {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return -1
 	}
 	return int(C.tiffFieldSetGetSize(t.tif, C.uint32_t(tag)))
@@ -741,7 +861,7 @@ func (t *TIFF) GetFieldDefaultedString(tag Tag) (string, error) {
 // (pass-count, storage size).
 //
 // Supported value types:
-//   - uint8, uint16, uint32, uint64, float64, string
+//   - int8, int16, int32, int64, uint8, uint16, uint32, uint64, float64, string
 //   - []byte, []uint16, []uint32, []float64
 func (t *TIFF) SetFieldAny(tag Tag, value any) error {
 	if err := t.checkOpen(); err != nil {
@@ -757,6 +877,16 @@ func (t *TIFF) SetFieldAny(tag Tag, value any) error {
 		return t.SetFieldUint16(tag, v)
 	case uint32:
 		return t.SetFieldUint32(tag, v)
+	case uint64:
+		return t.SetFieldUint64(tag, v)
+	case int8:
+		return t.SetFieldInt8(tag, v)
+	case int16:
+		return t.SetFieldInt16(tag, v)
+	case int32:
+		return t.SetFieldInt32(tag, v)
+	case int64:
+		return t.SetFieldInt64(tag, v)
 	case float64:
 		if sz == 4 {
 			return t.SetFieldFloat(tag, v)
@@ -792,5 +922,58 @@ func (t *TIFF) SetFieldAny(tag Tag, value any) error {
 		return t.SetFieldC0DoubleSlice(tag, v)
 	default:
 		return fmt.Errorf("libtiff: unsupported value type %T for tag %d", value, uint32(tag))
+	}
+}
+
+// GetFieldAny reads a tag's value, dispatching to the correct typed getter
+// based on the tag's registered DataType and FieldPassCount.
+//
+// Mapping:
+//
+//	DataTypeShort, DataTypeLong, DataTypeLong8, DataTypeIFD, DataTypeIFD8  → uint16/uint32/uint64
+//	DataTypeByte, DataTypeUndefined                                        → uint8 or []byte (passCount)
+//	DataTypeSByte                                                         → int8 or []byte (passCount)
+//	DataTypeSShort, DataTypeSLong, DataTypeSLong8                          → int16/int32/int64
+//	DataTypeRational, DataTypeSRational, DataTypeFloat                     → float64
+//	DataTypeDouble                                                         → float64 (via GetFieldDouble)
+//	DataTypeASCII                                                          → string
+func (t *TIFF) GetFieldAny(tag Tag) (any, error) {
+	dt := t.GetFieldType(tag)
+	if dt < 0 {
+		return nil, &FieldError{Tag: tag, Op: "GetFieldAny", Msg: "unknown tag type"}
+	}
+	passCount := t.FieldPassCount(tag)
+
+	switch dt {
+	case DataTypeShort:
+		return t.GetFieldUint16(tag)
+	case DataTypeLong, DataTypeIFD:
+		return t.GetFieldUint32(tag)
+	case DataTypeLong8, DataTypeIFD8:
+		return t.GetFieldUint64(tag)
+	case DataTypeRational, DataTypeSRational, DataTypeFloat:
+		return t.GetFieldFloat(tag)
+	case DataTypeDouble:
+		return t.GetFieldDouble(tag)
+	case DataTypeASCII:
+		return t.GetFieldString(tag)
+	case DataTypeByte, DataTypeUndefined:
+		if passCount {
+			return t.GetFieldByteSlice(tag)
+		}
+		return t.GetFieldUint8(tag)
+	case DataTypeSByte:
+		if passCount {
+			return t.GetFieldByteSlice(tag)
+		}
+		return t.GetFieldInt8(tag)
+	case DataTypeSShort:
+		return t.GetFieldInt16(tag)
+	case DataTypeSLong:
+		return t.GetFieldInt32(tag)
+	case DataTypeSLong8:
+		return t.GetFieldInt64(tag)
+	default:
+		return nil, &FieldError{Tag: tag, Op: "GetFieldAny", Msg: fmt.Sprintf("unsupported data type %d", dt)}
 	}
 }

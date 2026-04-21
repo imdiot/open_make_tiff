@@ -32,6 +32,10 @@ int tiffGetFieldU16Array(TIFF *t, uint32_t tag, uint16_t **v, uint16_t *c);
 int tiffGetFieldU32Array(TIFF *t, uint32_t tag, uint32_t **v, uint32_t *c);
 int tiffGetFieldU8(TIFF *t, uint32_t tag, uint8_t *v);
 int tiffGetFieldU64(TIFF *t, uint32_t tag, uint64_t *v);
+int tiffGetFieldS8(TIFF *t, uint32_t tag, int8_t *v);
+int tiffGetFieldS16(TIFF *t, uint32_t tag, int16_t *v);
+int tiffGetFieldS32(TIFF *t, uint32_t tag, int32_t *v);
+int tiffGetFieldS64(TIFF *t, uint32_t tag, int64_t *v);
 int tiffReadEXIFDirectory(TIFF *t, uint64_t off);
 
 // Typed setters (avoid variadic TIFFSetField from Go).
@@ -56,6 +60,10 @@ int tiffSetFieldFloatSlice(TIFF *t, uint32_t tag, int c, float *v);
 int tiffSetFieldU64(TIFF *t, uint32_t tag, uint64_t v);
 int tiffCheckpointDirectory(TIFF *t);
 int tiffSetFieldU8(TIFF *t, uint32_t tag, uint8_t v);
+int tiffSetFieldS8(TIFF *t, uint32_t tag, int8_t v);
+int tiffSetFieldS16(TIFF *t, uint32_t tag, int16_t v);
+int tiffSetFieldS32(TIFF *t, uint32_t tag, int32_t v);
+int tiffSetFieldS64(TIFF *t, uint32_t tag, int64_t v);
 int tiffSetFieldC0Float(TIFF *t, uint32_t tag, float *v);
 int tiffSetFieldDouble(TIFF *t, uint32_t tag, double v);
 int tiffSetFieldDoubleSlice(TIFF *t, uint32_t tag, int c, double *v);

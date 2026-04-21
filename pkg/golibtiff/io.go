@@ -17,64 +17,64 @@ import (
 // --- Info Queries (direct C API calls) ---
 
 func (t *TIFF) IsTiled() bool {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return false
 	}
 	return C.TIFFIsTiled(t.tif) != 0
 }
 
-func (t *TIFF) ScanlineSize() int64 {
-	if err := t.checkOpen(); err != nil {
+func (t *TIFF) ScanlineSize() int {
+	if t.tif == nil {
 		return 0
 	}
-	return int64(C.TIFFScanlineSize(t.tif))
+	return int(C.TIFFScanlineSize(t.tif))
 }
 
-func (t *TIFF) StripSize() int64 {
-	if err := t.checkOpen(); err != nil {
+func (t *TIFF) StripSize() int {
+	if t.tif == nil {
 		return 0
 	}
-	return int64(C.TIFFStripSize(t.tif))
+	return int(C.TIFFStripSize(t.tif))
 }
 
 // DefaultStripSize returns the default RowsPerStrip value (8192 / scanline_size).
 func (t *TIFF) DefaultStripSize() uint32 {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return 0
 	}
 	return uint32(C.TIFFDefaultStripSize(t.tif, 0))
 }
 
-func (t *TIFF) TileSize() int64 {
-	if err := t.checkOpen(); err != nil {
+func (t *TIFF) TileSize() int {
+	if t.tif == nil {
 		return 0
 	}
-	return int64(C.TIFFTileSize(t.tif))
+	return int(C.TIFFTileSize(t.tif))
 }
 
 func (t *TIFF) NumberOfStrips() uint32 {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return 0
 	}
 	return uint32(C.TIFFNumberOfStrips(t.tif))
 }
 
 func (t *TIFF) NumberOfTiles() uint32 {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return 0
 	}
 	return uint32(C.TIFFNumberOfTiles(t.tif))
 }
 
 func (t *TIFF) IsBigTIFF() bool {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return false
 	}
 	return C.TIFFIsBigTIFF(t.tif) != 0
 }
 
 func (t *TIFF) IsByteSwapped() bool {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return false
 	}
 	return C.TIFFIsByteSwapped(t.tif) != 0
@@ -103,7 +103,7 @@ func (t *TIFF) ReadScanline(buf []byte, row uint32) error {
 
 // ReadEncodedStrip reads decoded strip data into buf. Returns bytes read.
 // If size <= 0, reads StripSize() bytes.
-func (t *TIFF) ReadEncodedStrip(strip uint32, buf []byte, size int64) (int, error) {
+func (t *TIFF) ReadEncodedStrip(strip uint32, buf []byte, size int) (int, error) {
 	if err := t.checkOpen(); err != nil {
 		return 0, err
 	}
@@ -126,7 +126,7 @@ func (t *TIFF) ReadEncodedStrip(strip uint32, buf []byte, size int64) (int, erro
 	return int(n), nil
 }
 
-func (t *TIFF) ReadRawStrip(strip uint32, buf []byte, size int64) (int, error) {
+func (t *TIFF) ReadRawStrip(strip uint32, buf []byte, size int) (int, error) {
 	if err := t.checkOpen(); err != nil {
 		return 0, err
 	}
@@ -251,7 +251,7 @@ func (t *TIFF) WriteRawStrip(strip uint32, data []byte) (int, error) {
 
 // ReadEncodedTile reads decoded tile data into buf. Returns bytes read.
 // If size <= 0, reads TileSize() bytes.
-func (t *TIFF) ReadEncodedTile(tile uint32, buf []byte, size int64) (int, error) {
+func (t *TIFF) ReadEncodedTile(tile uint32, buf []byte, size int) (int, error) {
 	if err := t.checkOpen(); err != nil {
 		return 0, err
 	}
@@ -311,7 +311,7 @@ func (t *TIFF) Flush() error {
 
 // StrileOffset returns the byte offset of the given strip or tile.
 func (t *TIFF) StrileOffset(strile uint32) uint64 {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return 0
 	}
 	return uint64(C.tiffGetStrileOffset(t.tif, C.uint32_t(strile)))
@@ -319,7 +319,7 @@ func (t *TIFF) StrileOffset(strile uint32) uint64 {
 
 // StrileByteCount returns the byte count of the given strip or tile.
 func (t *TIFF) StrileByteCount(strile uint32) uint64 {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return 0
 	}
 	return uint64(C.tiffGetStrileByteCount(t.tif, C.uint32_t(strile)))
@@ -400,11 +400,11 @@ func (t *TIFF) WriteRawTile(tile uint32, data []byte) (int, error) {
 }
 
 // TileRowSize returns the number of bytes in a decoded row of a tile.
-func (t *TIFF) TileRowSize() int64 {
-	if err := t.checkOpen(); err != nil {
+func (t *TIFF) TileRowSize() int {
+	if t.tif == nil {
 		return 0
 	}
-	return int64(C.TIFFTileRowSize(t.tif))
+	return int(C.TIFFTileRowSize(t.tif))
 }
 
 // --- ReadFromUserBuffer ---
@@ -455,7 +455,7 @@ func (t *TIFF) FlushData() error {
 
 // CurrentDirOffset returns the byte offset of the current IFD in the file.
 func (t *TIFF) CurrentDirOffset() uint64 {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return 0
 	}
 	return uint64(C.tiffCurrentDirOffset(t.tif))
@@ -465,43 +465,43 @@ func (t *TIFF) CurrentDirOffset() uint64 {
 
 // RawStripSize returns the number of bytes in a raw (compressed) strip.
 // Useful for allocating buffers before calling ReadRawStrip.
-func (t *TIFF) RawStripSize(strip uint32) int64 {
-	if err := t.checkOpen(); err != nil {
+func (t *TIFF) RawStripSize(strip uint32) int {
+	if t.tif == nil {
 		return -1
 	}
-	return int64(C.TIFFRawStripSize(t.tif, C.uint32_t(strip)))
+	return int(C.TIFFRawStripSize(t.tif, C.uint32_t(strip)))
 }
 
 // RasterScanlineSize returns the number of bytes in a decoded scanline
 // (may differ from ScanlineSize for planar-configured images).
-func (t *TIFF) RasterScanlineSize() int64 {
-	if err := t.checkOpen(); err != nil {
+func (t *TIFF) RasterScanlineSize() int {
+	if t.tif == nil {
 		return 0
 	}
-	return int64(C.TIFFRasterScanlineSize(t.tif))
+	return int(C.TIFFRasterScanlineSize(t.tif))
 }
 
 // VStripSize returns the number of bytes for nrows of data.
-func (t *TIFF) VStripSize(nrows uint32) int64 {
-	if err := t.checkOpen(); err != nil {
+func (t *TIFF) VStripSize(nrows uint32) int {
+	if t.tif == nil {
 		return 0
 	}
-	return int64(C.TIFFVStripSize(t.tif, C.uint32_t(nrows)))
+	return int(C.TIFFVStripSize(t.tif, C.uint32_t(nrows)))
 }
 
 // VTileSize returns the number of bytes for nrows of tile data.
-func (t *TIFF) VTileSize(nrows uint32) int64 {
-	if err := t.checkOpen(); err != nil {
+func (t *TIFF) VTileSize(nrows uint32) int {
+	if t.tif == nil {
 		return 0
 	}
-	return int64(C.TIFFVTileSize(t.tif, C.uint32_t(nrows)))
+	return int(C.TIFFVTileSize(t.tif, C.uint32_t(nrows)))
 }
 
 // --- Tile coordinate operations ---
 
 // ComputeTile returns the tile number for a pixel at (x, y, z) in sample s.
 func (t *TIFF) ComputeTile(x, y, z uint32, sample uint16) uint32 {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return 0
 	}
 	return uint32(C.TIFFComputeTile(t.tif, C.uint32_t(x), C.uint32_t(y), C.uint32_t(z), C.uint16_t(sample)))
@@ -509,7 +509,7 @@ func (t *TIFF) ComputeTile(x, y, z uint32, sample uint16) uint32 {
 
 // ComputeStrip returns the strip number for a row in the given sample.
 func (t *TIFF) ComputeStrip(row uint32, sample uint16) uint32 {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return 0
 	}
 	return uint32(C.TIFFComputeStrip(t.tif, C.uint32_t(row), C.uint16_t(sample)))
@@ -561,7 +561,7 @@ func (t *TIFF) WriteTile(x, y, z uint32, sample uint16, data []byte) (int, error
 
 // DefaultTileSize returns the default tile width and height for the image.
 func (t *TIFF) DefaultTileSize() (uint32, uint32) {
-	if err := t.checkOpen(); err != nil {
+	if t.tif == nil {
 		return 0, 0
 	}
 	var tw, th C.uint32_t

@@ -84,6 +84,10 @@ int tiffGetFieldU16Array(TIFF *t, uint32_t tag, uint16_t **v, uint16_t *c) { ret
 int tiffGetFieldU32Array(TIFF *t, uint32_t tag, uint32_t **v, uint32_t *c) { return TIFFGetField(t, tag, c, v); }
 int tiffGetFieldU8(TIFF *t, uint32_t tag, uint8_t *v) { return TIFFGetField(t, tag, v); }
 int tiffGetFieldU64(TIFF *t, uint32_t tag, uint64_t *v) { return TIFFGetField(t, tag, v); }
+int tiffGetFieldS8(TIFF *t, uint32_t tag, int8_t *v) { return TIFFGetField(t, tag, v); }
+int tiffGetFieldS16(TIFF *t, uint32_t tag, int16_t *v) { return TIFFGetField(t, tag, v); }
+int tiffGetFieldS32(TIFF *t, uint32_t tag, int32_t *v) { return TIFFGetField(t, tag, v); }
+int tiffGetFieldS64(TIFF *t, uint32_t tag, int64_t *v) { return TIFFGetField(t, tag, v); }
 int tiffReadEXIFDirectory(TIFF *t, uint64_t off) { return TIFFReadEXIFDirectory(t, (toff_t)off); }
 
 // Typed setters (avoid variadic TIFFSetField from Go).
@@ -93,6 +97,11 @@ int tiffSetFieldFloat(TIFF *t, uint32_t tag, float v) { return TIFFSetField(t, t
 int tiffSetFieldString(TIFF *t, uint32_t tag, const char *v) { return TIFFSetField(t, tag, v); }
 int tiffSetFieldU16Array(TIFF *t, uint32_t tag, uint16_t c, uint16_t *v) { return TIFFSetField(t, tag, c, v); }
 int tiffSetFieldU32Array(TIFF *t, uint32_t tag, uint32_t c, uint32_t *v) { return TIFFSetField(t, tag, c, v); }
+
+int tiffSetFieldS8(TIFF *t, uint32_t tag, int8_t v) { return TIFFSetField(t, tag, v); }
+int tiffSetFieldS16(TIFF *t, uint32_t tag, int16_t v) { return TIFFSetField(t, tag, v); }
+int tiffSetFieldS32(TIFF *t, uint32_t tag, int32_t v) { return TIFFSetField(t, tag, v); }
+int tiffSetFieldS64(TIFF *t, uint32_t tag, int64_t v) { return TIFFSetField(t, tag, v); }
 
 int tiffReadRGBAImage(TIFF *t, uint32_t w, uint32_t h, uint32_t *buf) {
     return TIFFReadRGBAImage(t, w, h, buf, 0);

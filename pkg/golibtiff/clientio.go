@@ -55,8 +55,8 @@ import (
 )
 
 // ReadWriteProc is called to read/write data from/to the custom I/O source.
-// A positive return value indicates bytes transferred; negative means error.
-type ReadWriteProc func(buf []byte) int
+// Returns bytes transferred or an error.
+type ReadWriteProc func(buf []byte) (int, error)
 
 // SeekProc is called to seek within the custom I/O source.
 // whence: 0=SEEK_SET, 1=SEEK_CUR, 2=SEEK_END. Returns new offset or error.
@@ -181,7 +181,10 @@ func goReadWriteProc(bridge unsafe.Pointer, buf unsafe.Pointer, size C.tmsize_t)
 		return 0
 	}
 	goBuf := unsafe.Slice((*byte)(buf), int(size))
-	n := entry.io.ReadWriteProc(goBuf)
+	n, err := entry.io.ReadWriteProc(goBuf)
+	if err != nil {
+		return -1
+	}
 	return C.tmsize_t(n)
 }
 
@@ -275,13 +278,13 @@ func OpenFromBuffer(data []byte) (*TIFF, error) {
 	var offset int64
 
 	io := ClientIO{
-		ReadWriteProc: func(dst []byte) int {
+		ReadWriteProc: func(dst []byte) (int, error) {
 			if offset >= int64(len(buf)) {
-				return 0
+				return 0, nil
 			}
 			n := copy(dst, buf[offset:])
 			offset += int64(n)
-			return n
+			return n, nil
 		},
 		SeekProc: func(off int64, whence int) (int64, error) {
 			switch whence {
@@ -323,9 +326,9 @@ func WriteToBuffer() (*TIFF, func() []byte, error) {
 	var offset int64
 
 	io := ClientIO{
-		ReadWriteProc: func(src []byte) int {
+		ReadWriteProc: func(src []byte) (int, error) {
 			if offset > int64(len(buf)) {
-				return -1
+				return 0, fmt.Errorf("libtiff: write past end of buffer")
 			}
 			end := offset + int64(len(src))
 			if end > int64(cap(buf)) {
@@ -339,7 +342,7 @@ func WriteToBuffer() (*TIFF, func() []byte, error) {
 			}
 			n := copy(buf[offset:], src)
 			offset += int64(n)
-			return n
+			return n, nil
 		},
 		SeekProc: func(off int64, whence int) (int64, error) {
 			switch whence {

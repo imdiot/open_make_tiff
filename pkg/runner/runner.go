@@ -568,7 +568,6 @@ func (r *Runner) writeMemImageToTIFF(path string, img *decodedImage) error {
 	}
 	defer tf.Close()
 
-	// Phase 1: Set image dimension and format tags.
 	w, h := img.Width, img.Height
 	colors, bits := img.Colors, img.Bits
 	if err := tf.SetFieldUint32(golibtiff.TagImageWidth, w); err != nil {

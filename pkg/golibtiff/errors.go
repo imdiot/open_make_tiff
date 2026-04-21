@@ -1,6 +1,12 @@
 package golibtiff
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
+)
+
+// ErrClosed is returned when an operation is attempted on a closed TIFF handle.
+var ErrClosed = errors.New("libtiff: handle is closed")
 
 type OpenError struct {
 	Path string
@@ -41,4 +47,13 @@ type WriteError struct {
 
 func (e *WriteError) Error() string {
 	return fmt.Sprintf("libtiff: write %s: %s", e.Op, e.Msg)
+}
+
+type DirectoryError struct {
+	Op  string
+	Msg string
+}
+
+func (e *DirectoryError) Error() string {
+	return fmt.Sprintf("libtiff: %s: %s", e.Op, e.Msg)
 }

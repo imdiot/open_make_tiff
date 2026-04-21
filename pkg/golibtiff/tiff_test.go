@@ -1,6 +1,7 @@
 package golibtiff
 
 import (
+	"errors"
 	"math"
 	"path/filepath"
 	"testing"
@@ -233,7 +234,7 @@ func TestWriteAndRead(t *testing.T) {
 	}
 
 	scanlineSize := tif.ScanlineSize()
-	if scanlineSize != int64(w*3) {
+	if scanlineSize != int(w*3) {
 		t.Errorf("ScanlineSize = %d, want %d", scanlineSize, w*3)
 	}
 	buf := make([]byte, scanlineSize)
@@ -879,7 +880,7 @@ func TestBigTIFF(t *testing.T) {
 		dir := t.TempDir()
 		path := filepath.Join(dir, "bigtiff.tif")
 
-		tif, err := Open(path, "w8")
+		tif, err := Open(path, OpenBigTIFF)
 		if err != nil {
 			t.Fatalf("Open BigTIFF: %v", err)
 		}
@@ -973,7 +974,7 @@ func TestBigTIFFMultiPage(t *testing.T) {
 	const pages = 5
 
 	func() {
-		tif, err := Open(path, "w8")
+		tif, err := Open(path, OpenBigTIFF)
 		if err != nil {
 			t.Fatalf("Open BigTIFF: %v", err)
 		}
@@ -1474,11 +1475,11 @@ func TestEXIFSubIFD(t *testing.T) {
 		}
 
 		// Write scalar EXIF tags (RATIONAL, SETGET_UINT16, SETGET_ASCII)
-		if err := tif.SetFieldDouble(TagExifExposureTime, 0.025); err != nil {
-			t.Errorf("SetFieldDouble ExposureTime: %v", err)
+		if err := tif.SetFieldFloat(TagExifExposureTime, 0.025); err != nil {
+			t.Errorf("SetFieldFloat ExposureTime: %v", err)
 		}
-		if err := tif.SetFieldDouble(TagExifFNumber, 5.6); err != nil {
-			t.Errorf("SetFieldDouble FNumber: %v", err)
+		if err := tif.SetFieldFloat(TagExifFNumber, 5.6); err != nil {
+			t.Errorf("SetFieldFloat FNumber: %v", err)
 		}
 		if err := tif.SetFieldUint16(TagExifExposureProgram, 1); err != nil {
 			t.Errorf("SetFieldUint16 ExposureProgram: %v", err)
@@ -1494,11 +1495,11 @@ func TestEXIFSubIFD(t *testing.T) {
 			t.Errorf("SetFieldUint16 Sharpness=0: %v", err)
 		}
 		// Zero-value float (ExposureCompensation=0)
-		if err := tif.SetFieldDouble(TagExifExposureCompensation, 0); err != nil {
-			t.Errorf("SetFieldDouble ExposureCompensation=0: %v", err)
+		if err := tif.SetFieldFloat(TagExifExposureCompensation, 0); err != nil {
+			t.Errorf("SetFieldFloat ExposureCompensation=0: %v", err)
 		}
-		if err := tif.SetFieldDouble(TagExifFocalLength, 35.0); err != nil {
-			t.Errorf("SetFieldDouble FocalLength: %v", err)
+		if err := tif.SetFieldFloat(TagExifFocalLength, 35.0); err != nil {
+			t.Errorf("SetFieldFloat FocalLength: %v", err)
 		}
 		if err := tif.SetFieldString(TagExifDateTimeOriginal, "2025:05:16 15:12:13"); err != nil {
 			t.Errorf("SetFieldString DateTimeOriginal: %v", err)
@@ -1571,14 +1572,14 @@ func TestEXIFSubIFD(t *testing.T) {
 		t.Fatalf("ReadEXIFDirectory: %v", err)
 	}
 
-	// Verify RATIONAL EXIF tags (stored as double, tolerance needed)
-	if et, err := tif.GetFieldDouble(TagExifExposureTime); err != nil || math.Abs(et-0.025) > 1e-6 {
+	// Verify RATIONAL EXIF tags (stored as float by libtiff)
+	if et, err := tif.GetFieldFloat(TagExifExposureTime); err != nil || math.Abs(et-0.025) > 1e-6 {
 		t.Errorf("ExposureTime = %v (err=%v), want ~0.025", et, err)
 	}
-	if fn, err := tif.GetFieldDouble(TagExifFNumber); err != nil || math.Abs(fn-5.6) > 0.01 {
+	if fn, err := tif.GetFieldFloat(TagExifFNumber); err != nil || math.Abs(fn-5.6) > 0.01 {
 		t.Errorf("FNumber = %v (err=%v), want ~5.6", fn, err)
 	}
-	if fl, err := tif.GetFieldDouble(TagExifFocalLength); err != nil || math.Abs(fl-35.0) > 0.01 {
+	if fl, err := tif.GetFieldFloat(TagExifFocalLength); err != nil || math.Abs(fl-35.0) > 0.01 {
 		t.Errorf("FocalLength = %v (err=%v), want ~35.0", fl, err)
 	}
 
@@ -1597,7 +1598,7 @@ func TestEXIFSubIFD(t *testing.T) {
 	}
 
 	// Verify zero-value float (RATIONAL precision)
-	if ec, err := tif.GetFieldDouble(TagExifExposureCompensation); err != nil || math.Abs(ec) > 1e-6 {
+	if ec, err := tif.GetFieldFloat(TagExifExposureCompensation); err != nil || math.Abs(ec) > 1e-6 {
 		t.Errorf("ExposureCompensation = %v (err=%v), want ~0", ec, err)
 	}
 
@@ -1773,7 +1774,7 @@ func TestFixtures(t *testing.T) {
 					t.Errorf("BitsPerSample = %d, want 16", v)
 				}
 				wv, _ := tf.Width()
-				expected := int64(wv) * 2
+				expected := int(wv) * 2
 				if tf.ScanlineSize() != expected {
 					t.Errorf("ScanlineSize = %d, want %d", tf.ScanlineSize(), expected)
 				}
@@ -1821,7 +1822,7 @@ func TestFixtures(t *testing.T) {
 					t.Errorf("SamplesPerPixel = %d, want 3", v)
 				}
 				wv, _ := tf.Width()
-				expected := int64(wv) * 3 * 2
+				expected := int(wv) * 3 * 2
 				if tf.ScanlineSize() != expected {
 					t.Errorf("ScanlineSize = %d, want %d", tf.ScanlineSize(), expected)
 				}
@@ -2012,4 +2013,127 @@ func TestFixtures(t *testing.T) {
 			tt.check(t, tf)
 		})
 	}
+}
+
+// --- Tests for API improvement changes ---
+
+func TestErrClosedSentinel(t *testing.T) {
+	tif, err := Open(filepath.Join(t.TempDir(), "test.tif"), OpenWrite)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	tif.Close()
+
+	w, err := tif.Width()
+	if !errors.Is(err, ErrClosed) {
+		t.Errorf("Width after Close: err = %v, want errors.Is(err, ErrClosed)", err)
+	}
+	if w != 0 {
+		t.Errorf("Width after Close: w = %d, want 0", w)
+	}
+}
+
+func TestIsOpen(t *testing.T) {
+	tif, err := Open(filepath.Join(t.TempDir(), "test.tif"), OpenWrite)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	if !tif.IsOpen() {
+		t.Error("IsOpen before Close: want true")
+	}
+	tif.Close()
+	if tif.IsOpen() {
+		t.Error("IsOpen after Close: want false")
+	}
+}
+
+func TestGetFieldAnyUint32(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.tif")
+	createTestTIFF(t, path, 4, 4)
+
+	tif, err := Open(path, OpenRead)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer tif.Close()
+
+	val, err := tif.GetFieldAny(TagImageWidth)
+	if err != nil {
+		t.Fatalf("GetFieldAny(ImageWidth): %v", err)
+	}
+	v, ok := val.(uint32)
+	if !ok {
+		t.Fatalf("GetFieldAny(ImageWidth): type = %T, want uint32", val)
+	}
+	if v != 4 {
+		t.Errorf("GetFieldAny(ImageWidth) = %d, want 4", v)
+	}
+}
+
+func TestGetFieldAnyString(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.tif")
+	createTestTIFF(t, path, 4, 4)
+
+	tif, err := Open(path, OpenRead)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer tif.Close()
+
+	val, err := tif.GetFieldAny(TagSoftware)
+	if err != nil {
+		t.Fatalf("GetFieldAny(Software): %v", err)
+	}
+	v, ok := val.(string)
+	if !ok {
+		t.Fatalf("GetFieldAny(Software): type = %T, want string", val)
+	}
+	if v != "golibtiff test" {
+		t.Errorf("GetFieldAny(Software) = %q, want %q", v, "golibtiff test")
+	}
+}
+
+func TestGetFieldAnyFieldNotFound(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "test.tif")
+	createTestTIFF(t, path, 4, 4)
+
+	tif, err := Open(path, OpenRead)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	defer tif.Close()
+
+	_, err = tif.GetFieldAny(Tag(0xFFFE)) // non-existent tag
+	if err == nil {
+		t.Error("GetFieldAny(non-existent): want error, got nil")
+	}
+}
+
+func TestSetFieldAnyInt(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "test.tif")
+
+	tif, err := Open(path, OpenWrite)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	tif.SetFieldUint32(TagImageWidth, 1)
+	tif.SetFieldUint32(TagImageLength, 1)
+	tif.SetFieldUint16(TagBitsPerSample, 8)
+	tif.SetFieldUint16(TagSamplesPerPixel, 1)
+	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
+	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
+	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
+
+	// SetFieldAny with int16 (FillOrder, tag 266)
+	if err := tif.SetFieldAny(TagFillOrder, int16(1)); err != nil {
+		t.Errorf("SetFieldAny(int16): %v", err)
+	}
+
+	// SetFieldAny with int32 (TileWidth, tag 322)
+	if err := tif.SetFieldAny(TagTileWidth, int32(256)); err != nil {
+		t.Errorf("SetFieldAny(int32): %v", err)
+	}
+
+	tif.Close()
 }

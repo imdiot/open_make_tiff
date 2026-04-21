@@ -98,10 +98,10 @@ func TestGetFieldDouble(t *testing.T) {
 	// RATIONAL tags are read as float (32-bit) by libtiff, not double.
 	testXRes := 300.0
 	testYRes := 150.5
-	if err := tif.SetFieldDouble(TagXResolution, testXRes); err != nil {
-		t.Fatalf("SetFieldDouble XResolution: %v", err)
+	if err := tif.SetFieldFloat(TagXResolution, testXRes); err != nil {
+		t.Fatalf("SetFieldFloat XResolution: %v", err)
 	}
-	tif.SetFieldDouble(TagYResolution, testYRes)
+	tif.SetFieldFloat(TagYResolution, testYRes)
 
 	if err := tif.WriteScanline([]byte{128}, 0); err != nil {
 		t.Fatalf("WriteScanline: %v", err)
@@ -272,8 +272,8 @@ func TestRationalPrecision(t *testing.T) {
 	tif.SetFieldUint16(TagCompression, uint16(CompressionNone))
 	tif.SetFieldUint16(TagPhotometric, uint16(PhotometricMinIsBlack))
 	tif.SetFieldUint16(TagPlanarConfig, uint16(PlanarConfigContig))
-	tif.SetFieldDouble(TagXResolution, res1)
-	tif.SetFieldDouble(TagYResolution, res2)
+	tif.SetFieldFloat(TagXResolution, res1)
+	tif.SetFieldFloat(TagYResolution, res2)
 
 	if err := tif.WriteScanline([]byte{0}, 0); err != nil {
 		t.Fatalf("WriteScanline: %v", err)
@@ -1142,7 +1142,7 @@ func TestRasterScanlineSize(t *testing.T) {
 	w, _ := tif.Width()
 	spp, _ := tif.SamplesPerPixel()
 	bps, _ := tif.BitsPerSample()
-	expected := int64(w) * int64(spp) * int64((bps+7)/8)
+	expected := int(w) * int(spp) * int((bps+7)/8)
 	rsz := tif.RasterScanlineSize()
 	if rsz != expected {
 		t.Errorf("RasterScanlineSize = %d, want %d", rsz, expected)

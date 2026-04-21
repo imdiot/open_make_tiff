@@ -151,7 +151,7 @@ const (
 type SampleFormat uint16
 
 const (
-	SampleFormatUInt          SampleFormat = 1
+	SampleFormatUint          SampleFormat = 1
 	SampleFormatInt           SampleFormat = 2
 	SampleFormatIEEEFP        SampleFormat = 3
 	SampleFormatVoid          SampleFormat = 4

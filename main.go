@@ -152,6 +152,8 @@ func runCLI() int {
 	mgr.Convert(fs.Args())
 	<-done
 
+	mgr.Shutdown()
+
 	if failed.Load() > 0 {
 		return 1
 	}

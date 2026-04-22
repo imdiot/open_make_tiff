@@ -188,15 +188,13 @@ func (m *Manager) OnSecondInstanceLaunch(_ options.SecondInstanceData) {
 	wails_runtime.WindowSetAlwaysOnTop(m.ctx, m.config.EnableWindowTop)
 }
 
-func (m *Manager) OnShutdown(_ context.Context) {
+func (m *Manager) Shutdown() {
 	if m.cancel != nil {
 		m.cancel()
 	}
 
 	if m.et != nil {
-		slog.Debug("OnShutdown: closing exiftool", "at", time.Now().Format("15:04:05.000"))
 		m.et.Close()
-		slog.Debug("OnShutdown: exiftool closed", "at", time.Now().Format("15:04:05.000"))
 	}
 
 	done := make(chan struct{})
@@ -206,16 +204,16 @@ func (m *Manager) OnShutdown(_ context.Context) {
 	}()
 	select {
 	case <-done:
-		slog.Debug("OnShutdown: wg done", "at", time.Now().Format("15:04:05.000"))
 	case <-time.After(time.Second):
-		slog.Debug("OnShutdown: wg timeout", "at", time.Now().Format("15:04:05.000"))
 	}
 
 	if m.tmpDir != nil {
-		if err := m.tmpDir.Cleanup(); err != nil {
-			slog.Debug("OnShutdown: temp dir cleanup", "error", err)
-		}
+		_ = m.tmpDir.Cleanup()
 	}
+}
+
+func (m *Manager) OnShutdown(_ context.Context) {
+	m.Shutdown()
 }
 
 func (m *Manager) GetSetting() *Setting {
@@ -240,6 +238,7 @@ func (m *Manager) SetConfig(cfg *Config) *Config {
 
 	m.validateConfig()
 	m.saveConfig()
+	wails_runtime.WindowSetAlwaysOnTop(m.ctx, cfg.EnableWindowTop)
 	return m.config
 }
 

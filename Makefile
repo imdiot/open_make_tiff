@@ -180,9 +180,4 @@ else
 endif
 
 exiftool-clean:
-ifeq ($(OS),Windows_NT)
-	-rd /s /q third-party\windows-x64 2>nul
-	-rd /s /q third-party\macos-universal 2>nul
-else
 	rm -rf third-party/windows-x64 third-party/macos-universal
-endif

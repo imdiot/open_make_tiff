@@ -497,13 +497,13 @@ func (r *Runner) decodeTIFF(srcPath string) (*decodedImage, error) {
 	if err != nil {
 		return nil, fmt.Errorf("decodeTIFF: missing ImageLength: %w", err)
 	}
-	colors, _ := src.GetFieldUint16(golibtiff.TagSamplesPerPixel)
-	bits, _ := src.GetFieldUint16(golibtiff.TagBitsPerSample)
-	if colors == 0 {
-		colors = 3
+	colors, err := src.GetFieldUint16(golibtiff.TagSamplesPerPixel)
+	if err != nil {
+		return nil, fmt.Errorf("decodeTIFF: missing SamplesPerPixel: %w", err)
 	}
-	if bits == 0 {
-		bits = 16
+	bits, err := src.GetFieldUint16(golibtiff.TagBitsPerSample)
+	if err != nil {
+		return nil, fmt.Errorf("decodeTIFF: missing BitsPerSample: %w", err)
 	}
 
 	scanline := int64(width) * int64(colors) * int64(bits/8)

@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/signal"
 	"runtime"
 	"sort"
 	"strings"
 	"sync/atomic"
+	"syscall"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -116,7 +118,7 @@ func runCLI() int {
 		return 2
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 
 	var failed atomic.Int32
@@ -150,7 +152,11 @@ func runCLI() int {
 	})
 
 	mgr.Convert(fs.Args())
-	<-done
+	select {
+	case <-done:
+	case <-ctx.Done():
+		fmt.Fprintln(os.Stderr, "\nInterrupted, cleaning up...")
+	}
 
 	mgr.Shutdown()
 

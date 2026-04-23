@@ -295,7 +295,7 @@ func (r *Runner) decode(ctx context.Context, env ConvertEnv) (*decodedImage, err
 			img.DecodeType = DecodeDNG
 			return img, nil
 		}
-		r.logger.Warn("DNG converter path failed, falling back to direct: " + err.Error())
+		r.logger.Warn("DNG converter path failed, falling back to direct", "error", err)
 	}
 
 	img, err := r.decodeDirect(ctx, env)
@@ -364,7 +364,7 @@ func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*decodedIma
 
 	rp, err := golibraw.New(baseRawOpts...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decodeWithDNG: init raw processor: %w", err)
 	}
 	defer rp.Close()
 
@@ -380,22 +380,22 @@ func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*decodedIma
 
 	now = time.Now()
 	if err := rp.OpenFile(env.DngIntPath); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decodeWithDNG: open %s: %w", env.DngIntPath, err)
 	}
 
 	if _, err := rp.AdjustToRawInsetCrop(golibraw.InsetCropAllMask, 0.0); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decodeWithDNG: adjust crop: %w", err)
 	}
 
 	if err := rp.Unpack(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decodeWithDNG: unpack: %w", err)
 	}
 	if err := rp.Process(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decodeWithDNG: process: %w", err)
 	}
 	raw, err := rp.MakeMemImage()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decodeWithDNG: make mem image: %w", err)
 	}
 	r.logger.Info("golibraw (DNG)", "time", time.Since(now).Seconds())
 
@@ -430,7 +430,7 @@ func (r *Runner) decodeDirect(ctx context.Context, env ConvertEnv) (*decodedImag
 		),
 	)...)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decodeDirect: init raw processor: %w", err)
 	}
 	defer rp.Close()
 
@@ -445,21 +445,21 @@ func (r *Runner) decodeDirect(ctx context.Context, env ConvertEnv) (*decodedImag
 	defer close(cancelDone)
 
 	if err := rp.EnableDNGSDK(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decodeDirect: enable DNG SDK: %w", err)
 	}
 
 	if err := rp.OpenFile(env.SrcPath); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decodeDirect: open %s: %w", env.SrcPath, err)
 	}
 	if err := rp.Unpack(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decodeDirect: unpack: %w", err)
 	}
 	if err := rp.Process(); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decodeDirect: process: %w", err)
 	}
 	raw, err := rp.MakeMemImage()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("decodeDirect: make mem image: %w", err)
 	}
 
 	cd, cdErr := rp.GetColorData()

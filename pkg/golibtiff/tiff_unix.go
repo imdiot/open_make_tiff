@@ -9,7 +9,10 @@ package golibtiff
 */
 import "C"
 
-import "unsafe"
+import (
+	"fmt"
+	"unsafe"
+)
 
 func openTiffHandle(path string, mode OpenMode, opts *C.TIFFOpenOptions) (*C.TIFF, error) {
 	cPath := C.CString(path)
@@ -17,5 +20,9 @@ func openTiffHandle(path string, mode OpenMode, opts *C.TIFFOpenOptions) (*C.TIF
 	cMode := C.CString(string(mode))
 	defer C.free(unsafe.Pointer(cMode))
 
-	return C.TIFFOpenExt(cPath, cMode, opts), nil
+	tif := C.TIFFOpenExt(cPath, cMode, opts)
+	if tif == nil {
+		return nil, fmt.Errorf("libtiff: failed to open %q (mode %s)", path, mode)
+	}
+	return tif, nil
 }

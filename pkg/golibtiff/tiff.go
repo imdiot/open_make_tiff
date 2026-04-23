@@ -49,13 +49,10 @@ func Open(path string, mode OpenMode) (*TIFF, error) {
 
 	tif, err := openTiffHandle(path, mode, opts)
 	if err != nil {
-		return nil, &OpenError{Path: path, Mode: mode, Msg: err.Error()}
-	}
-	if tif == nil {
 		if C.hasOpenPhaseError() != 0 {
 			return nil, &OpenError{Path: path, Mode: mode, Msg: C.GoString(C.getOpenPhaseError())}
 		}
-		return nil, &OpenError{Path: path, Mode: mode}
+		return nil, &OpenError{Path: path, Mode: mode, Msg: err.Error()}
 	}
 
 	C.attachErrorState(tif)

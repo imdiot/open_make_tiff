@@ -42,12 +42,12 @@ type Setting struct {
 }
 
 type Config struct {
-	DisableAdobeDNGConverter bool   `json:"disable_adobe_dng_converter,omitempty"`
-	EnableWindowTop          bool   `json:"enable_window_top,omitempty"`
-	EnableSubfolder          bool   `json:"enable_subfolder,omitempty"`
-	EnableCompression        bool   `json:"enable_compression,omitempty"`
+	DisableAdobeDNGConverter bool   `json:"disable_adobe_dng_converter,omitzero"`
+	EnableWindowTop          bool   `json:"enable_window_top,omitzero"`
+	EnableSubfolder          bool   `json:"enable_subfolder,omitzero"`
+	EnableCompression        bool   `json:"enable_compression,omitzero"`
 	ICCProfile               string `json:"icc_profile,omitempty"`
-	Workers                  int    `json:"workers,omitempty"`
+	Workers                  int    `json:"workers,omitzero"`
 	KeepLogFiles             bool   `json:"-"`
 	KeepIntermediateFiles    bool   `json:"-"`
 }
@@ -289,7 +289,7 @@ func (m *Manager) saveConfig() {
 		return
 	}
 
-	if err = os.WriteFile(path, b, 0755); err != nil {
+	if err = os.WriteFile(path, b, 0644); err != nil {
 		return
 	}
 }

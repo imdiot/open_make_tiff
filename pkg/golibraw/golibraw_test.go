@@ -1775,3 +1775,68 @@ func BenchmarkCopyMemImage(b *testing.B) {
 		rp.CopyMemImage(buf, stride, false)
 	}
 }
+
+// BenchmarkMakeMemImage_vs_CopyMemImage directly compares the two approaches
+// for extracting processed image data from LibRaw.
+func BenchmarkMakeMemImage_vs_CopyMemImage(b *testing.B) {
+	rp := openAndProcess(b)
+	defer rp.Close()
+
+	w, h, colors, bps := rp.GetMemImageFormat()
+	stride := int(w) * int(colors) * int(bps) / 8
+	totalBytes := stride * int(h)
+
+	b.Run("MakeMemImage", func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			img, err := rp.MakeMemImage()
+			if err != nil {
+				b.Fatal(err)
+			}
+			// Prevent escape analysis from optimizing away the allocation.
+			_ = img.Data[:1]
+		}
+	})
+
+	b.Run("CopyMemImage", func(b *testing.B) {
+		buf := make([]byte, totalBytes)
+		b.ReportAllocs()
+		b.ResetTimer()
+		for b.Loop() {
+			if err := rp.CopyMemImage(buf, stride, false); err != nil {
+				b.Fatal(err)
+			}
+		}
+	})
+
+	// Full pipeline comparison: simulate what runner.decodeDirect does.
+	b.Run("FullPipeline_MakeMemImage", func(b *testing.B) {
+		path := testRAWPath(b)
+		b.ReportAllocs()
+		for b.Loop() {
+			rp, _ := New()
+			rp.OpenFile(path)
+			rp.Unpack()
+			rp.Process()
+			img, _ := rp.MakeMemImage()
+			_ = img.Data[:1]
+			rp.Close()
+		}
+	})
+
+	b.Run("FullPipeline_CopyMemImage", func(b *testing.B) {
+		path := testRAWPath(b)
+		b.ReportAllocs()
+		for b.Loop() {
+			rp2, _ := New()
+			rp2.OpenFile(path)
+			rp2.Unpack()
+			rp2.Process()
+			w2, h2, c2, bps2 := rp2.GetMemImageFormat()
+			stride2 := int(w2) * int(c2) * int(bps2) / 8
+			buf2 := make([]byte, stride2*int(h2))
+			_ = rp2.CopyMemImage(buf2, stride2, false)
+			rp2.Close()
+		}
+	})
+}

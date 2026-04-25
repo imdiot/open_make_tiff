@@ -393,9 +393,14 @@ func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*decodedIma
 	if err := rp.Process(); err != nil {
 		return nil, fmt.Errorf("decodeWithDNG: process: %w", err)
 	}
-	raw, err := rp.MakeMemImage()
-	if err != nil {
-		return nil, fmt.Errorf("decodeWithDNG: make mem image: %w", err)
+	w, h, colors, bps := rp.GetMemImageFormat()
+	if w == 0 || h == 0 {
+		return nil, fmt.Errorf("decodeWithDNG: invalid image format: %dx%d", w, h)
+	}
+	stride := w * colors * (bps / 8)
+	buf := make([]byte, stride*h)
+	if err := rp.CopyMemImage(buf, stride, false); err != nil {
+		return nil, fmt.Errorf("decodeWithDNG: copy mem image: %w", err)
 	}
 	r.logger.Info("golibraw (DNG)", "time", time.Since(now).Seconds())
 
@@ -408,9 +413,9 @@ func (r *Runner) decodeWithDNG(ctx context.Context, env ConvertEnv) (*decodedIma
 	}
 
 	return &decodedImage{
-		Width: uint32(raw.Width), Height: uint32(raw.Height),
-		Colors: uint16(raw.Colors), Bits: uint16(raw.Bits),
-		Data: raw.Data, CamMul: camMul,
+		Width: uint32(w), Height: uint32(h),
+		Colors: uint16(colors), Bits: uint16(bps),
+		Data: buf, CamMul: camMul,
 	}, nil
 }
 
@@ -457,9 +462,14 @@ func (r *Runner) decodeDirect(ctx context.Context, env ConvertEnv) (*decodedImag
 	if err := rp.Process(); err != nil {
 		return nil, fmt.Errorf("decodeDirect: process: %w", err)
 	}
-	raw, err := rp.MakeMemImage()
-	if err != nil {
-		return nil, fmt.Errorf("decodeDirect: make mem image: %w", err)
+	w, h, colors, bps := rp.GetMemImageFormat()
+	if w == 0 || h == 0 {
+		return nil, fmt.Errorf("decodeDirect: invalid image format: %dx%d", w, h)
+	}
+	stride := w * colors * (bps / 8)
+	buf := make([]byte, stride*h)
+	if err := rp.CopyMemImage(buf, stride, false); err != nil {
+		return nil, fmt.Errorf("decodeDirect: copy mem image: %w", err)
 	}
 
 	cd, cdErr := rp.GetColorData()
@@ -471,9 +481,9 @@ func (r *Runner) decodeDirect(ctx context.Context, env ConvertEnv) (*decodedImag
 	}
 
 	return &decodedImage{
-		Width: uint32(raw.Width), Height: uint32(raw.Height),
-		Colors: uint16(raw.Colors), Bits: uint16(raw.Bits),
-		Data: raw.Data, CamMul: camMul,
+		Width: uint32(w), Height: uint32(h),
+		Colors: uint16(colors), Bits: uint16(bps),
+		Data: buf, CamMul: camMul,
 	}, nil
 }
 

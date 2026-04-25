@@ -320,45 +320,40 @@ func (m *Manager) Convert(paths []string) {
 			}
 		}()
 
-		semaphoreWorkerCh := make(chan struct{}, m.config.Workers)
+		m.mu.RLock()
+		cfg := m.config
+		runnerOpts := []runner.Option{runner.WithExiftool(m.et)}
+		if m.dngConverterExecutable != "" {
+			runnerOpts = append(runnerOpts, runner.WithDNGConverterExecutable(m.dngConverterExecutable))
+		}
+		m.mu.RUnlock()
+
+		semaphoreCh := make(chan struct{}, cfg.Workers)
 		var wg sync.WaitGroup
 
 	loop:
 		for _, path := range paths {
+			f, err := os.Stat(path)
+			if err != nil || f.IsDir() || !f.Mode().IsRegular() {
+				continue
+			}
+
 			select {
 			case <-m.ctx.Done():
 				break loop
-			case semaphoreWorkerCh <- struct{}{}:
+			case semaphoreCh <- struct{}{}:
 				wg.Go(func() {
 					defer func() {
-						<-semaphoreWorkerCh
 						if r := recover(); r != nil {
 							slog.Warn("panic", "error", r)
 							m.emit("omt:convert:file:error", path)
 						}
 					}()
+					defer func() { <-semaphoreCh }()
 
-					f, err := os.Stat(path)
-					if err != nil {
-						return
-					}
-					if f.IsDir() || !f.Mode().IsRegular() {
-						return
-					}
 					m.emit("omt:convert:file:started", path)
 
-					m.mu.RLock()
-					cfg := m.config
-					m.mu.RUnlock()
-
-					runnerOpts := []runner.Option{
-						runner.WithExiftool(m.et),
-					}
-					if m.dngConverterExecutable != "" {
-						runnerOpts = append(runnerOpts, runner.WithDNGConverterExecutable(m.dngConverterExecutable))
-					}
-
-					if err = runner.New(runner.Config{
+					if err := runner.New(runner.Config{
 						EnableAdobeDNGConverter: !cfg.DisableAdobeDNGConverter,
 						EnableSubfolder:         cfg.EnableSubfolder,
 						EnableCompression:       cfg.EnableCompression,

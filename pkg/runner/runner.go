@@ -29,6 +29,7 @@ var baseRawOpts = []golibraw.Option{
 	golibraw.WithHighlightMode(golibraw.HighlightUnclip),
 	golibraw.With16BitOutput(),
 	golibraw.WithNoAutoBrightness(),
+	golibraw.WithInterpolationQuality(golibraw.QualityAHD),
 	golibraw.WithGamma(1.0, 1.0),
 	golibraw.WithAdjustMaxThreshold(0),
 	golibraw.WithEmbeddedColorMatrix(false),

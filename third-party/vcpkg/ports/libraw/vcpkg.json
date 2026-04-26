@@ -68,6 +68,12 @@
     },
     "6by9rpi": {
       "description": "Build library with Raspberry Pi RAW support"
+    },
+    "demosaic-pack-gpl2": {
+      "description": "GPL2 demosaic algorithms (AFD, VCD, LMMSE, Modified AHD). Enabling makes the library GPL-2.0 licensed."
+    },
+    "demosaic-pack-gpl3": {
+      "description": "GPL3 demosaic algorithms (AMaZE). Enabling makes the library GPL-3.0 licensed."
     }
   }
 }

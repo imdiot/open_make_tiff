@@ -52,11 +52,48 @@ if("rawspeed" IN_LIST FEATURES)
         "#ifndef DLLDEF_H\n#define DLLDEF_H\n#define DllDef\n#endif\n")
 endif()
 
+# Download LibRaw Demosaic Pack GPL2
+if("demosaic-pack-gpl2" IN_LIST FEATURES OR "demosaic-pack-gpl3" IN_LIST FEATURES)
+    vcpkg_from_github(
+        OUT_SOURCE_PATH DEMOSAIC_PACK_GPL2_SOURCE_PATH
+        REPO LibRaw/LibRaw-demosaic-pack-GPL2
+        REF 0.18.6
+        SHA512 84bf3e1136735bf316810c30a8fd03597737fef11c203bc2b6e3435fb67b821cf7fd7069344a054eac76ce5d49ac311e59464e62e3ce448c80409648726e2ed0
+        HEAD_REF master
+    )
+    file(COPY
+        "${DEMOSAIC_PACK_GPL2_SOURCE_PATH}/afd_interpolate_pl.c"
+        "${DEMOSAIC_PACK_GPL2_SOURCE_PATH}/ahd_interpolate_mod.c"
+        "${DEMOSAIC_PACK_GPL2_SOURCE_PATH}/ahd_partial_interpolate.c"
+        "${DEMOSAIC_PACK_GPL2_SOURCE_PATH}/vcd_interpolate.c"
+        "${DEMOSAIC_PACK_GPL2_SOURCE_PATH}/lmmse_interpolate.c"
+        "${DEMOSAIC_PACK_GPL2_SOURCE_PATH}/refinement.c"
+        "${DEMOSAIC_PACK_GPL2_SOURCE_PATH}/es_median_filter.c"
+        "${DEMOSAIC_PACK_GPL2_SOURCE_PATH}/median_filter_new.c"
+        DESTINATION "${SOURCE_PATH}/src/demosaic/gpl2"
+    )
+endif()
+
+# Download LibRaw Demosaic Pack GPL3
+if("demosaic-pack-gpl3" IN_LIST FEATURES)
+    vcpkg_from_github(
+        OUT_SOURCE_PATH DEMOSAIC_PACK_GPL3_SOURCE_PATH
+        REPO LibRaw/LibRaw-demosaic-pack-GPL3
+        REF 0.18.6
+        SHA512 0425051c7058992f0058eb5b0a28d65ac8ee7efb2c54d7631bd3d29e297e6d5a87d395916ec7f5becd9863990237b48cc4661012893aa2e1ba2c6833ba3ce0cc
+        HEAD_REF master
+    )
+    file(COPY
+        "${DEMOSAIC_PACK_GPL3_SOURCE_PATH}/amaze_demosaic_RT.cc"
+        DESTINATION "${SOURCE_PATH}/src/demosaic/gpl3"
+    )
+endif()
+
 # Add ENABLE_RAWSPEED3 option and support (avoids fragile patch)
 file(READ "${SOURCE_PATH}/CMakeLists.txt" CMAKE_CONTENT)
 string(REPLACE
     "option(ENABLE_RAWSPEED             \"Build library with extra RawSpeed codec support (default=OFF)\"                OFF)"
-    "option(ENABLE_RAWSPEED             \"Build library with extra RawSpeed codec support (default=OFF)\"                OFF)\noption(ENABLE_RAWSPEED3            \"Build library with RawSpeed v3 codec support  (default=OFF)\"                OFF)"
+    "option(ENABLE_RAWSPEED             \"Build library with extra RawSpeed codec support (default=OFF)\"                OFF)\noption(ENABLE_RAWSPEED3            \"Build library with RawSpeed v3 codec support  (default=OFF)\"                OFF)\noption(ENABLE_DEMOSAIC_PACK_GPL2   \"Build with GPL2 demosaic pack support       (default=OFF)\"                OFF)\noption(ENABLE_DEMOSAIC_PACK_GPL3   \"Build with GPL3 demosaic pack support       (default=OFF)\"                OFF)"
     CMAKE_CONTENT "${CMAKE_CONTENT}"
 )
 string(REPLACE
@@ -73,6 +110,12 @@ string(REPLACE
 string(REPLACE
     "if(RAWSPEED_SUPPORT_CAN_BE_COMPILED)\n    target_link_libraries(raw_r PUBLIC ${LIBXML2_LIBRARIES} Threads::Threads)\nendif()"
     "if(RAWSPEED_SUPPORT_CAN_BE_COMPILED)\n    target_link_libraries(raw_r PUBLIC ${LIBXML2_LIBRARIES} Threads::Threads)\nendif()\n\nif(RAWSPEED3_SUPPORT_CAN_BE_COMPILED)\n    target_link_libraries(raw_r PUBLIC rawspeed3::rawspeed3)\nendif()"
+    CMAKE_CONTENT "${CMAKE_CONTENT}"
+)
+# Add demosaic pack compile definitions
+string(REPLACE
+    "# Flag to add Raspberry Pi RAW support"
+    "# Demosaic Pack support\nif(ENABLE_DEMOSAIC_PACK_GPL2)\n    add_definitions(-DLIBRAW_DEMOSAIC_PACK_GPL2)\nendif()\nif(ENABLE_DEMOSAIC_PACK_GPL3)\n    add_definitions(-DLIBRAW_DEMOSAIC_PACK_GPL3)\nendif()\n\n# Flag to add Raspberry Pi RAW support"
     CMAKE_CONTENT "${CMAKE_CONTENT}"
 )
 file(WRITE "${SOURCE_PATH}/CMakeLists.txt" "${CMAKE_CONTENT}")
@@ -107,6 +150,38 @@ string(REPLACE
 )
 file(WRITE "${SOURCE_PATH}/cmake/data/libraw_config.h.cmake" "${CONFIG_H_CONTENT}")
 
+# Copy demosaic_packs.cpp bridge file
+file(COPY "${CMAKE_CURRENT_LIST_DIR}/demosaic_packs.cpp"
+     DESTINATION "${SOURCE_PATH}/src/demosaic")
+
+# Patch dcraw_process.cpp — add quality 5-10 dispatch
+file(READ "${SOURCE_PATH}/src/postprocessing/dcraw_process.cpp" DCP_CONTENT)
+string(REPLACE
+    "      else if (quality == 4)\n        dcb(iterations, dcb_enhance);\n\n      else if (quality == 11)"
+    "      else if (quality == 4)\n        dcb(iterations, dcb_enhance);\n\n#ifdef LIBRAW_DEMOSAIC_PACK_GPL2\n      else if (quality == 5)\n        ahd_interpolate_mod();\n      else if (quality == 6)\n        afd_interpolate_pl(2, 1);\n      else if (quality == 7)\n        vcd_interpolate(0);\n      else if (quality == 8)\n      {\n        vcd_interpolate(12);\n        refinement();\n        if (O.med_passes > 0)\n        {\n          median_filter_new();\n          es_median_filter();\n        }\n      }\n      else if (quality == 9)\n        lmmse_interpolate(1);\n#endif\n#ifdef LIBRAW_DEMOSAIC_PACK_GPL3\n      else if (quality == 10)\n        amaze_demosaic_RT();\n#endif\n\n      else if (quality == 11)"
+    DCP_CONTENT "${DCP_CONTENT}"
+)
+file(WRITE "${SOURCE_PATH}/src/postprocessing/dcraw_process.cpp" "${DCP_CONTENT}")
+# Verify dcraw_process.cpp patch applied
+string(FIND "${DCP_CONTENT}" "LIBRAW_DEMOSAIC_PACK_GPL2" _DCP_PATCH_CHECK)
+if(_DCP_PATCH_CHECK LESS 0)
+    message(FATAL_ERROR "Failed to patch dcraw_process.cpp: quality 5-10 dispatch anchor not found")
+endif()
+
+# Patch libraw_internal_funcs.h — add function declarations
+file(READ "${SOURCE_PATH}/internal/libraw_internal_funcs.h" IFH_CONTENT)
+string(REPLACE
+    "\tvoid \tdcb_nyquist();\n#endif"
+    "\tvoid \tdcb_nyquist();\n// Demosaic Pack (GPL2)\n\tvoid  \tahd_interpolate_mod();\n\tvoid  \tahd_partial_interpolate(int threshold_value);\n\tvoid  \tafd_interpolate_pl(int afd_passes, int clip_on);\n\tvoid  \tvcd_interpolate(int flags);\n\tvoid  \tlmmse_interpolate(int iterations);\n\tvoid  \tes_median_filter();\n\tvoid  \tmedian_filter_new();\n\tvoid  \trefinement();\n// Demosaic Pack (GPL3)\n\tvoid  \tamaze_demosaic_RT();\n#endif"
+    IFH_CONTENT "${IFH_CONTENT}"
+)
+file(WRITE "${SOURCE_PATH}/internal/libraw_internal_funcs.h" "${IFH_CONTENT}")
+# Verify libraw_internal_funcs.h patch applied
+string(FIND "${IFH_CONTENT}" "ahd_interpolate_mod" _IFH_PATCH_CHECK)
+if(_IFH_PATCH_CHECK LESS 0)
+    message(FATAL_ERROR "Failed to patch libraw_internal_funcs.h: declaration anchor not found")
+endif()
+
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
     FEATURES
         openmp      ENABLE_OPENMP
@@ -117,6 +192,8 @@ vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
         rawspeed3  ENABLE_RAWSPEED3
         x3ftools   ENABLE_X3FTOOLS
         6by9rpi    ENABLE_6BY9RPI
+        demosaic-pack-gpl2 ENABLE_DEMOSAIC_PACK_GPL2
+        demosaic-pack-gpl3 ENABLE_DEMOSAIC_PACK_GPL3
 )
 
 vcpkg_cmake_configure(
@@ -186,8 +263,15 @@ endforeach()
 
 configure_file("${CMAKE_CURRENT_LIST_DIR}/vcpkg-cmake-wrapper.cmake" "${CURRENT_PACKAGES_DIR}/share/${PORT}/vcpkg-cmake-wrapper.cmake" @ONLY)
 file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/usage" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")
-vcpkg_install_copyright(FILE_LIST
+set(COPYRIGHT_FILES
     "${SOURCE_PATH}/COPYRIGHT"
     "${SOURCE_PATH}/LICENSE.LGPL"
     "${SOURCE_PATH}/LICENSE.CDDL"
 )
+if("demosaic-pack-gpl2" IN_LIST FEATURES)
+    list(APPEND COPYRIGHT_FILES "${DEMOSAIC_PACK_GPL2_SOURCE_PATH}/LICENSE.txt")
+endif()
+if("demosaic-pack-gpl3" IN_LIST FEATURES)
+    list(APPEND COPYRIGHT_FILES "${DEMOSAIC_PACK_GPL3_SOURCE_PATH}/LICENSE.txt")
+endif()
+vcpkg_install_copyright(FILE_LIST ${COPYRIGHT_FILES})

@@ -138,6 +138,10 @@ type ProcessedImage struct {
 	Data   []byte
 }
 
+// InterpolationQuality controls the demosaic algorithm for Bayer-pattern RAW images.
+// Values 0-4 and 11-12 are always available. Values 5-9 require the GPL2 demosaic
+// pack; value 10 requires the GPL3 demosaic pack. For Fuji X-Trans sensors, quality
+// is ignored and xtrans_interpolate is used instead.
 type InterpolationQuality int
 
 const (
@@ -146,8 +150,14 @@ const (
 	QualityPPG
 	QualityAHD
 	QualityDCB
-	QualityDHT  = 11
-	QualityAAHD = 12
+	QualityModifiedAHD                           // 5  GPL2
+	QualityAFD                                   // 6  GPL2
+	QualityVCD                                   // 7  GPL2
+	QualityVCDAHD                                // 8  GPL2
+	QualityLMMSE                                 // 9  GPL2
+	QualityAMaZE                                 // 10 GPL3
+	QualityDHT
+	QualityAAHD
 )
 
 type HighlightMode int

@@ -1190,6 +1190,73 @@ func TestGetterErrorsAfterClose(t *testing.T) {
 	}
 }
 
+func TestDemosaicPackQualities(t *testing.T) {
+	qualities := []struct {
+		name  string
+		value InterpolationQuality
+	}{
+		{"ModifiedAHD", QualityModifiedAHD}, // 5
+		{"AFD", QualityAFD},                 // 6
+		{"VCD", QualityVCD},                 // 7
+		{"VCDAHD", QualityVCDAHD},           // 8
+		{"LMMSE", QualityLMMSE},             // 9
+		{"AMaZE", QualityAMaZE},             // 10
+	}
+	// Use CR2/CR3 files — DNG.dng produces all-zero pixel data after processing
+	path := ""
+	for _, name := range []string{"IMG_8000.CR2", "IMG_1104.CR3"} {
+		if _, err := os.Stat(filepath.Join("testdata", name)); err == nil {
+			path = filepath.Join("testdata", name)
+			break
+		}
+	}
+	if path == "" {
+		t.Skip("no CR2/CR3 test file found in testdata/")
+		return
+	}
+	for _, q := range qualities {
+		t.Run(q.name, func(t *testing.T) {
+			rp, err := New(WithInterpolationQuality(q.value), WithCameraWB())
+			if err != nil {
+				t.Fatalf("New() error: %v", err)
+			}
+			t.Cleanup(func() { rp.Close() })
+			if err := rp.OpenFile(path); err != nil {
+				t.Fatalf("OpenFile() error: %v", err)
+			}
+			if err := rp.Unpack(); err != nil {
+				t.Fatalf("Unpack() error: %v", err)
+			}
+			if err := rp.Process(); err != nil {
+				t.Fatalf("Process() error: %v", err)
+			}
+			pw := rp.ProcessWarnings()
+			if pw&uint(WarnFallbackToAHD) != 0 {
+				t.Errorf("quality %d (%s) fell back to AHD", q.value, q.name)
+			}
+			img, err := rp.MakeMemImage()
+			if err != nil {
+				t.Fatalf("MakeMemImage() error: %v", err)
+			}
+			if img.Width == 0 || img.Height == 0 {
+				t.Errorf("got zero-dimension image: %dx%d", img.Width, img.Height)
+			}
+			allZero := true
+			for _, b := range img.Data {
+				if b != 0 {
+					allZero = false
+					break
+				}
+			}
+			if allZero {
+				t.Errorf("%s: image data is all zeros", q.name)
+			}
+			t.Logf("%s: %dx%d, %d bits, warnings=0x%08x", q.name, img.Width, img.Height, img.Bits, pw)
+		})
+	}
+}
+
+
 // ── Utility methods ──────────────────────────────────────────────
 
 func TestSetMakeFromIndex(t *testing.T) {

@@ -25,14 +25,20 @@ This gives you complete freedom to apply your own color workflow from scratch.
 - **Subfolder Output** - Output to `make_tiff` subfolder for organization
 - **Window Always on Top** - Keep the window above other applications
 - **Cross-platform** - macOS and Windows support
+- **CLI Mode** - Batch conversion without GUI (`open-make-tiff [flags] <files>`)
+- **LZW Compression** - Optional LZW compression to reduce output file size
+- **RawSpeed Acceleration** - Leverages RawSpeed library for faster RAW decoding
+- **Native CGo Integration** - LibRaw and libtiff compiled directly into the binary
+- **TIFF Format Support** - Supports processing TIFF format files (e.g. .fff) in addition to RAW
 
 ## How it works
 
-Open Make TIFF uses a combination of three tools:
+Open Make TIFF uses a combination of libraries and tools:
 
-1. **Adobe DNG Converter** - Recognizes camera models, performs Bayer interpolation, decodes white balance info
-2. **Libraw (dcraw_emu)** - Generates linear TIFF from the DNG file
-3. **ExifTool** - Copies original EXIF metadata and embeds ICC profile
+1. **Adobe DNG Converter** (optional) - Recognizes camera models, performs Bayer interpolation
+2. **LibRaw** (native CGo integration) - RAW decoding, demosaicing, linear TIFF generation, with RawSpeed acceleration and GPL2/GPL3 demosaic algorithm packs
+3. **libtiff** (native CGo integration) - TIFF read/write with LZW compression
+4. **ExifTool** - Copies original EXIF metadata and embeds ICC profile
 
 ## Prerequisites
 
@@ -53,6 +59,21 @@ Download the latest release from the [Releases](../../releases) page.
    - **Subfolder**: Output to `make_tiff` subfolder
    - **Always on Top**: Keep window above other apps
    - **Disable DNG Converter**: Use Libraw directly (for cameras not supported by Adobe)
+
+### CLI
+
+```
+Usage: open-make-tiff [flags] <input-file> [input-file...]
+
+Flags:
+  -no-dng             disable Adobe DNG Converter
+  -subfolder          output to a "make_tiff" subfolder
+  -compress           enable LZW compression
+  -profile string     ICC profile (AdobeRGB1998, BT2020, DisplayP3, HasselbladRGB, ProPhoto, sRGB)
+  -workers int        number of parallel workers (default: max(NumCPU/2, 1))
+  -keep-log           keep log files after conversion
+  -keep-intermediate  keep intermediate DNG/TIFF files
+```
 
 ## Supported ICC Profiles
 

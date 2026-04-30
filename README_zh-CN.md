@@ -25,14 +25,20 @@ Open Make TIFF 是 [MakeTiff](https://www.colorperfect.com/MakeTiff/) 的免费�
 - **子文件夹输出** - 输出到 `make_tiff` 子文件夹
 - **窗口置顶** - 保持窗口在其他应用程序之上
 - **跨平台** - 支持 macOS 和 Windows
+- **CLI 模式** - 无需 GUI 即可批量转换（`open-make-tiff [flags] <files>`）
+- **LZW 压缩** - 可选的 LZW 压缩减小输出文件体积
+- **RawSpeed 加速** - 利用 RawSpeed 库加速 RAW 解码
+- **原生 CGo 集成** - LibRaw 和 libtiff 直接编译到二进制中
+- **TIFF 格式支持** - 支持直接处理 TIFF 格式文件（如 .fff 等）
 
 ## 工作原理
 
-Open Make TIFF 使用三个工具的组合：
+Open Make TIFF 使用多个库和工具的组合：
 
-1. **Adobe DNG Converter** - 识别相机型号、执行拜耳插值、解码白平衡信息
-2. **Libraw (dcraw_emu)** - 从 DNG 文件生成线性 TIFF
-3. **ExifTool** - 复制原始 EXIF 元数据并嵌入 ICC Profile
+1. **Adobe DNG Converter**（可选）— 识别相机型号、执行拜耳插值
+2. **LibRaw**（原生 CGo 集成）— RAW 解码、去马赛克、线性 TIFF 生成，内置 RawSpeed 加速和 GPL2/GPL3 去马赛克算法包
+3. **libtiff**（原生 CGo 集成）— TIFF 读写与 LZW 压缩
+4. **ExifTool** — 复制原始 EXIF 元数据并嵌入 ICC Profile
 
 ## 系统要求
 
@@ -53,6 +59,21 @@ Open Make TIFF 使用三个工具的组合：
    - **子文件夹**：输出到 `make_tiff` 子文件夹
    - **窗口置顶**：保持窗口在其他应用之上
    - **禁用 DNG Converter**：直接使用 Libraw（适用于 Adobe 不支持的相机）
+
+### 命令行
+
+```
+Usage: open-make-tiff [flags] <input-file> [input-file...]
+
+Flags:
+  -no-dng             禁用 Adobe DNG Converter
+  -subfolder          输出到 "make_tiff" 子文件夹
+  -compress           启用 LZW 压缩
+  -profile string     ICC profile（AdobeRGB1998, BT2020, DisplayP3, HasselbladRGB, ProPhoto, sRGB）
+  -workers int        并行线程数（默认: max(NumCPU/2, 1)）
+  -keep-log           转换后保留日志文件
+  -keep-intermediate  保留中间 DNG/TIFF 文件
+```
 
 ## 支持的 ICC Profile
 

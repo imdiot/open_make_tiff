@@ -6,7 +6,8 @@ package golibraw
 #cgo darwin CFLAGS: -mmacosx-version-min=10.13
 #cgo darwin CXXFLAGS: -mmacosx-version-min=10.13
 #cgo darwin LDFLAGS: -framework CoreServices
-#cgo !darwin LDFLAGS: -lstdc++
+#cgo linux LDFLAGS: -lstdc++
+#cgo windows LDFLAGS: -static-libgcc -Wl,-Bstatic -lstdc++ -lwinpthread
 #include <libraw/libraw.h>
 #include <stdlib.h>
 

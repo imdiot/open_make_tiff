@@ -59,7 +59,7 @@ endif()
 
 # MinGW uses POSIX pthreads and needs ws2_32 for htons/ntohl
 if(VCPKG_CMAKE_SYSTEM_NAME STREQUAL "MinGW")
-    string(APPEND _DNG_SYSLIBS " -lpthread -lws2_32")
+    string(APPEND _DNG_SYSLIBS " -lws2_32")
     string(APPEND _XMP_SYSLIBS " -lole32 -lshell32 -luuid")
 endif()
 

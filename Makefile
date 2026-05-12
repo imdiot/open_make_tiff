@@ -129,10 +129,10 @@ vcpkg-rebuild-macos: vcpkg-clean-macos vcpkg-install-macos-universal
 
 # ── vcpkg Windows targets ────────────────────────────────────────
 
-# --overlay-triplets not needed: x64-mingw-static-release is a built-in vcpkg triplet
 vcpkg-install-windows:
 	$(VCPKG) install $(VCPKG_PACKAGES) \
 		--overlay-ports=$(OVERLAY_PORTS) \
+		--overlay-triplets=$(OVERLAY_TRIPLETS) \
 		--triplet=$(TRIPLET_WINDOWS) \
 		--recurse
 

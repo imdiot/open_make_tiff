@@ -139,3 +139,34 @@ func TestConfigFilePermissions(t *testing.T) {
 	// cleanup
 	os.Remove(path)
 }
+
+func TestSetConfigNoWails(t *testing.T) {
+	ctx := t.Context()
+	m := New(WithContext(ctx), WithNoWails())
+
+	cfg := &Config{
+		EnableSubfolder:   true,
+		EnableCompression: true,
+		Workers:           2,
+	}
+	result := m.SetConfig(cfg)
+
+	if result.EnableSubfolder != true {
+		t.Error("EnableSubfolder not applied")
+	}
+	if result.EnableCompression != true {
+		t.Error("EnableCompression not applied")
+	}
+
+	// noWails mode must not write config to disk
+	path := m.configPath()
+	os.Remove(path)
+	m2 := New(WithContext(ctx), WithNoWails())
+	m2.SetConfig(cfg)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		t.Log("config file not created in noWails mode (correct)")
+	} else {
+		t.Error("config file should not be written in noWails mode")
+		os.Remove(path)
+	}
+}

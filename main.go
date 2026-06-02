@@ -88,6 +88,7 @@ func runCLI() int {
 	workers := fs.Int("workers", max(runtime.NumCPU()/2, 1), "number of parallel workers")
 	keepLog := fs.Bool("keep-log", false, "keep log files after conversion")
 	keepIntermediate := fs.Bool("keep-intermediate", false, "keep intermediate DNG/TIFF files")
+	showVersion := fs.Bool("version", false, "print version and exit")
 
 	fs.Usage = func() {
 		fmt.Fprintf(fs.Output(), "Usage: %s [flags] <input-file> [input-file...]\n\n", fs.Name())
@@ -98,6 +99,16 @@ func runCLI() int {
 
 	if err := fs.Parse(os.Args[1:]); err != nil {
 		return 2
+	}
+
+	if *showVersion {
+		var config WailsConfig
+		if err := json.Unmarshal(wailsConfigContext, &config); err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			return 2
+		}
+		fmt.Printf("%s %s\n", config.Info.ProductName, config.Info.ProductVersion)
+		return 0
 	}
 
 	if fs.NArg() < 1 {
@@ -126,8 +137,13 @@ func runCLI() int {
 
 	mgr := manager.New(
 		manager.WithContext(ctx),
+		manager.WithNoWails(),
 		manager.WithEventEmitter(func(event string, data ...any) {
 			switch event {
+			case "omt:convert:started":
+				fmt.Fprintf(os.Stderr, "Converting %d file(s)...\n", len(fs.Args()))
+			case "omt:convert:file:started":
+				fmt.Fprintf(os.Stderr, "  Converting: %s\n", data[0])
 			case "omt:convert:file:success":
 				fmt.Fprintf(os.Stderr, "  OK: %s\n", data[0])
 			case "omt:convert:file:skipped":

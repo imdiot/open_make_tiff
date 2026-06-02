@@ -80,10 +80,15 @@ type Manager struct {
 
 	tmpDir                 *util.TempDir
 	dngConverterExecutable string
+	noWails                bool
 }
 
 func WithEventEmitter(emit EventEmitter) ManagerOption {
 	return func(m *Manager) { m.emit = emit }
+}
+
+func WithNoWails() ManagerOption {
+	return func(m *Manager) { m.noWails = true }
 }
 
 func WithContext(ctx context.Context) ManagerOption {
@@ -237,8 +242,10 @@ func (m *Manager) SetConfig(cfg *Config) *Config {
 	m.config = cfg
 
 	m.validateConfig()
-	m.saveConfig()
-	wails_runtime.WindowSetAlwaysOnTop(m.ctx, cfg.EnableWindowTop)
+	if !m.noWails {
+		m.saveConfig()
+		wails_runtime.WindowSetAlwaysOnTop(m.ctx, cfg.EnableWindowTop)
+	}
 	return m.config
 }
 

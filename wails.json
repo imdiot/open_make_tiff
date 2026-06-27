@@ -13,6 +13,8 @@
   "info": {
     "productName": "Open Make Tiff",
     "productVersion": "0.1.1",
+    "companyName": "imdiot",
+    "copyright": "Copyright © 2026 imdiot",
     "comments": "open make tiff"
   },
   "postBuildHooks": {

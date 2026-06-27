@@ -5,7 +5,7 @@
         vcpkg-clean vcpkg-rebuild \
         exiftool-download exiftool-download-windows exiftool-download-macos \
         exiftool-check-windows exiftool-check-macos exiftool-clean \
-        package-mac
+        package-mac package-windows
 
 # Platform detection (consolidated)
 ifeq ($(OS),Windows_NT)
@@ -70,7 +70,7 @@ build-windows: exiftool-check-windows
 	wails build -platform windows/amd64
 
 # Read productVersion from wails.json for the dmg filename.
-APP_VERSION := $(shell grep -o '"productVersion"[[:space:]]*:[[:space:]]*"[^"]*"' wails.json | sed 's/.*"\([0-9.]*\)"$$/\1/')
+APP_VERSION = $(shell grep -o '"productVersion"[[:space:]]*:[[:space:]]*"[^"]*"' wails.json | sed 's/.*"\([0-9.]*\)"$$/\1/')
 
 # Build, then package the .app into a drag-to-Applications DMG. Installing by
 # dragging into /Applications avoids the App Translocation that a quarantined
@@ -85,6 +85,11 @@ package-mac: build-mac
 	hdiutil create -volname "Open Make Tiff" -srcfolder "$$tmp" \
 		-ov -format UDZO build/bin/OpenMakeTiff-$(APP_VERSION)-macos-universal.dmg >/dev/null; \
 	echo "✓ packaged: build/bin/OpenMakeTiff-$(APP_VERSION)-macos-universal.dmg"
+
+# Build, then zip the exe + third-party/ into a portable archive. The two must
+# stay siblings so the runtime finds exiftool at filepath.Dir(self)/third-party/.
+package-windows: build-windows
+	powershell -ExecutionPolicy Bypass -File scripts/package-windows.ps1
 
 dev: export PKG_CONFIG_PATH := $(VCPKG_INSTALLED)/$(TRIPLET)/lib/pkgconfig
 dev: $(_EXIFTOOL_CHECK)

@@ -79,7 +79,7 @@ func runCLI() int {
 	util.AttachParentConsole()
 	defer util.FreeParentConsole()
 
-	fs := flag.NewFlagSet("open-make-tiff", flag.ContinueOnError)
+	fs := flag.NewFlagSet("OpenMakeTiff", flag.ContinueOnError)
 
 	noDNG := fs.Bool("no-dng", false, "disable Adobe DNG Converter")
 	subfolder := fs.Bool("subfolder", false, "output to a \"make_tiff\" subfolder")

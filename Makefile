@@ -4,7 +4,8 @@
         vcpkg-clean-macos vcpkg-rebuild-macos \
         vcpkg-clean vcpkg-rebuild \
         exiftool-download exiftool-download-windows exiftool-download-macos \
-        exiftool-check-windows exiftool-check-macos exiftool-clean
+        exiftool-check-windows exiftool-check-macos exiftool-clean \
+        package-mac
 
 # Platform detection (consolidated)
 ifeq ($(OS),Windows_NT)
@@ -67,6 +68,23 @@ build-mac: exiftool-check-macos
 build-windows: export PKG_CONFIG_PATH := $(PKG_CONFIG_WINDOWS)
 build-windows: exiftool-check-windows
 	wails build -platform windows/amd64
+
+# Read productVersion from wails.json for the dmg filename.
+APP_VERSION := $(shell grep -o '"productVersion"[[:space:]]*:[[:space:]]*"[^"]*"' wails.json | sed 's/.*"\([0-9.]*\)"$$/\1/')
+
+# Build, then package the .app into a drag-to-Applications DMG. Installing by
+# dragging into /Applications avoids the App Translocation that a quarantined
+# zip extract triggers (which left the app bouncing in the Dock with no window).
+package-mac: build-mac
+	@rm -f build/bin/OpenMakeTiff-*-macos-universal.dmg
+	@tmp=$$(mktemp -d); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	find build/bin/OpenMakeTiff.app -name '.DS_Store' -delete; \
+	cp -R build/bin/OpenMakeTiff.app "$$tmp/"; \
+	ln -s /Applications "$$tmp/Applications"; \
+	hdiutil create -volname "Open Make Tiff" -srcfolder "$$tmp" \
+		-ov -format UDZO build/bin/OpenMakeTiff-$(APP_VERSION)-macos-universal.dmg >/dev/null; \
+	echo "✓ packaged: build/bin/OpenMakeTiff-$(APP_VERSION)-macos-universal.dmg"
 
 dev: export PKG_CONFIG_PATH := $(VCPKG_INSTALLED)/$(TRIPLET)/lib/pkgconfig
 dev: $(_EXIFTOOL_CHECK)

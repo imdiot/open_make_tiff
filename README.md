@@ -25,7 +25,7 @@ This gives you complete freedom to apply your own color workflow from scratch.
 - **Subfolder Output** - Output to `make_tiff` subfolder for organization
 - **Window Always on Top** - Keep the window above other applications
 - **Cross-platform** - macOS and Windows support
-- **CLI Mode** - Batch conversion without GUI (`open-make-tiff [flags] <files>`)
+- **CLI Mode** - Batch conversion without GUI (`OpenMakeTiff [flags] <files>`)
 - **LZW Compression** - Optional LZW compression to reduce output file size
 - **RawSpeed Acceleration** - Leverages RawSpeed library for faster RAW decoding
 - **Native CGo Integration** - LibRaw and libtiff compiled directly into the binary
@@ -49,6 +49,20 @@ Open Make TIFF uses a combination of libraries and tools:
 
 Download the latest release from the [Releases](../../releases) page.
 
+> **macOS note**: This app is ad-hoc signed (no Apple Developer ID, so it is not notarized). Install it from the DMG by dragging the app into **Applications**.
+>
+> On first launch macOS will block it ("cannot be opened because it is from an unidentified developer" or "damaged"). Try in order:
+>
+> 1. In Finder, **right-click** the app → **Open**.
+> 2. If still blocked, go to **System Settings → Privacy & Security** and click **Open Anyway**.
+> 3. On macOS 15 (Sequoia), or if the above don't work (common when the download triggers App Translocation), open **Terminal** and run:
+>
+>    ```bash
+>    xattr -rd com.apple.quarantine /Applications/OpenMakeTiff.app
+>    ```
+>
+>    This clears the quarantine flag; the app then launches normally.
+
 ## Usage
 
 1. Launch Open Make TIFF
@@ -63,7 +77,7 @@ Download the latest release from the [Releases](../../releases) page.
 ### CLI
 
 ```
-Usage: open-make-tiff [flags] <input-file> [input-file...]
+Usage: OpenMakeTiff [flags] <input-file> [input-file...]
 
 Flags:
   -no-dng             disable Adobe DNG Converter

@@ -25,7 +25,7 @@ Open Make TIFF 是 [MakeTiff](https://www.colorperfect.com/MakeTiff/) 的免费�
 - **子文件夹输出** - 输出到 `make_tiff` 子文件夹
 - **窗口置顶** - 保持窗口在其他应用程序之上
 - **跨平台** - 支持 macOS 和 Windows
-- **CLI 模式** - 无需 GUI 即可批量转换（`open-make-tiff [flags] <files>`）
+- **CLI 模式** - 无需 GUI 即可批量转换（`OpenMakeTiff [flags] <files>`）
 - **LZW 压缩** - 可选的 LZW 压缩减小输出文件体积
 - **RawSpeed 加速** - 利用 RawSpeed 库加速 RAW 解码
 - **原生 CGo 集成** - LibRaw 和 libtiff 直接编译到二进制中
@@ -49,6 +49,20 @@ Open Make TIFF 使用多个库和工具的组合：
 
 从 [Releases](../../releases) 页面下载最新版本。
 
+> **macOS 说明**：本应用为 ad-hoc 签名（无 Apple 开发者账号，因此未公证）。请从 DMG 安装：双击挂载后，将 app 拖入**应用程序（Applications）**文件夹。
+>
+> 首次打开 macOS 会拦截（提示"无法打开，因为来自身份不明的开发者"或"已损坏"）。按顺序尝试：
+>
+> 1. 在 Finder 中**右键点击** app → **打开**。
+> 2. 若仍被拦截，打开**系统设置 → 隐私与安全性**，点击「仍要打开」。
+> 3. 在 macOS 15（Sequoia），或上述都无效时（下载触发 App Translocation 常见），打开**终端**执行：
+>
+>    ```bash
+>    xattr -rd com.apple.quarantine /Applications/OpenMakeTiff.app
+>    ```
+>
+>    清除隔离标记后，应用可正常启动。
+
 ## 使用方法
 
 1. 启动 Open Make TIFF
@@ -63,7 +77,7 @@ Open Make TIFF 使用多个库和工具的组合：
 ### 命令行
 
 ```
-Usage: open-make-tiff [flags] <input-file> [input-file...]
+Usage: OpenMakeTiff [flags] <input-file> [input-file...]
 
 Flags:
   -no-dng             禁用 Adobe DNG Converter

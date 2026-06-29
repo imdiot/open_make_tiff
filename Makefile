@@ -5,7 +5,8 @@
         vcpkg-clean vcpkg-rebuild \
         exiftool-download exiftool-download-windows exiftool-download-macos \
         exiftool-check-windows exiftool-check-macos exiftool-clean \
-        package-mac package-windows
+        package-mac package-windows \
+        test
 
 # Platform detection (consolidated)
 ifeq ($(OS),Windows_NT)
@@ -97,6 +98,10 @@ dev: $(_EXIFTOOL_CHECK)
 
 clean:
 	rm -rf build/bin/*
+
+test: export PKG_CONFIG_PATH := $(PKG_CONFIG_MAC)
+test:
+	go test ./internal/... ./pkg/...
 
 # ── vcpkg dispatch targets (auto-detect platform) ────────────────
 

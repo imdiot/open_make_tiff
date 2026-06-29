@@ -1,6 +1,6 @@
 //go:build darwin
 
-package manager
+package app
 
 import (
 	"log/slog"
@@ -13,7 +13,7 @@ import (
 	"open-make-tiff/pkg/util"
 )
 
-// symlinkIfExists creates a symlink only if src exists.
+// symlinkIfExists creates a symlink only when src exists.
 func symlinkIfExists(src, dst string) error {
 	if _, err := os.Stat(src); err != nil {
 		return nil
@@ -21,26 +21,27 @@ func symlinkIfExists(src, dst string) error {
 	return os.Symlink(src, dst)
 }
 
-// initDNGShadowBundle creates a Shadow Bundle to suppress the DNG Converter Dock icon.
-func (m *Manager) initDNGShadowBundle() {
-	if m.tmpDir == nil || !m.setting.EnableAdobeDNGConverter {
-		return
+// initDNGShadowBundle creates a Shadow Bundle wrapper around the Adobe DNG
+// Converter so it runs without claiming a Dock icon. Returns the wrapper's
+// executable path, or "" when disabled, unavailable, or on failure.
+func initDNGShadowBundle(tmpDir string, enable bool) string {
+	if tmpDir == "" || !enable {
+		return ""
 	}
 
 	dngExec := dngconverter.GetDefaultExecutablePath()
 	if _, err := os.Stat(dngExec); err != nil {
-		return
+		return ""
 	}
 
 	dngBundle := filepath.Dir(filepath.Dir(filepath.Dir(dngExec)))
 	appName := filepath.Base(dngBundle)
 
-	wrapperPath, err := util.ShadowBundle(m.tmpDir.Path(), appName, func(wp string) error {
+	wrapperPath, err := util.ShadowBundle(tmpDir, appName, func(wp string) error {
 		macOSPath := filepath.Join(wp, "Contents", "MacOS")
 		if err := os.MkdirAll(macOSPath, 0755); err != nil {
 			return err
 		}
-
 		if err := os.Symlink(dngExec, filepath.Join(macOSPath, filepath.Base(dngExec))); err != nil {
 			return err
 		}
@@ -68,8 +69,8 @@ func (m *Manager) initDNGShadowBundle() {
 	})
 	if err != nil {
 		slog.Warn("shadow bundle failed", "error", err)
-	} else {
-		m.dngConverterExecutable = filepath.Join(wrapperPath, "Contents", "MacOS", filepath.Base(dngExec))
-		slog.Info("shadow bundle created", "path", wrapperPath)
+		return ""
 	}
+	slog.Info("shadow bundle created", "path", wrapperPath)
+	return filepath.Join(wrapperPath, "Contents", "MacOS", filepath.Base(dngExec))
 }

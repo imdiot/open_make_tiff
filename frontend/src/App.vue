@@ -135,7 +135,7 @@ vue.watch(textarea, () => {
 
 const handleConfigChange = async () => {
   try {
-    const cfg = new models.manager.Config({
+    const cfg = new models.config.Config({
       disable_adobe_dng_converter: config.disableAdobeDNGConverter,
       enable_window_top: config.enableWindowTop,
       enable_subfolder: config.enableSubfolder,

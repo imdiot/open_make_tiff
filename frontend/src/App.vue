@@ -61,7 +61,10 @@ const updateTextarea = () => {
 
 vue.onMounted(async () => {
   try {
-    const config_ = await api.GetConfig();
+    const [config_, setting_] = await Promise.all([
+      api.GetConfig(),
+      api.GetSetting(),
+    ]);
     config.disableAdobeDNGConverter = config_.disable_adobe_dng_converter ?? config.disableAdobeDNGConverter;
     config.enableWindowTop = config_.enable_window_top ?? config.enableWindowTop;
     config.enableSubfolder = config_.enable_subfolder ?? config.enableSubfolder;
@@ -69,7 +72,6 @@ vue.onMounted(async () => {
     config.iccProfile = config_.icc_profile ?? config.iccProfile;
     config.workers = config_.workers ?? config.workers;
 
-    const setting_ = await api.GetSetting();
     setting.enableAdobeDNGConverter = setting_.enable_adobe_dng_converter ?? setting.enableAdobeDNGConverter;
     setting.workerNums = setting_.worker_nums;
     setting.profiles = setting_.profiles;

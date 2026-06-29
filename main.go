@@ -55,6 +55,7 @@ func main() {
 		Width:         512,
 		Height:        384,
 		DisableResize: true,
+		StartHidden:   true,
 		DragAndDrop: &options.DragAndDrop{
 			EnableFileDrop: true,
 		},

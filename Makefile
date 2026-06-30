@@ -1,66 +1,81 @@
-.PHONY: build build-mac build-windows dev clean \
-        vcpkg-install vcpkg-install-macos-arm64 vcpkg-install-macos-x64 vcpkg-install-macos-universal \
-        vcpkg-install-windows vcpkg-clean-windows vcpkg-rebuild-windows \
-        vcpkg-clean-macos vcpkg-rebuild-macos \
-        vcpkg-clean vcpkg-rebuild \
-        exiftool-download exiftool-download-windows exiftool-download-macos \
-        exiftool-check-windows exiftool-check-macos exiftool-clean \
-        package-mac package-windows \
-        test
+# OpenMakeTiff build orchestration: wails app + vcpkg deps (libraw/tiff) + ExifTool.
+# Cross-platform (macOS/Windows). GNU make 3.81 compatible (no .RECIPEPREFIX, no !=).
 
-# Platform detection (consolidated)
+.PHONY: build build-mac build-windows dev clean test \
+        package package-mac package-windows \
+        vcpkg-install vcpkg-install-macos-arm64 vcpkg-install-macos-x64 \
+        vcpkg-install-macos-universal vcpkg-install-windows \
+        vcpkg-clean vcpkg-clean-macos vcpkg-clean-windows \
+        vcpkg-rebuild vcpkg-rebuild-macos vcpkg-rebuild-windows \
+        exiftool-check exiftool-download exiftool-download-macos exiftool-download-windows \
+        exiftool-check-macos exiftool-check-windows exiftool-clean
+
+# ── Platform detection ───────────────────────────────────────────
+# Set one host flag + the vcpkg binary/root only. Target dispatch is expressed
+# via $(if) in "Dispatch variables" — never inline functions in target lines.
 ifeq ($(OS),Windows_NT)
-VCPKG_ROOT       ?= $(USERPROFILE)/vcpkg
-VCPKG            := $(VCPKG_ROOT)/vcpkg.exe
-TRIPLET          := x64-mingw-static-release
-_VCPKG_INSTALL   := vcpkg-install-windows
-_VCPKG_CLEAN     := vcpkg-clean-windows
-_VCPKG_REBUILD   := vcpkg-rebuild-windows
-_BUILD_TARGET    := build-windows
-_EXIFTOOL_CHECK  := exiftool-check-windows
+IS_WINDOWS := 1
+VCPKG_ROOT ?= $(USERPROFILE)/vcpkg
+VCPKG      := $(VCPKG_ROOT)/vcpkg.exe
 else
-VCPKG_ROOT       ?= $(HOME)/vcpkg
-VCPKG            := $(VCPKG_ROOT)/vcpkg
-TRIPLET          := universal-osx-release
-_VCPKG_INSTALL   := vcpkg-install-macos-universal
-_VCPKG_CLEAN     := vcpkg-clean-macos
-_VCPKG_REBUILD   := vcpkg-rebuild-macos
-_BUILD_TARGET    := build-mac
-_EXIFTOOL_CHECK  := exiftool-check-macos
+IS_MAC     := 1
+VCPKG_ROOT ?= $(HOME)/vcpkg
+VCPKG      := $(VCPKG_ROOT)/vcpkg
 endif
 
-# Package configuration
+# ── Package & ExifTool configuration ─────────────────────────────
 VCPKG_PACKAGES = \
 	libraw[6by9rpi,demosaic-pack-gpl2,demosaic-pack-gpl3,dng-lossy,dngsdk,rawspeed,rawspeed3,x3ftools] \
 	tiff[cxx,jpeg,lerc,libdeflate,lzma,webp,zip,zstd]
 
-# ExifTool configuration
-EXIFTOOL_VERSION   := 13.55
-EXIFTOOL_SF_BASE   := https://sourceforge.net/projects/exiftool/files
+EXIFTOOL_VERSION := 13.55
+EXIFTOOL_SF_BASE := https://sourceforge.net/projects/exiftool/files
 
 OVERLAY_PORTS    = third-party/vcpkg/ports
 OVERLAY_TRIPLETS = third-party/vcpkg/triplets
 VCPKG_INSTALLED  = $(VCPKG_ROOT)/installed
 
-# Triplet identifiers
+# ── Triplets & derived paths ─────────────────────────────────────
 TRIPLET_ARM64     := arm64-osx-release
 TRIPLET_X64_MAC   := x64-osx-release
 TRIPLET_UNIVERSAL := universal-osx-release
 TRIPLET_WINDOWS   := x64-mingw-static-release
 
-# Derived paths
 INSTALLED_ARM64     := $(VCPKG_INSTALLED)/$(TRIPLET_ARM64)
 INSTALLED_X64_MAC   := $(VCPKG_INSTALLED)/$(TRIPLET_X64_MAC)
 INSTALLED_UNIVERSAL := $(VCPKG_INSTALLED)/$(TRIPLET_UNIVERSAL)
 INSTALLED_WINDOWS   := $(VCPKG_INSTALLED)/$(TRIPLET_WINDOWS)
 
-PKG_CONFIG_MAC    := $(INSTALLED_UNIVERSAL)/lib/pkgconfig
+PKG_CONFIG_MAC     := $(INSTALLED_UNIVERSAL)/lib/pkgconfig
 PKG_CONFIG_WINDOWS := $(INSTALLED_WINDOWS)/lib/pkgconfig
 
-# ── Build targets ────────────────────────────────────────────────
+# Native host triplet — drives `dev`'s PKG_CONFIG_PATH on the dev machine.
+# Must stay platform-aware, or Windows `dev` would point at a nonexistent
+# universal dir. Defined after the TRIPLET_* constants so the := resolves now.
+TRIPLET := $(if $(IS_WINDOWS),$(TRIPLET_WINDOWS),$(TRIPLET_UNIVERSAL))
 
-build:
-	$(MAKE) $(_BUILD_TARGET)
+# ── Dispatch variables (host-platform → target) ──────────────────
+_BUILD_TARGET   := $(if $(IS_MAC),build-mac,build-windows)
+_PACKAGE_TARGET := $(if $(IS_MAC),package-mac,package-windows)
+_EXIFTOOL_CHECK := $(if $(IS_MAC),exiftool-check-macos,exiftool-check-windows)
+_VCPKG_INSTALL  := $(if $(IS_MAC),vcpkg-install-macos-universal,vcpkg-install-windows)
+_VCPKG_CLEAN    := $(if $(IS_MAC),vcpkg-clean-macos,vcpkg-clean-windows)
+_VCPKG_REBUILD  := $(if $(IS_MAC),vcpkg-rebuild-macos,vcpkg-rebuild-windows)
+
+# ── Recipe templates (canned recipes) ────────────────────────────
+# One install recipe shared by every triplet — only --triplet differs. Body
+# lines MUST be tab-indented (3.81 has no .RECIPEPREFIX); the $(call) arg
+# MUST have no leading space, or --triplet= gets one and vcpkg rejects it.
+define vcpkg-install-recipe
+	$(VCPKG) install $(VCPKG_PACKAGES) \
+		--overlay-ports=$(OVERLAY_PORTS) \
+		--overlay-triplets=$(OVERLAY_TRIPLETS) \
+		--triplet=$(1) \
+		--recurse
+endef
+
+# ── Build ────────────────────────────────────────────────────────
+build: $(_BUILD_TARGET)
 
 build-mac: export PKG_CONFIG_PATH := $(PKG_CONFIG_MAC)
 build-mac: exiftool-check-macos
@@ -69,6 +84,20 @@ build-mac: exiftool-check-macos
 build-windows: export PKG_CONFIG_PATH := $(PKG_CONFIG_WINDOWS)
 build-windows: exiftool-check-windows
 	wails build -platform windows/amd64
+
+dev: export PKG_CONFIG_PATH := $(VCPKG_INSTALLED)/$(TRIPLET)/lib/pkgconfig
+dev: $(_EXIFTOOL_CHECK)
+	wails dev
+
+clean:
+	rm -rf build/bin/*
+
+test: export PKG_CONFIG_PATH := $(PKG_CONFIG_MAC)
+test:
+	go test ./internal/... ./pkg/...
+
+# ── Packaging ────────────────────────────────────────────────────
+package: $(_PACKAGE_TARGET)
 
 # Read productVersion from wails.json for the dmg filename.
 APP_VERSION = $(shell grep -o '"productVersion"[[:space:]]*:[[:space:]]*"[^"]*"' wails.json | sed 's/.*"\([0-9.]*\)"$$/\1/')
@@ -92,45 +121,19 @@ package-mac: build-mac
 package-windows: build-windows
 	powershell -ExecutionPolicy Bypass -File scripts/package-windows.ps1
 
-dev: export PKG_CONFIG_PATH := $(VCPKG_INSTALLED)/$(TRIPLET)/lib/pkgconfig
-dev: $(_EXIFTOOL_CHECK)
-	wails dev
+# ── vcpkg dispatch ───────────────────────────────────────────────
+vcpkg-install: $(_VCPKG_INSTALL)
+vcpkg-clean:   $(_VCPKG_CLEAN)
+vcpkg-rebuild: $(_VCPKG_REBUILD)
 
-clean:
-	rm -rf build/bin/*
-
-test: export PKG_CONFIG_PATH := $(PKG_CONFIG_MAC)
-test:
-	go test ./internal/... ./pkg/...
-
-# ── vcpkg dispatch targets (auto-detect platform) ────────────────
-
-vcpkg-install:
-	$(MAKE) $(_VCPKG_INSTALL)
-
-vcpkg-clean:
-	$(MAKE) $(_VCPKG_CLEAN)
-
-vcpkg-rebuild:
-	$(MAKE) $(_VCPKG_REBUILD)
-
-# ── vcpkg macOS targets ──────────────────────────────────────────
-
+# ── vcpkg macOS ──────────────────────────────────────────────────
 vcpkg-install-macos-arm64:
-	$(VCPKG) install $(VCPKG_PACKAGES) \
-		--overlay-ports=$(OVERLAY_PORTS) \
-		--overlay-triplets=$(OVERLAY_TRIPLETS) \
-		--triplet=$(TRIPLET_ARM64) \
-		--recurse
+	$(call vcpkg-install-recipe,$(TRIPLET_ARM64))
 
 vcpkg-install-macos-x64:
-	$(VCPKG) install $(VCPKG_PACKAGES) \
-		--overlay-ports=$(OVERLAY_PORTS) \
-		--overlay-triplets=$(OVERLAY_TRIPLETS) \
-		--triplet=$(TRIPLET_X64_MAC) \
-		--recurse
+	$(call vcpkg-install-recipe,$(TRIPLET_X64_MAC))
 
-# Merge arm64 + x64 into universal fat libraries
+# Merge arm64 + x64 into universal fat libraries.
 vcpkg-install-macos-universal: vcpkg-install-macos-arm64 vcpkg-install-macos-x64
 	@echo "Merging static libraries into $(TRIPLET_UNIVERSAL)..."
 	@rm -rf $(INSTALLED_UNIVERSAL)
@@ -148,6 +151,9 @@ vcpkg-install-macos-universal: vcpkg-install-macos-arm64 vcpkg-install-macos-x64
 	@cp $(INSTALLED_ARM64)/lib/pkgconfig/*.pc \
 		$(INSTALLED_UNIVERSAL)/lib/pkgconfig/
 
+# libraw's dngsdk/rawspeed/rawspeed3 features pull adobe-dng-sdk and rawspeed3
+# in as dependency ports, so `remove` must list all four — otherwise stale
+# entries make vcpkg think they're still installed on rebuild.
 vcpkg-clean-macos:
 	$(VCPKG) remove libraw tiff adobe-dng-sdk rawspeed3 --triplet=$(TRIPLET_ARM64) --recurse
 	$(VCPKG) remove libraw tiff adobe-dng-sdk rawspeed3 --triplet=$(TRIPLET_X64_MAC) --recurse
@@ -155,32 +161,26 @@ vcpkg-clean-macos:
 
 vcpkg-rebuild-macos: vcpkg-clean-macos vcpkg-install-macos-universal
 
-# ── vcpkg Windows targets ────────────────────────────────────────
-
+# ── vcpkg Windows ────────────────────────────────────────────────
 vcpkg-install-windows:
-	$(VCPKG) install $(VCPKG_PACKAGES) \
-		--overlay-ports=$(OVERLAY_PORTS) \
-		--overlay-triplets=$(OVERLAY_TRIPLETS) \
-		--triplet=$(TRIPLET_WINDOWS) \
-		--recurse
+	$(call vcpkg-install-recipe,$(TRIPLET_WINDOWS))
 
 vcpkg-clean-windows:
 	$(VCPKG) remove libraw tiff adobe-dng-sdk rawspeed3 --triplet=$(TRIPLET_WINDOWS) --recurse
 
 vcpkg-rebuild-windows: vcpkg-clean-windows vcpkg-install-windows
 
-# ── ExifTool download targets ───────────────────────────────────
-
-# Windows: use PowerShell script (works in cmd.exe / PowerShell)
+# ── ExifTool ─────────────────────────────────────────────────────
+# Windows: one PowerShell script covers both check and download (it decides
+# internally whether the requested version is already on disk).
 exiftool-check-windows exiftool-download-windows:
 	powershell -ExecutionPolicy Bypass -File scripts/download-exiftool.ps1 -Version $(EXIFTOOL_VERSION)
 
-# macOS: use bash commands (native on macOS)
+# macOS: native bash. Re-download only when the recorded version differs.
 _EXIFTOOL_MAC_VER := $(shell cat third-party/macos-universal/.exiftool-version 2>/dev/null)
 
 ifneq ($(strip $(_EXIFTOOL_MAC_VER)),$(EXIFTOOL_VERSION))
-exiftool-check-macos:
-	$(MAKE) exiftool-download-macos
+exiftool-check-macos: exiftool-download-macos
 else
 exiftool-check-macos:
 	@echo "ExifTool $(EXIFTOOL_VERSION) already present for macOS"
@@ -200,12 +200,11 @@ exiftool-download-macos:
 	@echo "$(EXIFTOOL_VERSION)" > third-party/macos-universal/.exiftool-version
 	@echo "ExifTool $(EXIFTOOL_VERSION) downloaded for macOS"
 
-exiftool-download:
-ifeq ($(OS),Windows_NT)
-	$(MAKE) exiftool-check-windows
-else
-	$(MAKE) exiftool-check-macos
-endif
+# Cross-platform check / download entry points: pure prereq dispatch, no sub-make.
+# download keeps its original "= check" semantics (re-downloads only when the
+# recorded version differs), so check and download are interchangeable.
+exiftool-check:   $(_EXIFTOOL_CHECK)
+exiftool-download: $(_EXIFTOOL_CHECK)
 
 exiftool-clean:
 	rm -rf third-party/windows-x64 third-party/macos-universal

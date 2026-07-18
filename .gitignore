@@ -9,3 +9,5 @@ third-party/macos-universal/
 third-party/vcpkg-root/
 third-src/
 vcpkg_installed/
+vcpkg_installed_arm64/
+vcpkg_installed_x64/

@@ -36,13 +36,18 @@ OVERLAY_TRIPLETS = third-party/vcpkg-overlay/triplets
 VCPKG_INSTALLED  = $(CURDIR)/vcpkg_installed
 
 # ── Triplets & derived paths ─────────────────────────────────────
+# arm64 / x64 each get a separate --x-install-root because manifest mode
+# removes packages from other triplets when re-installing to the same root.
 TRIPLET_ARM64     := arm64-osx-release
 TRIPLET_X64_MAC   := x64-osx-release
 TRIPLET_UNIVERSAL := universal-osx-release
 TRIPLET_WINDOWS   := x64-mingw-static-release
 
-INSTALLED_ARM64     := $(VCPKG_INSTALLED)/$(TRIPLET_ARM64)
-INSTALLED_X64_MAC   := $(VCPKG_INSTALLED)/$(TRIPLET_X64_MAC)
+VCPKG_INSTALLED_ARM64 := $(CURDIR)/vcpkg_installed_arm64
+VCPKG_INSTALLED_X64   := $(CURDIR)/vcpkg_installed_x64
+
+SRC_ARM64     := $(VCPKG_INSTALLED_ARM64)/$(TRIPLET_ARM64)
+SRC_X64_MAC   := $(VCPKG_INSTALLED_X64)/$(TRIPLET_X64_MAC)
 INSTALLED_UNIVERSAL := $(VCPKG_INSTALLED)/$(TRIPLET_UNIVERSAL)
 INSTALLED_WINDOWS   := $(VCPKG_INSTALLED)/$(TRIPLET_WINDOWS)
 
@@ -73,7 +78,7 @@ define vcpkg-install-recipe
 		--overlay-triplets=$(OVERLAY_TRIPLETS) \
 		--triplet=$(1) \
 		--x-manifest-root=$(CURDIR) \
-		--x-install-root=$(VCPKG_INSTALLED)
+		--x-install-root=$(2)
 endef
 
 # ── Build ────────────────────────────────────────────────────────
@@ -141,38 +146,38 @@ vcpkg-rebuild: $(_VCPKG_REBUILD)
 
 # ── vcpkg macOS ──────────────────────────────────────────────────
 vcpkg-install-macos-arm64: vcpkg-check
-	$(call vcpkg-install-recipe,$(TRIPLET_ARM64))
+	$(call vcpkg-install-recipe,$(TRIPLET_ARM64),$(VCPKG_INSTALLED_ARM64))
 
 vcpkg-install-macos-x64: vcpkg-check
-	$(call vcpkg-install-recipe,$(TRIPLET_X64_MAC))
+	$(call vcpkg-install-recipe,$(TRIPLET_X64_MAC),$(VCPKG_INSTALLED_X64))
 
 # Merge arm64 + x64 into universal fat libraries.
 vcpkg-install-macos-universal: vcpkg-install-macos-arm64 vcpkg-install-macos-x64
 	@echo "Merging static libraries into $(TRIPLET_UNIVERSAL)..."
 	@rm -rf $(INSTALLED_UNIVERSAL)
 	@mkdir -p $(INSTALLED_UNIVERSAL)/lib/pkgconfig
-	@cp -R $(INSTALLED_ARM64)/include $(INSTALLED_UNIVERSAL)/
-	@for f in $(INSTALLED_ARM64)/lib/*.a; do \
+	@cp -R $(SRC_ARM64)/include $(INSTALLED_UNIVERSAL)/
+	@for f in $(SRC_ARM64)/lib/*.a; do \
 		lib=$$(basename $$f); \
-		if [ -f "$(INSTALLED_X64_MAC)/lib/$$lib" ]; then \
-			lipo -create $$f $(INSTALLED_X64_MAC)/lib/$$lib \
+		if [ -f "$(SRC_X64_MAC)/lib/$$lib" ]; then \
+			lipo -create $$f $(SRC_X64_MAC)/lib/$$lib \
 				-output $(INSTALLED_UNIVERSAL)/lib/$$lib; \
 		else \
 			cp $$f $(INSTALLED_UNIVERSAL)/lib/$$lib; \
 		fi; \
 	done
-	@cp $(INSTALLED_ARM64)/lib/pkgconfig/*.pc \
+	@cp $(SRC_ARM64)/lib/pkgconfig/*.pc \
 		$(INSTALLED_UNIVERSAL)/lib/pkgconfig/
 
 # manifest mode: clean = drop the built install trees (re-install rebuilds them).
 vcpkg-clean-macos:
-	rm -rf $(INSTALLED_ARM64) $(INSTALLED_X64_MAC) $(INSTALLED_UNIVERSAL)
+	rm -rf $(VCPKG_INSTALLED_ARM64) $(VCPKG_INSTALLED_X64) $(INSTALLED_UNIVERSAL)
 
 vcpkg-rebuild-macos: vcpkg-clean-macos vcpkg-install-macos-universal
 
 # ── vcpkg Windows ────────────────────────────────────────────────
 vcpkg-install-windows: vcpkg-check
-	$(call vcpkg-install-recipe,$(TRIPLET_WINDOWS))
+	$(call vcpkg-install-recipe,$(TRIPLET_WINDOWS),$(VCPKG_INSTALLED))
 
 vcpkg-clean-windows:
 	rm -rf $(INSTALLED_WINDOWS)

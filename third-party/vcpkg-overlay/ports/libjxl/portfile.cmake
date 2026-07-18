@@ -26,6 +26,14 @@ if(VCPKG_TARGET_IS_UWP)
     string(APPEND VCPKG_CXX_FLAGS " /wd4146")
 endif()
 
+# Workaround Apple Clang bug (vcpkg#48417): /usr/local/include takes priority
+# over -isystem on macOS. Add -I for in-source headers so the compiler finds
+# this port's own public headers before any system-installed version.
+if(APPLE)
+    string(APPEND VCPKG_CXX_FLAGS " -I${SOURCE_PATH}/lib/include")
+    string(APPEND VCPKG_C_FLAGS " -I${SOURCE_PATH}/lib/include")
+endif()
+
 vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS

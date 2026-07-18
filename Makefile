@@ -1,7 +1,7 @@
 # OpenMakeTiff build orchestration: wails app + vcpkg deps (libraw/tiff) + ExifTool.
 # Cross-platform (macOS/Windows). GNU make 3.81 compatible (no .RECIPEPREFIX, no !=).
 
-.PHONY: build build-mac build-windows dev clean test \
+.PHONY: build build-mac build-windows dev clean test vcpkg-bootstrap vcpkg-check \
         package package-mac package-windows \
         vcpkg-install vcpkg-install-macos-arm64 vcpkg-install-macos-x64 \
         vcpkg-install-macos-universal vcpkg-install-windows \
@@ -13,27 +13,27 @@
 # ── Platform detection ───────────────────────────────────────────
 # Set one host flag + the vcpkg binary/root only. Target dispatch is expressed
 # via $(if) in "Dispatch variables" — never inline functions in target lines.
+# VCPKG_REF must match vcpkg-configuration.json baseline (= tag 2026.03.18)
+VCPKG_REF   := c3867e714dd3a51c272826eea77267876517ed99
+VCPKG_ROOT  := $(CURDIR)/third-party/vcpkg-root
 ifeq ($(OS),Windows_NT)
 IS_WINDOWS := 1
-VCPKG_ROOT ?= $(USERPROFILE)/vcpkg
 VCPKG      := $(VCPKG_ROOT)/vcpkg.exe
+VCPKG_BOOT := powershell -ExecutionPolicy Bypass -File scripts/download-vcpkg.ps1 -Ref $(VCPKG_REF)
 else
 IS_MAC     := 1
-VCPKG_ROOT ?= $(HOME)/vcpkg
 VCPKG      := $(VCPKG_ROOT)/vcpkg
+VCPKG_BOOT := bash scripts/download-vcpkg.sh $(VCPKG_REF)
 endif
 
-# ── Package & ExifTool configuration ─────────────────────────────
-VCPKG_PACKAGES = \
-	libraw[6by9rpi,demosaic-pack-gpl2,demosaic-pack-gpl3,dng-lossy,dngsdk,rawspeed,rawspeed3,x3ftools] \
-	tiff[cxx,jpeg,lerc,libdeflate,lzma,webp,zip,zstd]
-
+# ── ExifTool configuration ───────────────────────────────────────
+# (vcpkg deps are declared in vcpkg.json — manifest mode)
 EXIFTOOL_VERSION := 13.55
 EXIFTOOL_SF_BASE := https://sourceforge.net/projects/exiftool/files
 
-OVERLAY_PORTS    = third-party/vcpkg/ports
-OVERLAY_TRIPLETS = third-party/vcpkg/triplets
-VCPKG_INSTALLED  = $(VCPKG_ROOT)/installed
+OVERLAY_PORTS    = third-party/vcpkg-overlay/ports
+OVERLAY_TRIPLETS = third-party/vcpkg-overlay/triplets
+VCPKG_INSTALLED  = $(CURDIR)/vcpkg_installed
 
 # ── Triplets & derived paths ─────────────────────────────────────
 TRIPLET_ARM64     := arm64-osx-release
@@ -67,11 +67,13 @@ _VCPKG_REBUILD  := $(if $(IS_MAC),vcpkg-rebuild-macos,vcpkg-rebuild-windows)
 # lines MUST be tab-indented (3.81 has no .RECIPEPREFIX); the $(call) arg
 # MUST have no leading space, or --triplet= gets one and vcpkg rejects it.
 define vcpkg-install-recipe
-	$(VCPKG) install $(VCPKG_PACKAGES) \
+	$(VCPKG) install \
+		--vcpkg-root=$(VCPKG_ROOT) \
 		--overlay-ports=$(OVERLAY_PORTS) \
 		--overlay-triplets=$(OVERLAY_TRIPLETS) \
 		--triplet=$(1) \
-		--recurse
+		--x-manifest-root=$(CURDIR) \
+		--x-install-root=$(VCPKG_INSTALLED)
 endef
 
 # ── Build ────────────────────────────────────────────────────────
@@ -121,16 +123,27 @@ package-mac: build-mac
 package-windows: build-windows
 	powershell -ExecutionPolicy Bypass -File scripts/package-windows.ps1
 
+# ── vcpkg bootstrap ─────────────────────────────────────────────
+# Check whether the vendored tool needs re-bootstrapping (lightweight:
+# a shell comparison against the marker file). Upgrading VCPKG_REF
+# re-triggers clone + bootstrap automatically.
+.PHONY: vcpkg-check
+vcpkg-check:
+	@if [ ! -x "$(VCPKG)" ] || [ ! -f "$(VCPKG_ROOT)/.vcpkg-ref" ] || [ "$$(cat $(VCPKG_ROOT)/.vcpkg-ref)" != "$(VCPKG_REF)" ]; then \
+		$(VCPKG_BOOT); \
+	fi
+vcpkg-bootstrap: vcpkg-check
+
 # ── vcpkg dispatch ───────────────────────────────────────────────
 vcpkg-install: $(_VCPKG_INSTALL)
 vcpkg-clean:   $(_VCPKG_CLEAN)
 vcpkg-rebuild: $(_VCPKG_REBUILD)
 
 # ── vcpkg macOS ──────────────────────────────────────────────────
-vcpkg-install-macos-arm64:
+vcpkg-install-macos-arm64: vcpkg-check
 	$(call vcpkg-install-recipe,$(TRIPLET_ARM64))
 
-vcpkg-install-macos-x64:
+vcpkg-install-macos-x64: vcpkg-check
 	$(call vcpkg-install-recipe,$(TRIPLET_X64_MAC))
 
 # Merge arm64 + x64 into universal fat libraries.
@@ -151,22 +164,18 @@ vcpkg-install-macos-universal: vcpkg-install-macos-arm64 vcpkg-install-macos-x64
 	@cp $(INSTALLED_ARM64)/lib/pkgconfig/*.pc \
 		$(INSTALLED_UNIVERSAL)/lib/pkgconfig/
 
-# libraw's dngsdk/rawspeed/rawspeed3 features pull adobe-dng-sdk and rawspeed3
-# in as dependency ports, so `remove` must list all four — otherwise stale
-# entries make vcpkg think they're still installed on rebuild.
+# manifest mode: clean = drop the built install trees (re-install rebuilds them).
 vcpkg-clean-macos:
-	$(VCPKG) remove libraw tiff adobe-dng-sdk rawspeed3 --triplet=$(TRIPLET_ARM64) --recurse
-	$(VCPKG) remove libraw tiff adobe-dng-sdk rawspeed3 --triplet=$(TRIPLET_X64_MAC) --recurse
-	rm -rf $(INSTALLED_UNIVERSAL)
+	rm -rf $(INSTALLED_ARM64) $(INSTALLED_X64_MAC) $(INSTALLED_UNIVERSAL)
 
 vcpkg-rebuild-macos: vcpkg-clean-macos vcpkg-install-macos-universal
 
 # ── vcpkg Windows ────────────────────────────────────────────────
-vcpkg-install-windows:
+vcpkg-install-windows: vcpkg-check
 	$(call vcpkg-install-recipe,$(TRIPLET_WINDOWS))
 
 vcpkg-clean-windows:
-	$(VCPKG) remove libraw tiff adobe-dng-sdk rawspeed3 --triplet=$(TRIPLET_WINDOWS) --recurse
+	rm -rf $(INSTALLED_WINDOWS)
 
 vcpkg-rebuild-windows: vcpkg-clean-windows vcpkg-install-windows
 

@@ -6,3 +6,6 @@ frontend/wailsjs
 .vscode
 third-party/windows-x64/
 third-party/macos-universal/
+third-party/vcpkg-root/
+third-src/
+vcpkg_installed/

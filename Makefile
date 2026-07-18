@@ -1,6 +1,17 @@
 # OpenMakeTiff build orchestration: wails app + vcpkg deps (libraw/tiff) + ExifTool.
 # Cross-platform (macOS/Windows). GNU make 3.81 compatible (no .RECIPEPREFIX, no !=).
 
+# ── Go toolchain ─────────────────────────────────────────────────
+# Pin go1.25.12 explicitly (not `auto`): auto would silently use any newer go
+# found on PATH (e.g. a system go1.26) instead of the pinned version, since Go
+# only auto-upgrades, never downgrades. Keep in sync with go.mod's `toolchain`.
+#
+# unexport GOROOT: some hosts carry a stale GOROOT env var pointing at a
+# different SDK than the go binary on PATH, which makes go's tool and its std
+# lib disagree on version. Let go infer GOROOT from the binary instead.
+export GOTOOLCHAIN := go1.25.12
+unexport GOROOT
+
 .PHONY: build build-mac build-windows dev clean test vcpkg-bootstrap vcpkg-check \
         package package-mac package-windows \
         vcpkg-install vcpkg-install-macos-arm64 vcpkg-install-macos-x64 \
